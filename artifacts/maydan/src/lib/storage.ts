@@ -407,6 +407,87 @@ export interface AppNotification {
   color: string;
 }
 
+// ──────────────────────────── ONBOARDING ────────────────────────────
+
+const ONBOARDED_KEY = "maydan_onboarded";
+
+export function hasCompletedOnboarding(): boolean {
+  return localStorage.getItem(ONBOARDED_KEY) === "1";
+}
+
+export function markOnboardingComplete(): void {
+  localStorage.setItem(ONBOARDED_KEY, "1");
+}
+
+// ──────────────────────────── PREMIUM ────────────────────────────
+
+export function activatePremium(): void {
+  const user = getOrCreateUser();
+  user.isPremium = true;
+  saveUser(user);
+}
+
+export function deactivatePremium(): void {
+  const user = getOrCreateUser();
+  user.isPremium = false;
+  saveUser(user);
+}
+
+// ──────────────────────────── LEADERBOARD ────────────────────────────
+
+const LEADERBOARD_KEY = "maydan_leaderboard";
+
+export interface LeaderboardEntry {
+  name: string;
+  score: number;
+  total: number;
+  category: string;
+  type: "survival" | "challenge" | "room" | "tournament";
+  date: number;
+  week: string;
+}
+
+function getWeekKey(date = new Date()): string {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - d.getDay()); // Start of week (Sunday)
+  return `${d.getFullYear()}-W${Math.ceil(d.getDate() / 7)}-${d.getMonth()}`;
+}
+
+export function getLeaderboard(): LeaderboardEntry[] {
+  const s = localStorage.getItem(LEADERBOARD_KEY);
+  return s ? JSON.parse(s) : [];
+}
+
+export function addLeaderboardEntry(entry: Omit<LeaderboardEntry, "date" | "week">): void {
+  const entries = getLeaderboard();
+  entries.push({ ...entry, date: Date.now(), week: getWeekKey() });
+  // Keep max 500 entries
+  if (entries.length > 500) entries.splice(0, entries.length - 500);
+  localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(entries));
+}
+
+export function getWeeklyTop(category?: string): LeaderboardEntry[] {
+  const week = getWeekKey();
+  return getLeaderboard()
+    .filter(e => e.week === week && (!category || category === "all" || e.category === category))
+    .sort((a, b) => b.score - a.score || a.total - b.total)
+    .slice(0, 10);
+}
+
+export function getAllTimeTop(category?: string): LeaderboardEntry[] {
+  return getLeaderboard()
+    .filter(e => !category || category === "all" || e.category === category)
+    .sort((a, b) => b.score - a.score || a.total - b.total)
+    .slice(0, 10);
+}
+
+export function getMyRank(name: string, weekly: boolean): number {
+  const list = weekly ? getWeeklyTop() : getAllTimeTop();
+  const idx = list.findIndex(e => e.name === name);
+  return idx === -1 ? -1 : idx + 1;
+}
+
 export function getActiveNotifications(): AppNotification[] {
   const user = getOrCreateUser();
   const today = new Date().toDateString();

@@ -206,10 +206,22 @@ export default function Home() {
             </div>
 
             {/* Bottom links */}
-            <div className="flex justify-center gap-4">
+            <div className="flex flex-wrap justify-center gap-x-4 gap-y-2">
               <button onClick={() => navigate("/stats")} className="text-xs text-secondary hover:text-secondary/80 transition-colors flex items-center gap-1">
-                📊 إحصائياتي الكاملة
+                📊 إحصائياتي
               </button>
+              <span className="text-border hidden sm:inline">|</span>
+              <button onClick={() => navigate("/leaderboard")} className="text-xs text-yellow-400 hover:text-yellow-300 transition-colors flex items-center gap-1">
+                🏆 المتصدرون
+              </button>
+              <span className="text-border hidden sm:inline">|</span>
+              {user.isPremium ? (
+                <span className="text-xs text-yellow-400 font-bold flex items-center gap-1">👑 برو مفعّل</span>
+              ) : (
+                <button onClick={() => navigate("/premium")} className="text-xs text-yellow-400 hover:text-yellow-300 transition-colors flex items-center gap-1 font-bold">
+                  👑 ترقية إلى برو
+                </button>
+              )}
               <span className="text-border">|</span>
               <button onClick={() => setHasName(false)} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
                 تغيير الاسم ✏️

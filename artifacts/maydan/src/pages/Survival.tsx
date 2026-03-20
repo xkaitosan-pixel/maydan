@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { questions, CATEGORIES, getQuestionsByCategory, getCategoryById, Question } from "@/lib/questions";
-import { recordSurvivalGame, recordCategoryAnswers, getSurvivalRank, getAvailablePowerCards, useSkipCard, useTimeCard, getOrCreateUser } from "@/lib/storage";
+import { recordSurvivalGame, recordCategoryAnswers, getSurvivalRank, getAvailablePowerCards, useSkipCard, useTimeCard, getOrCreateUser, addLeaderboardEntry } from "@/lib/storage";
 
 const LIVES_START = 3;
 const BASE_TIME = 30;
@@ -160,6 +160,17 @@ export default function Survival() {
     Object.keys(totalAnswers).forEach(cat => {
       recordCategoryAnswers(cat, correctAnswers[cat] || 0, totalAnswers[cat]);
     });
+    // Record to leaderboard
+    const u = getOrCreateUser();
+    if (u.displayName) {
+      addLeaderboardEntry({
+        name: u.displayName,
+        score: finalScore,
+        total: 0,
+        category: selectedCategory,
+        type: "survival",
+      });
+    }
     setScore(finalScore);
     setPhase("gameover");
   }

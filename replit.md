@@ -72,23 +72,30 @@ Arabic 1vs1 knowledge challenge game. All data stored in localStorage (no backen
 - **Tournament** (`/tournament`): 2-8 player single-elimination bracket; sequential pass-and-play matches; bracket diagram; champion screen with trophy + WhatsApp share
 - **Reward Box**: 24h countdown box on home; animated opening; 4 random reward types (power cards, extra challenges, temp premium, temp legends unlock)
 - **Smart Notifications**: in-app dismissable banners — streak danger, reward ready, pending challenge
+- **Onboarding** (`/onboarding`): 3-slide animated first-time user flow with orbiting emoji icons; auto-redirected via OnboardingGuard in App.tsx; `markOnboardingComplete()` stored in localStorage
+- **Premium** (`/premium`): 19 SAR/month page with 3-day free trial banner, 7-benefit list, comparison vs free tier, trust badges; `activatePremium()` flips `isPremium: true` on UserData; shows Pro badge on Home
+- **Leaderboard** (`/leaderboard`): weekly/all-time tabs, category filter scrollable row, gold/silver/bronze medals, my-rank banner, empty state CTA; populated by challenge results, survival games, friends rooms, and tournaments; auto-resets weekly by `getWeekKey()`
+- **Viral Share Card** on Results: branded ميدان card with score/pct/rank, "شارك نتيجتك" WhatsApp button + "تحدي صديق" WhatsApp challenge link
 
 **Key Files:**
 - `src/lib/questions.ts` — 225 Arabic questions + CATEGORIES array with gradients
-- `src/lib/storage.ts` — localStorage helpers (user, challenges, streak, power cards, stats)
-- `src/pages/Home.tsx` — Landing page with mode selector, streak display, quick stats
+- `src/lib/storage.ts` — localStorage helpers (user, challenges, streak, power cards, stats, leaderboard, onboarding, premium)
+- `src/pages/Home.tsx` — Landing page with mode selector, streak display, leaderboard/premium/stats bottom links
 - `src/pages/CreateChallenge.tsx` — Category grid with search
 - `src/pages/Quiz.tsx` — Quiz screen with timer + power cards (creator and challenger)
-- `src/pages/Results.tsx` — Score display + WhatsApp share
+- `src/pages/Results.tsx` — Score display + viral share card (branded card + 2 WhatsApp buttons) + leaderboard recording
 - `src/pages/AcceptChallenge.tsx` — Entry for /challenge/:id links
-- `src/pages/Survival.tsx` — Survival mode: lives, speed-up timer, game over + rank
+- `src/pages/Survival.tsx` — Survival mode: lives, speed-up timer, game over + rank; records to leaderboard
 - `src/pages/Stats.tsx` — Statistics: per-category bars, streak milestones, overview
+- `src/pages/Onboarding.tsx` — 3-slide onboarding, orbiting emoji icons, skip/continue flow
+- `src/pages/Premium.tsx` — Premium page: price, benefits, free trial, subscribe/cancel
+- `src/pages/Leaderboard.tsx` — Weekly/all-time leaderboard with category filter and medals
 - `src/components/StreakMilestone.tsx` — Animated milestone popup (3/7/30 days)
 - `src/components/RewardBox.tsx` — 24h reward box with countdown + animated opening
 - `src/components/NotificationBanner.tsx` — Dismissable in-app notification banners
 - `src/pages/FriendsRoom.tsx` — Friends Room: setup → lobby → turn intros → pass-and-play → results
 - `src/pages/Tournament.tsx` — Tournament: bracket setup → sequential matches → champion
-- `src/App.tsx` — Routing (wouter): /, /create, /quiz, /results, /challenge, /survival, /stats, /room, /tournament
+- `src/App.tsx` — Routing (wouter): /, /onboarding, /create, /quiz, /results, /challenge, /survival, /stats, /room, /tournament, /premium, /leaderboard; OnboardingGuard redirects first-time users
 
 ## Packages
 
