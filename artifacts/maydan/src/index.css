@@ -219,3 +219,68 @@
   background-image: radial-gradient(circle at 20% 20%, hsl(45 85% 50% / 0.05) 0%, transparent 50%),
                     radial-gradient(circle at 80% 80%, hsl(270 60% 50% / 0.05) 0%, transparent 50%);
 }
+
+/* ─── Mobile / PWA polish ─── */
+
+html, body {
+  /* Prevent horizontal scroll bleed */
+  overflow-x: hidden;
+  /* Smooth momentum scroll on iOS */
+  -webkit-overflow-scrolling: touch;
+}
+
+body {
+  /* Prevent text size adjustment on orientation change */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* Remove tap highlight on Android */
+  -webkit-tap-highlight-color: transparent;
+  /* iOS safe areas (notch / home bar) */
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Make interactive elements touch-friendly */
+button, a, [role="button"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Minimum tap target size */
+button:not(.icon-only) {
+  min-height: 44px;
+}
+
+/* Prevent content overflow on small screens */
+img, video, svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Hide scrollbar cross-browser */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Ensure the app never exceeds the viewport width */
+#root {
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
+}
+
+/* Better text rendering on mobile */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* PWA standalone mode: remove any browser chrome artifacts */
+@media (display-mode: standalone) {
+  body {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
