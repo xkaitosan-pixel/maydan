@@ -2,18 +2,20 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import {
   getOrCreateUser, updateDisplayName, canCreateChallenge,
-  getRemainingChallenges, updateStreak
+  getRemainingChallenges, updateStreak, getActiveNotifications, AppNotification
 } from "@/lib/storage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import StreakMilestone from "@/components/StreakMilestone";
+import RewardBox from "@/components/RewardBox";
+import NotificationBanner from "@/components/NotificationBanner";
 
 export default function Home() {
   const [, navigate] = useLocation();
   const [name, setName] = useState("");
   const [hasName, setHasName] = useState(false);
-  const [remaining, setRemaining] = useState(0);
   const [milestone, setMilestone] = useState<number | null>(null);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
   useEffect(() => {
     const user = getOrCreateUser();
@@ -21,18 +23,18 @@ export default function Home() {
       setName(user.displayName);
       setHasName(true);
     }
-    setRemaining(getRemainingChallenges());
     const hit = updateStreak();
     if (hit) setMilestone(hit);
+    setNotifications(getActiveNotifications());
   }, []);
 
   function handleSaveName() {
     if (!name.trim()) return;
     updateDisplayName(name.trim());
     setHasName(true);
-    setRemaining(getRemainingChallenges());
     const hit = updateStreak();
     if (hit) setMilestone(hit);
+    setNotifications(getActiveNotifications());
   }
 
   const user = getOrCreateUser();
@@ -46,7 +48,6 @@ export default function Home() {
       label: "وضع البقاء",
       sub: "كم تصمد؟",
       gradient: "linear-gradient(135deg, #dc2626, #ef4444)",
-      border: "#dc262644",
       onClick: () => navigate("/survival"),
     },
     {
@@ -55,20 +56,24 @@ export default function Home() {
       label: "تحدي ثنائي",
       sub: "١ ضد ١",
       gradient: "linear-gradient(135deg, #d97706, #f59e0b)",
-      border: "#d9770644",
-      onClick: () => canCreate ? navigate("/create") : null,
+      onClick: () => canCreate ? navigate("/create") : undefined,
       disabled: !canCreate,
     },
     {
       id: "room",
       icon: "👥",
       label: "غرفة أصدقاء",
-      sub: "قريباً",
+      sub: "2-8 لاعبين",
       gradient: "linear-gradient(135deg, #7c3aed, #8b5cf6)",
-      border: "#7c3aed44",
-      onClick: () => {},
-      disabled: true,
-      soon: true,
+      onClick: () => navigate("/room"),
+    },
+    {
+      id: "tournament",
+      icon: "🏆",
+      label: "بطولة",
+      sub: "إقصاء مباشر",
+      gradient: "linear-gradient(135deg, #d97706, #ca8a04)",
+      onClick: () => navigate("/tournament"),
     },
   ];
 
@@ -86,19 +91,16 @@ export default function Home() {
           <span className="text-xl font-black text-primary">ميدان</span>
         </div>
         <div className="flex items-center gap-2">
-          {/* Streak badge */}
           {streak > 0 && (
             <div className="flex items-center gap-1 bg-orange-500/15 border border-orange-500/30 rounded-full px-2.5 py-1">
               <span className="text-sm">🔥</span>
               <span className="text-xs font-bold text-orange-400">{streak}</span>
             </div>
           )}
-          {/* Stats button */}
           {hasName && (
             <button
               onClick={() => navigate("/stats")}
               className="w-9 h-9 rounded-full bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
-              title="إحصائياتك"
             >
               📊
             </button>
@@ -106,9 +108,14 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
-        {/* Hero section */}
-        <div className="text-center">
+      {/* Notification banners */}
+      {hasName && notifications.length > 0 && (
+        <NotificationBanner notifications={notifications} />
+      )}
+
+      <div className="flex-1 overflow-y-auto px-4 py-5 space-y-5 pb-8">
+        {/* Hero */}
+        <div className="text-center pt-2">
           <div className="w-20 h-20 rounded-full gradient-gold flex items-center justify-center gold-glow mb-3 mx-auto">
             <span className="text-4xl">⚔️</span>
           </div>
@@ -160,26 +167,24 @@ export default function Home() {
               )}
             </div>
 
+            {/* REWARD BOX */}
+            <RewardBox />
+
             {/* MODE SELECTOR */}
             <div>
-              <p className="text-xs text-muted-foreground font-semibold mb-3 text-center tracking-wider uppercase">اختر وضع اللعب</p>
-              <div className="grid grid-cols-3 gap-3">
+              <p className="text-xs text-muted-foreground font-semibold mb-3 text-center tracking-wider">اختر وضع اللعب</p>
+              <div className="grid grid-cols-2 gap-3">
                 {modes.map((mode) => (
                   <button
                     key={mode.id}
                     onClick={mode.onClick}
                     disabled={mode.disabled}
-                    className={`relative rounded-2xl p-3 text-center transition-all ${mode.disabled ? "opacity-50 cursor-not-allowed" : "hover:scale-[1.03] active:scale-[0.97]"}`}
-                    style={{ background: mode.gradient, border: `1px solid ${mode.border}` }}
+                    className={`relative rounded-2xl p-4 text-center transition-all ${mode.disabled ? "opacity-50 cursor-not-allowed" : "hover:scale-[1.03] active:scale-[0.97]"}`}
+                    style={{ background: mode.gradient, border: "1px solid rgba(255,255,255,0.08)" }}
                   >
-                    {mode.soon && (
-                      <span className="absolute top-1.5 left-1.5 text-[9px] bg-black/40 text-white px-1.5 py-0.5 rounded-full font-bold">
-                        قريباً
-                      </span>
-                    )}
-                    <span className="block text-2xl mb-1">{mode.icon}</span>
-                    <p className="text-white font-black text-xs leading-tight">{mode.label}</p>
-                    <p className="text-white/70 text-[10px] mt-0.5">{mode.sub}</p>
+                    <span className="block text-3xl mb-1.5">{mode.icon}</span>
+                    <p className="text-white font-black text-sm leading-tight">{mode.label}</p>
+                    <p className="text-white/70 text-xs mt-0.5">{mode.sub}</p>
                   </button>
                 ))}
               </div>
@@ -200,7 +205,7 @@ export default function Home() {
               ))}
             </div>
 
-            {/* Stats + change name row */}
+            {/* Bottom links */}
             <div className="flex justify-center gap-4">
               <button onClick={() => navigate("/stats")} className="text-xs text-secondary hover:text-secondary/80 transition-colors flex items-center gap-1">
                 📊 إحصائياتي الكاملة
@@ -215,7 +220,7 @@ export default function Home() {
 
         {/* Feature pills */}
         <div className="flex flex-wrap justify-center gap-2">
-          {["⏱️ 30 ثانية", "🃏 بطاقات القوة", "📲 واتساب", "🔥 ستريك يومي"].map((f) => (
+          {["⏱️ 30 ثانية", "🃏 بطاقات القوة", "📲 واتساب", "🔥 ستريك يومي", "🎁 مكافأة يومية"].map((f) => (
             <span key={f} className="bg-card border border-border text-muted-foreground text-xs px-3 py-1.5 rounded-full">{f}</span>
           ))}
         </div>

@@ -9,6 +9,8 @@ import Results from "@/pages/Results";
 import AcceptChallenge from "@/pages/AcceptChallenge";
 import Survival from "@/pages/Survival";
 import Stats from "@/pages/Stats";
+import FriendsRoom from "@/pages/FriendsRoom";
+import Tournament from "@/pages/Tournament";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -23,6 +25,8 @@ function Router() {
       <Route path="/challenge/:id" component={AcceptChallenge} />
       <Route path="/survival" component={Survival} />
       <Route path="/stats" component={Stats} />
+      <Route path="/room" component={FriendsRoom} />
+      <Route path="/tournament" component={Tournament} />
       <Route component={NotFound} />
     </Switch>
   );
