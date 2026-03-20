@@ -63,11 +63,15 @@ Arabic 1vs1 knowledge challenge game. All data stored in localStorage (no backen
 - Score tracking and results comparison screen
 - WhatsApp share via wa.me link
 - Freemium: 5 challenges/day limit for free users (localStorage-based)
-- **Game Mode Selector** on home: Survival, 1v1 Challenge, Friends Room (coming soon)
+- **Game Mode Selector** on home: 4 modes in 2×2 grid (Survival, 1v1, Friends Room, Tournament)
 - **Survival Mode** (`/survival`): 3 lives, speed-up timer (30→25→20→15s), rank system
 - **Power Cards** during gameplay: 🔄 Skip question, ⏱️ +15 seconds (2/day free)
 - **Daily Streak** 🔥: fire counter, milestone popups at 3/7/30 days
 - **Statistics Page** (`/stats`): per-category breakdown, progress bars, streak milestones
+- **Friends Room** (`/room`): pass-and-play for 2-8 players; room code (ميدان-XXXX); WhatsApp share; turn intros; live mini-leaderboard; final results with medals; winner gets "سيد الميدان 👑"
+- **Tournament** (`/tournament`): 2-8 player single-elimination bracket; sequential pass-and-play matches; bracket diagram; champion screen with trophy + WhatsApp share
+- **Reward Box**: 24h countdown box on home; animated opening; 4 random reward types (power cards, extra challenges, temp premium, temp legends unlock)
+- **Smart Notifications**: in-app dismissable banners — streak danger, reward ready, pending challenge
 
 **Key Files:**
 - `src/lib/questions.ts` — 225 Arabic questions + CATEGORIES array with gradients
@@ -80,7 +84,11 @@ Arabic 1vs1 knowledge challenge game. All data stored in localStorage (no backen
 - `src/pages/Survival.tsx` — Survival mode: lives, speed-up timer, game over + rank
 - `src/pages/Stats.tsx` — Statistics: per-category bars, streak milestones, overview
 - `src/components/StreakMilestone.tsx` — Animated milestone popup (3/7/30 days)
-- `src/App.tsx` — Routing (wouter), includes /survival and /stats routes
+- `src/components/RewardBox.tsx` — 24h reward box with countdown + animated opening
+- `src/components/NotificationBanner.tsx` — Dismissable in-app notification banners
+- `src/pages/FriendsRoom.tsx` — Friends Room: setup → lobby → turn intros → pass-and-play → results
+- `src/pages/Tournament.tsx` — Tournament: bracket setup → sequential matches → champion
+- `src/App.tsx` — Routing (wouter): /, /create, /quiz, /results, /challenge, /survival, /stats, /room, /tournament
 
 ## Packages
 
