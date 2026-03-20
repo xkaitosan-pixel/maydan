@@ -48,6 +48,32 @@ Every package extends `tsconfig.base.json` which sets `composite: true`. The roo
 - `pnpm run build` — runs `typecheck` first, then recursively runs `build` in all packages that define it
 - `pnpm run typecheck` — runs `tsc --build --emitDeclarationOnly` using project references
 
+## Artifacts
+
+### `artifacts/maydan` — ميدان تحدي المعرفة (React + Vite web app)
+
+Arabic 1vs1 knowledge challenge game. All data stored in localStorage (no backend needed).
+
+**Features:**
+- RTL Arabic layout, dark theme with gold/purple colors
+- 1vs1 challenge via shareable link (`/challenge/:id`)
+- 20 Arabic trivia questions database (shuffled per challenge)
+- 30-second countdown timer per question
+- Score tracking and results comparison screen
+- WhatsApp share via wa.me link
+- Freemium: 5 challenges/day limit for free users (localStorage-based)
+- User profile + win tracking in localStorage
+
+**Key Files:**
+- `src/lib/questions.ts` — 20 Arabic trivia questions
+- `src/lib/storage.ts` — localStorage helpers (user data, challenges, freemium logic)
+- `src/pages/Home.tsx` — Landing page with name entry and stats
+- `src/pages/CreateChallenge.tsx` — Configure and start a new challenge
+- `src/pages/Quiz.tsx` — Quiz screen with timer (creator and challenger roles)
+- `src/pages/Results.tsx` — Score display + WhatsApp share
+- `src/pages/AcceptChallenge.tsx` — Entry for /challenge/:id links
+- `src/App.tsx` — Routing (wouter)
+
 ## Packages
 
 ### `artifacts/api-server` (`@workspace/api-server`)

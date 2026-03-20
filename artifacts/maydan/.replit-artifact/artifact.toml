@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "ميدان - تحدي المعرفة"
+version = "1.0.0"
+id = "artifacts/maydan"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23811
+
+[services.development]
+run = "pnpm --filter @workspace/maydan run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/maydan", "run", "build" ]
+publicDir = "artifacts/maydan/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23811"
+BASE_PATH = "/"
