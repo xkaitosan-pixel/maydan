@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useParams } from "wouter";
 import { questions, getCategoryById } from "@/lib/questions";
-import { getChallenge, saveChallenge, getOrCreateUser } from "@/lib/storage";
+import { getChallenge, saveChallenge, getOrCreateUser, recordGamePlayed, recordCategoryAnswers, getAvailablePowerCards, useSkipCard, useTimeCard } from "@/lib/storage";
 
 const QUESTION_TIME = 30;
 
@@ -21,9 +21,19 @@ export default function Quiz() {
   const [challengerName, setChallengerName] = useState("");
   const [showNameInput, setShowNameInput] = useState(false);
   const [nameInput, setNameInput] = useState("");
+  const [skipAvail, setSkipAvail] = useState(0);
+  const [timeAvail, setTimeAvail] = useState(0);
+  const [powerUsed, setPowerUsed] = useState<{ skip: boolean; time: boolean }>({ skip: false, time: false });
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const challenge = getChallenge(challengeId);
   const category = challenge ? getCategoryById(challenge.categoryId) : null;
+
+  function loadPowerCards() {
+    const cards = getAvailablePowerCards();
+    setSkipAvail(cards.skip === Infinity ? 99 : cards.skip);
+    setTimeAvail(cards.time === Infinity ? 99 : cards.time);
+  }
 
   useEffect(() => {
     if (!challenge) { navigate("/"); return; }
@@ -33,6 +43,7 @@ export default function Quiz() {
       else setChallengerName(user.displayName);
     }
     setAnswers(new Array(challenge.questions.length).fill(null));
+    loadPowerCards();
   }, [challengeId, role]);
 
   const goToNextQuestion = useCallback((ans: (number | null)[]) => {
@@ -47,16 +58,19 @@ export default function Quiz() {
         setShowResult(false);
         setTimeLeft(QUESTION_TIME);
         setIsTransitioning(false);
+        setPowerUsed({ skip: false, time: false });
       }, 600);
     }
   }, [currentIndex, challenge]);
 
   useEffect(() => {
     if (showResult || !challenge || showNameInput) return;
-    const timer = setInterval(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
+
+    timerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
-          clearInterval(timer);
+          clearInterval(timerRef.current!);
           const newAnswers = [...answers];
           newAnswers[currentIndex] = null;
           setAnswers(newAnswers);
@@ -67,11 +81,12 @@ export default function Quiz() {
         return prev - 1;
       });
     }, 1000);
-    return () => clearInterval(timer);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [currentIndex, showResult, answers, challenge, showNameInput]);
 
   function handleAnswer(optionIndex: number) {
     if (selectedOption !== null || showResult || isTransitioning) return;
+    if (timerRef.current) clearInterval(timerRef.current);
     setSelectedOption(optionIndex);
     setShowResult(true);
     const newAnswers = [...answers];
@@ -80,13 +95,39 @@ export default function Quiz() {
     setTimeout(() => goToNextQuestion(newAnswers), 1200);
   }
 
+  function handleSkip() {
+    if (powerUsed.skip || skipAvail <= 0 || showResult || isTransitioning) return;
+    if (!useSkipCard()) return;
+    if (timerRef.current) clearInterval(timerRef.current);
+    setPowerUsed(prev => ({ ...prev, skip: true }));
+    setSkipAvail(prev => prev - 1);
+    // Skip = mark as null, move on
+    const newAnswers = [...answers];
+    newAnswers[currentIndex] = null;
+    setAnswers(newAnswers);
+    goToNextQuestion(newAnswers);
+  }
+
+  function handleAddTime() {
+    if (powerUsed.time || timeAvail <= 0 || showResult) return;
+    if (!useTimeCard()) return;
+    setPowerUsed(prev => ({ ...prev, time: true }));
+    setTimeAvail(prev => prev - 1);
+    setTimeLeft(prev => Math.min(prev + 15, QUESTION_TIME + 15));
+  }
+
   function finishQuiz(finalAnswers: (number | null)[]) {
     if (!challenge) return;
+    if (timerRef.current) clearInterval(timerRef.current);
     const totalTime = Math.floor((Date.now() - startTime) / 1000);
     const questionList = challenge.questions.map(id => questions.find(q => q.id === id)!);
-    const score = finalAnswers.reduce((acc, ans, idx) => {
-      return acc + (ans === questionList[idx]?.correct ? 1 : 0);
-    }, 0);
+    const score = finalAnswers.reduce((acc, ans, idx) => acc + (ans === questionList[idx]?.correct ? 1 : 0), 0);
+
+    // Record stats
+    recordGamePlayed();
+    const correct = finalAnswers.filter((ans, idx) => ans === questionList[idx]?.correct).length;
+    recordCategoryAnswers(challenge.categoryId, correct, questionList.length);
+
     const user = getOrCreateUser();
     const updatedChallenge = { ...challenge };
     if (role === "creator") {
@@ -125,16 +166,11 @@ export default function Quiz() {
     return (
       <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-6">
         <div className="w-full max-w-sm text-center fade-in-up">
-          <div
-            className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6"
-            style={{ background: category ? `linear-gradient(135deg, ${category.gradientFrom}, ${category.gradientTo})` : "" }}
-          >
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6" style={{ background: category ? `linear-gradient(135deg, ${category.gradientFrom}, ${category.gradientTo})` : "" }}>
             <span className="text-4xl">{category?.icon || "⚔️"}</span>
           </div>
           <h2 className="text-2xl font-bold mb-1">تحدي {category?.name}!</h2>
-          <p className="text-muted-foreground text-sm mb-6">
-            تحداك <span className="text-primary font-bold">{challenge.creatorName}</span>
-          </p>
+          <p className="text-muted-foreground text-sm mb-6">تحداك <span className="text-primary font-bold">{challenge.creatorName}</span></p>
           <div className="space-y-3">
             <input
               className="w-full p-3 rounded-xl border border-border bg-card text-foreground text-right placeholder:text-muted-foreground focus:outline-none focus:border-primary"
@@ -147,7 +183,7 @@ export default function Quiz() {
             <button
               onClick={handleNameSubmit}
               disabled={!nameInput.trim()}
-              className="w-full h-12 rounded-xl text-white font-bold disabled:opacity-50 transition-opacity hover:opacity-90"
+              className="w-full h-12 rounded-xl text-white font-bold disabled:opacity-50"
               style={{ background: category ? `linear-gradient(135deg, ${category.gradientFrom}, ${category.gradientTo})` : "hsl(45 85% 50%)" }}
             >
               🚀 ابدأ التحدي
@@ -167,95 +203,52 @@ export default function Quiz() {
             <span className="text-lg">{category?.icon}</span>
             <span className="text-xs text-muted-foreground">{category?.name}</span>
           </div>
-          <span
-            className={`text-2xl font-black tabular-nums ${isTimerDanger ? "timer-danger" : ""}`}
-            style={!isTimerDanger ? { color: category?.gradientFrom || "hsl(45 85% 50%)" } : {}}
-          >
+          <span className={`text-2xl font-black tabular-nums ${isTimerDanger ? "timer-danger" : ""}`}
+            style={!isTimerDanger ? { color: category?.gradientFrom || "hsl(45 85% 50%)" } : {}}>
             {timeLeft}s
           </span>
         </div>
-        {/* Timer bar */}
         <div className="h-2 bg-muted rounded-full overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all duration-1000 ease-linear"
-            style={{
-              width: `${timerPercent}%`,
-              background: isTimerDanger
-                ? "hsl(0 70% 50%)"
-                : `linear-gradient(90deg, ${category?.gradientFrom || "hsl(45 85% 50%)"}, ${category?.gradientTo || "hsl(270 60% 50%)"})`,
-            }}
-          />
+          <div className="h-full rounded-full transition-all duration-1000 ease-linear" style={{
+            width: `${timerPercent}%`,
+            background: isTimerDanger ? "hsl(0 70% 50%)" : `linear-gradient(90deg, ${category?.gradientFrom || "hsl(45 85% 50%)"}, ${category?.gradientTo || "hsl(270 60% 50%)"})`,
+          }} />
         </div>
-        {/* Dots progress */}
         <div className="flex gap-1 justify-center mt-2">
           {questionIds.map((_, idx) => (
-            <div
-              key={idx}
-              className="h-1 rounded-full transition-all"
-              style={{
-                width: idx === currentIndex ? 24 : idx < currentIndex ? 16 : 8,
-                backgroundColor:
-                  idx < currentIndex
-                    ? category?.gradientFrom || "hsl(45 85% 50%)"
-                    : idx === currentIndex
-                    ? category?.gradientTo || "hsl(270 60% 50%)"
-                    : "hsl(var(--muted))",
-              }}
-            />
+            <div key={idx} className="h-1 rounded-full transition-all" style={{
+              width: idx === currentIndex ? 24 : idx < currentIndex ? 16 : 8,
+              backgroundColor: idx < currentIndex ? category?.gradientFrom || "hsl(45 85% 50%)" : idx === currentIndex ? category?.gradientTo || "hsl(270 60% 50%)" : "hsl(var(--muted))",
+            }} />
           ))}
         </div>
-        <p className="text-xs text-muted-foreground text-center mt-1">
-          {currentIndex + 1} / {questionIds.length}
-        </p>
+        <p className="text-xs text-muted-foreground text-center mt-1">{currentIndex + 1} / {questionIds.length}</p>
       </header>
 
-      {/* Question */}
       <div className={`flex-1 flex flex-col p-4 ${isTransitioning ? "opacity-0 transition-opacity" : "opacity-100 transition-opacity"}`}>
         <div className="flex-1 flex flex-col justify-center">
-          {/* Difficulty badge */}
           <div className="text-center mb-3">
-            <span
-              className="text-xs px-3 py-1 rounded-full"
-              style={{
-                background: `${category?.gradientFrom || "hsl(45 85% 50%)"}22`,
-                color: category?.gradientFrom || "hsl(45 85% 50%)",
-                border: `1px solid ${category?.gradientFrom || "hsl(45 85% 50%)"}44`,
-              }}
-            >
+            <span className="text-xs px-3 py-1 rounded-full" style={{ background: `${category?.gradientFrom}22`, color: category?.gradientFrom, border: `1px solid ${category?.gradientFrom}44` }}>
               {currentQuestion.difficulty === "easy" ? "سهل" : currentQuestion.difficulty === "medium" ? "متوسط" : "صعب"}
             </span>
           </div>
 
-          {/* Question */}
-          <div className="bg-card border border-border rounded-2xl p-5 mb-5 text-center slide-in">
+          <div className="bg-card border border-border rounded-2xl p-5 mb-4 text-center slide-in">
             <p className="text-lg font-bold leading-relaxed">{currentQuestion.question}</p>
           </div>
 
-          {/* Options */}
-          <div className="grid grid-cols-1 gap-3">
+          <div className="grid grid-cols-1 gap-3 mb-4">
             {currentQuestion.options.map((option, idx) => {
-              let extraStyle = {};
-              let extraClass = "option-btn w-full p-4 rounded-xl text-right font-medium text-sm bg-card";
-
+              let cls = "option-btn w-full p-4 rounded-xl text-right font-medium text-sm bg-card";
               if (showResult) {
-                if (idx === currentQuestion.correct) {
-                  extraClass += " correct";
-                } else if (idx === selectedOption && idx !== currentQuestion.correct) {
-                  extraClass += " wrong";
-                }
+                if (idx === currentQuestion.correct) cls += " correct";
+                else if (idx === selectedOption) cls += " wrong";
               }
-
               return (
-                <button
-                  key={idx}
-                  onClick={() => handleAnswer(idx)}
-                  disabled={showResult || isTransitioning}
-                  className={extraClass}
-                  style={extraStyle}
-                >
+                <button key={idx} onClick={() => handleAnswer(idx)} disabled={showResult || isTransitioning} className={cls}>
                   <span className="flex items-center gap-3">
                     <span className="w-7 h-7 rounded-full border border-current flex items-center justify-center text-xs font-bold shrink-0">
-                      {["أ", "ب", "ج", "د"][idx]}
+                      {["أ","ب","ج","د"][idx]}
                     </span>
                     <span className="flex-1">{option}</span>
                     {showResult && idx === currentQuestion.correct && <span>✓</span>}
@@ -266,8 +259,38 @@ export default function Quiz() {
             })}
           </div>
 
+          {/* POWER CARDS */}
+          <div className="flex gap-3 justify-center">
+            <button
+              onClick={handleSkip}
+              disabled={powerUsed.skip || skipAvail <= 0 || showResult || isTransitioning}
+              className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all ${
+                powerUsed.skip || skipAvail <= 0
+                  ? "border-border text-muted-foreground opacity-40 cursor-not-allowed"
+                  : "border-purple-500/40 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20"
+              }`}
+            >
+              <span>🔄</span>
+              <span>تخطي</span>
+              {skipAvail < 99 && <span className="text-xs opacity-70">({skipAvail})</span>}
+            </button>
+            <button
+              onClick={handleAddTime}
+              disabled={powerUsed.time || timeAvail <= 0 || showResult}
+              className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all ${
+                powerUsed.time || timeAvail <= 0
+                  ? "border-border text-muted-foreground opacity-40 cursor-not-allowed"
+                  : "border-yellow-500/40 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20"
+              }`}
+            >
+              <span>⏱️</span>
+              <span>+15 ثانية</span>
+              {timeAvail < 99 && <span className="text-xs opacity-70">({timeAvail})</span>}
+            </button>
+          </div>
+
           {showResult && selectedOption === null && (
-            <div className="text-center mt-4 text-muted-foreground text-sm">انتهى الوقت! ⏰</div>
+            <div className="text-center mt-3 text-muted-foreground text-sm">انتهى الوقت! ⏰</div>
           )}
         </div>
       </div>

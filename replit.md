@@ -56,23 +56,31 @@ Arabic 1vs1 knowledge challenge game. All data stored in localStorage (no backen
 
 **Features:**
 - RTL Arabic layout, dark theme with gold/purple colors
+- **15 categories** with unique gradients, 225 Arabic questions total (15 per category)
+- Searchable 2-column category grid; 🔒 premium lock on "تحدي الأساطير"
 - 1vs1 challenge via shareable link (`/challenge/:id`)
-- 20 Arabic trivia questions database (shuffled per challenge)
 - 30-second countdown timer per question
 - Score tracking and results comparison screen
 - WhatsApp share via wa.me link
 - Freemium: 5 challenges/day limit for free users (localStorage-based)
-- User profile + win tracking in localStorage
+- **Game Mode Selector** on home: Survival, 1v1 Challenge, Friends Room (coming soon)
+- **Survival Mode** (`/survival`): 3 lives, speed-up timer (30→25→20→15s), rank system
+- **Power Cards** during gameplay: 🔄 Skip question, ⏱️ +15 seconds (2/day free)
+- **Daily Streak** 🔥: fire counter, milestone popups at 3/7/30 days
+- **Statistics Page** (`/stats`): per-category breakdown, progress bars, streak milestones
 
 **Key Files:**
-- `src/lib/questions.ts` — 20 Arabic trivia questions
-- `src/lib/storage.ts` — localStorage helpers (user data, challenges, freemium logic)
-- `src/pages/Home.tsx` — Landing page with name entry and stats
-- `src/pages/CreateChallenge.tsx` — Configure and start a new challenge
-- `src/pages/Quiz.tsx` — Quiz screen with timer (creator and challenger roles)
+- `src/lib/questions.ts` — 225 Arabic questions + CATEGORIES array with gradients
+- `src/lib/storage.ts` — localStorage helpers (user, challenges, streak, power cards, stats)
+- `src/pages/Home.tsx` — Landing page with mode selector, streak display, quick stats
+- `src/pages/CreateChallenge.tsx` — Category grid with search
+- `src/pages/Quiz.tsx` — Quiz screen with timer + power cards (creator and challenger)
 - `src/pages/Results.tsx` — Score display + WhatsApp share
 - `src/pages/AcceptChallenge.tsx` — Entry for /challenge/:id links
-- `src/App.tsx` — Routing (wouter)
+- `src/pages/Survival.tsx` — Survival mode: lives, speed-up timer, game over + rank
+- `src/pages/Stats.tsx` — Statistics: per-category bars, streak milestones, overview
+- `src/components/StreakMilestone.tsx` — Animated milestone popup (3/7/30 days)
+- `src/App.tsx` — Routing (wouter), includes /survival and /stats routes
 
 ## Packages
 
