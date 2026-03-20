@@ -12,6 +12,8 @@ export interface ChallengeData {
   id: string;
   creatorId: string;
   creatorName: string;
+  categoryId: string;
+  questionCount: number;
   questions: number[];
   creatorAnswers: (number | null)[];
   creatorScore: number;
@@ -61,29 +63,22 @@ export function updateDisplayName(name: string): UserData {
 export function canCreateChallenge(): boolean {
   const user = getOrCreateUser();
   if (user.isPremium) return true;
-  
   const today = new Date().toDateString();
-  if (user.lastChallengeDate !== today) {
-    return true;
-  }
+  if (user.lastChallengeDate !== today) return true;
   return user.challengesCreatedToday < FREE_LIMIT;
 }
 
 export function getRemainingChallenges(): number {
   const user = getOrCreateUser();
   if (user.isPremium) return Infinity;
-  
   const today = new Date().toDateString();
-  if (user.lastChallengeDate !== today) {
-    return FREE_LIMIT;
-  }
+  if (user.lastChallengeDate !== today) return FREE_LIMIT;
   return Math.max(0, FREE_LIMIT - user.challengesCreatedToday);
 }
 
 export function incrementChallengesCount(): void {
   const user = getOrCreateUser();
   const today = new Date().toDateString();
-  
   if (user.lastChallengeDate !== today) {
     user.challengesCreatedToday = 1;
     user.lastChallengeDate = today;
