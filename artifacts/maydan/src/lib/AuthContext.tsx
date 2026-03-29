@@ -117,17 +117,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loadOrCreateDbUser]);
 
   async function signInWithGoogle() {
-    const redirectTo = "https://maydan.replit.app/";
-    const { data, error } = await supabase.auth.signInWithOAuth({
+    await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo, skipBrowserRedirect: true },
+      options: { redirectTo: "https://maydan.replit.app" },
     });
-    if (error || !data?.url) throw error ?? new Error("No OAuth URL");
-    // Open as popup
-    const w = 500, h = 620;
-    const left = Math.round(window.screenX + (window.outerWidth - w) / 2);
-    const top = Math.round(window.screenY + (window.outerHeight - h) / 2);
-    window.open(data.url, "GoogleLogin", `width=${w},height=${h},left=${left},top=${top},popup=yes`);
   }
 
   function playAsGuest() {
