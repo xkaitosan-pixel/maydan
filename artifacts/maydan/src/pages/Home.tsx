@@ -13,7 +13,7 @@ import NotificationBanner from "@/components/NotificationBanner";
 
 export default function Home() {
   const [, navigate] = useLocation();
-  const { dbUser, isGuest, signOut, refreshUser } = useAuth();
+  const { dbUser, isGuest, signOut, refreshUser, googleDisplayName } = useAuth();
 
   // Local state (for guests or pending name entry)
   const [guestName, setGuestName] = useState("");
@@ -194,19 +194,39 @@ export default function Home() {
         ) : showContent && (
           <>
             {/* Welcome */}
-            <div className="text-center">
-              <div className="flex items-center justify-center gap-2">
-                {!isGuest && dbUser?.avatar_url && (
-                  <img src={dbUser.avatar_url} className="w-6 h-6 rounded-full border border-primary" alt="" />
-                )}
-                <p className="text-muted-foreground text-sm">
-                  مرحباً، <span className="text-foreground font-bold">{displayName}</span>
-                  {isPremium && <span className="text-yellow-400 mr-1 text-xs">👑 برو</span>}
-                  {isGuest && <span className="text-muted-foreground text-xs mr-1">(ضيف)</span>}
+            {!isGuest && dbUser?.avatar_url ? (
+              <div className="text-center">
+                <div className="relative w-16 h-16 mx-auto mb-2 cursor-pointer" onClick={() => navigate("/stats")}>
+                  <img
+                    src={dbUser.avatar_url}
+                    alt={displayName}
+                    className="w-16 h-16 rounded-full border-3 border-primary object-cover gold-glow"
+                    style={{ border: "3px solid hsl(var(--primary))" }}
+                  />
+                  {isPremium && (
+                    <span className="absolute -bottom-1 -right-1 text-base">👑</span>
+                  )}
+                </div>
+                <h2 className="text-xl font-black text-foreground">
+                  أهلاً {googleDisplayName || displayName}! {isPremium ? "👑" : "⚔️"}
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {isPremium ? "عضو ميدان برو" : "مستعد للتحدي؟"}
                 </p>
+                {!canCreate && <p className="text-xs text-destructive mt-1">وصلت للحد اليومي المجاني ⛔</p>}
               </div>
-              {!canCreate && <p className="text-xs text-destructive mt-1">وصلت للحد اليومي المجاني ⛔</p>}
-            </div>
+            ) : (
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-2">
+                  <p className="text-muted-foreground text-sm">
+                    مرحباً، <span className="text-foreground font-bold">{displayName}</span>
+                    {isPremium && <span className="text-yellow-400 mr-1 text-xs">👑 برو</span>}
+                    {isGuest && <span className="text-muted-foreground text-xs mr-1">(ضيف)</span>}
+                  </p>
+                </div>
+                {!canCreate && <p className="text-xs text-destructive mt-1">وصلت للحد اليومي المجاني ⛔</p>}
+              </div>
+            )}
 
             <RewardBox />
 

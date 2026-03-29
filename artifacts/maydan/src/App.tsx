@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { hasCompletedOnboarding } from "@/lib/storage";
 import { AuthProvider, useAuth } from "@/lib/AuthContext";
+import { supabase } from "@/lib/supabase";
 import Home from "@/pages/Home";
 import Auth from "@/pages/Auth";
 import UsernameSetup from "@/pages/UsernameSetup";
@@ -22,6 +23,23 @@ import Leaderboard from "@/pages/Leaderboard";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
+
+// When the app loads inside a Google OAuth popup, detect the session and close the popup
+function PopupAuthCloser() {
+  useEffect(() => {
+    const isPopup = window.opener && window.opener !== window;
+    if (!isPopup) return;
+    // Listen for session; once set, close popup so main window's onAuthStateChange fires
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+      if (s) { setTimeout(() => window.close(), 300); }
+    });
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      if (s) { setTimeout(() => window.close(), 300); }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+  return null;
+}
 
 function LoadingScreen() {
   return (
@@ -87,6 +105,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <AuthProvider>
+          <PopupAuthCloser />
           <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
             <div className="max-w-md mx-auto min-h-screen">
               <AppRoutes />

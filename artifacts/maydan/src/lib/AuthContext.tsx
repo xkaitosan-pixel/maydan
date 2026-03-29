@@ -23,10 +23,13 @@ interface AuthContextType {
   isGuest: boolean;
   isLoading: boolean;
   needsUsername: boolean;
+  googleDisplayName: string;
+  isFirstLogin: boolean;
   signInWithGoogle: () => Promise<void>;
   playAsGuest: () => void;
   signOut: () => Promise<void>;
   setDbUser: (user: DbUser) => void;
+  setIsFirstLogin: (v: boolean) => void;
   refreshUser: () => Promise<void>;
 }
 
@@ -39,9 +42,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isGuest, setIsGuest] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [needsUsername, setNeedsUsername] = useState(false);
+  const [googleDisplayName, setGoogleDisplayName] = useState("");
+  const [isFirstLogin, setIsFirstLogin] = useState(false);
 
   const loadOrCreateDbUser = useCallback(async (authUser: User) => {
     try {
+      const fullName: string = authUser.user_metadata?.full_name ?? authUser.user_metadata?.name ?? "";
+      setGoogleDisplayName(fullName);
+
       const { data, error } = await supabase
         .from("users")
         .select("*")
@@ -55,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // New user — create record
-      const avatarUrl = authUser.user_metadata?.avatar_url ?? "";
+      const avatarUrl: string = authUser.user_metadata?.avatar_url ?? "";
       const { data: newUser, error: insertError } = await supabase
         .from("users")
         .insert({ auth_id: authUser.id, avatar_url: avatarUrl })
@@ -65,6 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (newUser && !insertError) {
         setDbUser(newUser);
         setNeedsUsername(true);
+        setIsFirstLogin(true);
       }
     } catch (e) {
       console.error("loadOrCreateDbUser error", e);
@@ -100,6 +109,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setDbUser(null);
         setNeedsUsername(false);
+        setGoogleDisplayName("");
       }
     });
 
@@ -107,11 +117,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loadOrCreateDbUser]);
 
   async function signInWithGoogle() {
-    const redirectTo = window.location.origin + import.meta.env.BASE_URL;
-    await supabase.auth.signInWithOAuth({
+    const redirectTo = `${window.location.origin}${import.meta.env.BASE_URL}`;
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo },
+      options: { redirectTo, skipBrowserRedirect: true },
     });
+    if (error || !data?.url) throw error ?? new Error("No OAuth URL");
+    // Open as popup
+    const w = 500, h = 620;
+    const left = Math.round(window.screenX + (window.outerWidth - w) / 2);
+    const top = Math.round(window.screenY + (window.outerHeight - h) / 2);
+    window.open(data.url, "GoogleLogin", `width=${w},height=${h},left=${left},top=${top},popup=yes`);
   }
 
   function playAsGuest() {
@@ -125,13 +141,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
     setDbUser(null);
     setNeedsUsername(false);
+    setGoogleDisplayName("");
+    setIsFirstLogin(false);
     await supabase.auth.signOut();
   }
 
   return (
     <AuthContext.Provider value={{
       session, dbUser, isGuest, isLoading, needsUsername,
-      signInWithGoogle, playAsGuest, signOut, setDbUser, refreshUser,
+      googleDisplayName, isFirstLogin,
+      signInWithGoogle, playAsGuest, signOut, setDbUser, setIsFirstLogin, refreshUser,
     }}>
       {children}
     </AuthContext.Provider>
