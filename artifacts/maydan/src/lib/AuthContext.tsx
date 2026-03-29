@@ -1,0 +1,145 @@
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
+import { supabase } from "./supabase";
+import type { Session, User } from "@supabase/supabase-js";
+
+export interface DbUser {
+  id: string;
+  auth_id: string;
+  username: string | null;
+  avatar_url: string | null;
+  total_wins: number;
+  total_losses: number;
+  streak_count: number;
+  longest_streak: number;
+  last_played: string | null;
+  is_premium: boolean;
+  total_points: number;
+  created_at: string;
+}
+
+interface AuthContextType {
+  session: Session | null;
+  dbUser: DbUser | null;
+  isGuest: boolean;
+  isLoading: boolean;
+  needsUsername: boolean;
+  signInWithGoogle: () => Promise<void>;
+  playAsGuest: () => void;
+  signOut: () => Promise<void>;
+  setDbUser: (user: DbUser) => void;
+  refreshUser: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType | null>(null);
+const GUEST_KEY = "maydan_guest_mode";
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [session, setSession] = useState<Session | null>(null);
+  const [dbUser, setDbUser] = useState<DbUser | null>(null);
+  const [isGuest, setIsGuest] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [needsUsername, setNeedsUsername] = useState(false);
+
+  const loadOrCreateDbUser = useCallback(async (authUser: User) => {
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("*")
+        .eq("auth_id", authUser.id)
+        .single();
+
+      if (data && !error) {
+        setDbUser(data);
+        setNeedsUsername(!data.username);
+        return;
+      }
+
+      // New user — create record
+      const avatarUrl = authUser.user_metadata?.avatar_url ?? "";
+      const { data: newUser, error: insertError } = await supabase
+        .from("users")
+        .insert({ auth_id: authUser.id, avatar_url: avatarUrl })
+        .select()
+        .single();
+
+      if (newUser && !insertError) {
+        setDbUser(newUser);
+        setNeedsUsername(true);
+      }
+    } catch (e) {
+      console.error("loadOrCreateDbUser error", e);
+    }
+  }, []);
+
+  const refreshUser = useCallback(async () => {
+    if (!session?.user) return;
+    await loadOrCreateDbUser(session.user);
+  }, [session, loadOrCreateDbUser]);
+
+  useEffect(() => {
+    // Guest short-circuit
+    if (localStorage.getItem(GUEST_KEY)) {
+      setIsGuest(true);
+      setIsLoading(false);
+      return;
+    }
+
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      setSession(s);
+      if (s) {
+        loadOrCreateDbUser(s.user).finally(() => setIsLoading(false));
+      } else {
+        setIsLoading(false);
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s);
+      if (s) {
+        loadOrCreateDbUser(s.user);
+      } else {
+        setDbUser(null);
+        setNeedsUsername(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [loadOrCreateDbUser]);
+
+  async function signInWithGoogle() {
+    const redirectTo = window.location.origin + import.meta.env.BASE_URL;
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo },
+    });
+  }
+
+  function playAsGuest() {
+    localStorage.setItem(GUEST_KEY, "1");
+    setIsGuest(true);
+  }
+
+  async function signOut() {
+    localStorage.removeItem(GUEST_KEY);
+    setIsGuest(false);
+    setSession(null);
+    setDbUser(null);
+    setNeedsUsername(false);
+    await supabase.auth.signOut();
+  }
+
+  return (
+    <AuthContext.Provider value={{
+      session, dbUser, isGuest, isLoading, needsUsername,
+      signInWithGoogle, playAsGuest, signOut, setDbUser, refreshUser,
+    }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be inside AuthProvider");
+  return ctx;
+}

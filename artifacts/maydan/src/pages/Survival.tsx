@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { questions, CATEGORIES, getQuestionsByCategory, getCategoryById, Question } from "@/lib/questions";
 import { recordSurvivalGame, recordCategoryAnswers, getSurvivalRank, getAvailablePowerCards, useSkipCard, useTimeCard, getOrCreateUser, addLeaderboardEntry } from "@/lib/storage";
+import { insertScore, updateUserStats } from "@/lib/db";
+import { useAuth } from "@/lib/AuthContext";
 
 const LIVES_START = 3;
 const BASE_TIME = 30;
@@ -26,6 +28,7 @@ function getRandomQuestion(usedIds: Set<number>, categoryId?: string): Question 
 
 export default function Survival() {
   const [, navigate] = useLocation();
+  const { dbUser, isGuest } = useAuth();
   const [phase, setPhase] = useState<Phase>("select");
   const [selectedCategory, setSelectedCategory] = useState<string>("mix");
 
@@ -160,16 +163,16 @@ export default function Survival() {
     Object.keys(totalAnswers).forEach(cat => {
       recordCategoryAnswers(cat, correctAnswers[cat] || 0, totalAnswers[cat]);
     });
-    // Record to leaderboard
+    // Record to local leaderboard
     const u = getOrCreateUser();
     if (u.displayName) {
-      addLeaderboardEntry({
-        name: u.displayName,
-        score: finalScore,
-        total: 0,
-        category: selectedCategory,
-        type: "survival",
-      });
+      addLeaderboardEntry({ name: u.displayName, score: finalScore, total: 0, category: selectedCategory, type: "survival" });
+    }
+    // Sync to Supabase for authenticated users
+    const supName = dbUser?.username ?? u.displayName;
+    if (supName && !isGuest) {
+      insertScore({ user_id: dbUser?.id ?? null, username: supName, category: selectedCategory, score: finalScore, total: 0, game_mode: "survival" });
+      if (dbUser?.id) updateUserStats(dbUser.id, { total_points: finalScore * 10 });
     }
     setScore(finalScore);
     setPhase("gameover");

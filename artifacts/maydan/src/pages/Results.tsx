@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useLocation, useParams } from "wouter";
 import { questions, getCategoryById } from "@/lib/questions";
 import { getChallenge, recordWin, getOrCreateUser, addLeaderboardEntry, getSurvivalRank } from "@/lib/storage";
+import { useAuth } from "@/lib/AuthContext";
+import { insertScore, updateUserStats } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 
 const WA_ICON = (
@@ -13,6 +15,7 @@ const WA_ICON = (
 export default function Results() {
   const params = useParams<{ id: string; role: string }>();
   const [, navigate] = useLocation();
+  const { dbUser, isGuest } = useAuth();
   const challengeId = params.id;
   const role = params.role as "creator" | "challenger";
   const [copied, setCopied] = useState(false);
@@ -27,23 +30,38 @@ export default function Results() {
     if (challenge.status === "completed") {
       const cs = challenge.creatorScore;
       const chs = challenge.challengerScore ?? 0;
-      if (role === "creator" && cs > chs) { recordWin(); setWinRecorded(true); }
-      else if (role === "challenger" && chs > cs) { recordWin(); setWinRecorded(true); }
+      const myWon = role === "creator" ? cs > chs : chs > cs;
+      if (myWon) { recordWin(); }
+      setWinRecorded(true);
 
-      // Record to leaderboard
+      // Record to local leaderboard
       const myScore = role === "creator" ? cs : chs;
       const myName = role === "creator" ? challenge.creatorName : (challenge.challengerName ?? user.displayName);
       if (myName) {
-        addLeaderboardEntry({
-          name: myName,
+        addLeaderboardEntry({ name: myName, score: myScore, total: challenge.questions.length, category: challenge.categoryId, type: "challenge" });
+      }
+
+      // Record to Supabase (authenticated users only)
+      const supabaseName = dbUser?.username ?? myName;
+      if (supabaseName && !isGuest) {
+        insertScore({
+          user_id: dbUser?.id ?? null,
+          username: supabaseName,
+          category: challenge.categoryId,
           score: myScore,
           total: challenge.questions.length,
-          category: challenge.categoryId,
-          type: "challenge",
+          game_mode: "challenge",
         });
+        if (dbUser?.id) {
+          updateUserStats(dbUser.id, {
+            total_wins: myWon ? 1 : 0,
+            total_losses: myWon ? 0 : 1,
+            total_points: myScore * 10,
+          });
+        }
       }
     }
-  }, [challenge, role]);
+  }, [challenge, role, winRecorded]);
 
   if (!challenge) { navigate("/"); return null; }
 

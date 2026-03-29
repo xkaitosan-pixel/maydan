@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { getOrCreateUser, activatePremium, deactivatePremium } from "@/lib/storage";
+import { useAuth } from "@/lib/AuthContext";
+import { setPremiumStatus } from "@/lib/db";
 
 const BENEFITS = [
   { icon: "⚔️", text: "تحديات غير محدودة يومياً" },
@@ -21,20 +23,29 @@ const FREE_LIMITS = [
 
 export default function Premium() {
   const [, navigate] = useLocation();
+  const { dbUser, setDbUser } = useAuth();
   const user = getOrCreateUser();
-  const [activated, setActivated] = useState(user.isPremium);
+  const [activated, setActivated] = useState(dbUser?.is_premium ?? user.isPremium);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  function handleSubscribe() {
-    activatePremium();
+  async function handleSubscribe() {
+    activatePremium(); // local
     setActivated(true);
     setShowConfirm(true);
     setTimeout(() => setShowConfirm(false), 3000);
+    if (dbUser?.id) {
+      const updated = await setPremiumStatus(dbUser.id, true);
+      if (updated) setDbUser(updated);
+    }
   }
 
-  function handleDeactivate() {
-    deactivatePremium();
+  async function handleDeactivate() {
+    deactivatePremium(); // local
     setActivated(false);
+    if (dbUser?.id) {
+      const updated = await setPremiumStatus(dbUser.id, false);
+      if (updated) setDbUser(updated);
+    }
   }
 
   return (

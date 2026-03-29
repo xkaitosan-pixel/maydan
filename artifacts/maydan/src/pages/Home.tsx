@@ -2,76 +2,94 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import {
   getOrCreateUser, updateDisplayName, canCreateChallenge,
-  getRemainingChallenges, updateStreak, getActiveNotifications, AppNotification
+  getActiveNotifications, AppNotification, updateStreak
 } from "@/lib/storage";
+import { useAuth } from "@/lib/AuthContext";
+import { syncStreak } from "@/lib/db";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import StreakMilestone from "@/components/StreakMilestone";
 import RewardBox from "@/components/RewardBox";
 import NotificationBanner from "@/components/NotificationBanner";
 
 export default function Home() {
   const [, navigate] = useLocation();
-  const [name, setName] = useState("");
-  const [hasName, setHasName] = useState(false);
+  const { dbUser, isGuest, signOut, refreshUser } = useAuth();
+
+  // Local state (for guests or pending name entry)
+  const [guestName, setGuestName] = useState("");
+  const [hasGuestName, setHasGuestName] = useState(false);
   const [milestone, setMilestone] = useState<number | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [streak, setStreak] = useState(0);
+  const [longestStreak, setLongestStreak] = useState(0);
+
+  // Decide the display name
+  const displayName = dbUser?.username ?? (hasGuestName ? guestName : "");
+  const isPremium = dbUser?.is_premium ?? getOrCreateUser().isPremium;
+  const canCreate = canCreateChallenge();
 
   useEffect(() => {
-    const user = getOrCreateUser();
-    if (user.displayName) {
-      setName(user.displayName);
-      setHasName(true);
+    if (isGuest) {
+      // Guest: use localStorage user
+      const user = getOrCreateUser();
+      if (user.displayName) {
+        setGuestName(user.displayName);
+        setHasGuestName(true);
+      }
+      const hit = updateStreak();
+      if (hit) setMilestone(hit);
+      setStreak(user.streak);
+      setLongestStreak(user.longestStreak);
+      setNotifications(getActiveNotifications());
+      return;
     }
-    const hit = updateStreak();
-    if (hit) setMilestone(hit);
-    setNotifications(getActiveNotifications());
-  }, []);
 
-  function handleSaveName() {
-    if (!name.trim()) return;
-    updateDisplayName(name.trim());
-    setHasName(true);
+    // Authenticated user — sync streak to Supabase
+    if (dbUser?.id) {
+      syncStreak(dbUser.id).then(result => {
+        if (result) {
+          setStreak(result.streak_count);
+          setLongestStreak(result.longest_streak);
+          // Check milestone
+          if ([3, 7, 30].includes(result.streak_count)) setMilestone(result.streak_count);
+          refreshUser();
+        }
+      });
+    }
+    setNotifications(getActiveNotifications());
+  }, [dbUser?.id, isGuest]);
+
+  function handleGuestSaveName() {
+    if (!guestName.trim()) return;
+    updateDisplayName(guestName.trim());
+    setHasGuestName(true);
     const hit = updateStreak();
     if (hit) setMilestone(hit);
     setNotifications(getActiveNotifications());
   }
 
-  const user = getOrCreateUser();
-  const canCreate = canCreateChallenge();
-  const streak = user.streak;
+  const localUser = getOrCreateUser();
+  const showContent = !!displayName;
 
   const modes = [
     {
-      id: "survival",
-      icon: "🏃",
-      label: "وضع البقاء",
-      sub: "كم تصمد؟",
+      id: "survival", icon: "🏃", label: "وضع البقاء", sub: "كم تصمد؟",
       gradient: "linear-gradient(135deg, #dc2626, #ef4444)",
       onClick: () => navigate("/survival"),
     },
     {
-      id: "challenge",
-      icon: "⚔️",
-      label: "تحدي ثنائي",
-      sub: "١ ضد ١",
+      id: "challenge", icon: "⚔️", label: "تحدي ثنائي", sub: "١ ضد ١",
       gradient: "linear-gradient(135deg, #d97706, #f59e0b)",
       onClick: () => canCreate ? navigate("/create") : undefined,
       disabled: !canCreate,
     },
     {
-      id: "room",
-      icon: "👥",
-      label: "غرفة أصدقاء",
-      sub: "2-8 لاعبين",
+      id: "room", icon: "👥", label: "غرفة أصدقاء", sub: "2-8 لاعبين",
       gradient: "linear-gradient(135deg, #7c3aed, #8b5cf6)",
       onClick: () => navigate("/room"),
     },
     {
-      id: "tournament",
-      icon: "🏆",
-      label: "بطولة",
-      sub: "إقصاء مباشر",
+      id: "tournament", icon: "🏆", label: "بطولة", sub: "إقصاء مباشر",
       gradient: "linear-gradient(135deg, #d97706, #ca8a04)",
       onClick: () => navigate("/tournament"),
     },
@@ -79,15 +97,12 @@ export default function Home() {
 
   return (
     <div className="min-h-screen gradient-hero star-bg flex flex-col">
-      {/* Milestone popup */}
       {milestone && <StreakMilestone days={milestone} onClose={() => setMilestone(null)} />}
 
       {/* Header */}
       <header className="px-4 pt-4 pb-3 flex justify-between items-center border-b border-border/30">
         <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-full gradient-gold flex items-center justify-center text-background font-bold text-base">
-            م
-          </div>
+          <div className="w-9 h-9 rounded-full gradient-gold flex items-center justify-center text-background font-bold text-base">م</div>
           <span className="text-xl font-black text-primary">ميدان</span>
         </div>
         <div className="flex items-center gap-2">
@@ -97,19 +112,33 @@ export default function Home() {
               <span className="text-xs font-bold text-orange-400">{streak}</span>
             </div>
           )}
-          {hasName && (
+          {/* Avatar / User indicator */}
+          {!isGuest && dbUser?.avatar_url ? (
+            <img
+              src={dbUser.avatar_url}
+              alt={displayName}
+              className="w-9 h-9 rounded-full border-2 border-primary object-cover cursor-pointer hover:opacity-80 transition-opacity"
+              onClick={() => navigate("/stats")}
+            />
+          ) : showContent && (
             <button
               onClick={() => navigate("/stats")}
               className="w-9 h-9 rounded-full bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
-            >
-              📊
-            </button>
+            >📊</button>
+          )}
+          {/* Logout */}
+          {showContent && (
+            <button
+              onClick={signOut}
+              className="w-9 h-9 rounded-full bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors text-sm"
+              title="تسجيل الخروج"
+            >⬚</button>
           )}
         </div>
       </header>
 
-      {/* Notification banners */}
-      {hasName && notifications.length > 0 && (
+      {/* Notifications */}
+      {showContent && notifications.length > 0 && (
         <NotificationBanner notifications={notifications} />
       )}
 
@@ -123,8 +152,8 @@ export default function Home() {
           <p className="text-secondary text-sm font-semibold mt-1">تحدي المعرفة العربي</p>
         </div>
 
-        {/* Streak strip */}
-        {hasName && streak > 0 && (
+        {/* Streak banner */}
+        {showContent && streak > 0 && (
           <div className="bg-orange-500/10 border border-orange-500/25 rounded-2xl px-4 py-3 flex items-center gap-3">
             <span className="text-3xl">🔥</span>
             <div>
@@ -133,44 +162,55 @@ export default function Home() {
                 {streak >= 30 ? "أسطوري 👑" : streak >= 7 ? "رائع! استمر ⚡" : "استمر تكسب شارات 🎯"}
               </p>
             </div>
-            <div className="mr-auto text-xs text-muted-foreground">
-              أفضل: {user.longestStreak} 🏆
-            </div>
+            <div className="mr-auto text-xs text-muted-foreground">أفضل: {longestStreak} 🏆</div>
           </div>
         )}
 
-        {/* Name input */}
-        {!hasName ? (
+        {/* Guest name input */}
+        {isGuest && !hasGuestName ? (
           <div className="space-y-3 fade-in-up">
             <p className="text-sm text-muted-foreground text-center">أدخل اسمك للبدء:</p>
             <div className="flex gap-2">
-              <Input
-                className="text-right bg-card border-border"
+              <input
+                className="flex-1 h-11 bg-card border border-border rounded-xl px-3 text-right text-foreground placeholder:text-muted-foreground outline-none"
                 placeholder="اسمك هنا..."
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
+                value={guestName}
+                onChange={(e) => setGuestName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleGuestSaveName()}
                 maxLength={20}
               />
-              <Button onClick={handleSaveName} disabled={!name.trim()} className="gradient-gold text-background font-bold hover:opacity-90 shrink-0">
-                ابدأ
-              </Button>
+              <Button onClick={handleGuestSaveName} disabled={!guestName.trim()} className="gradient-gold text-background font-bold hover:opacity-90 shrink-0">ابدأ</Button>
+            </div>
+            <div className="text-center">
+              <button onClick={signOut} className="text-xs text-muted-foreground hover:text-foreground transition-colors underline">
+                سجّل الدخول بدلاً من ذلك →
+              </button>
             </div>
           </div>
-        ) : (
+        ) : !isGuest && !dbUser ? (
+          <div className="flex justify-center py-4">
+            <div className="w-6 h-6 border-2 border-primary/40 border-t-primary rounded-full animate-spin" />
+          </div>
+        ) : showContent && (
           <>
             {/* Welcome */}
             <div className="text-center">
-              <p className="text-muted-foreground text-sm">مرحباً، <span className="text-foreground font-bold">{user.displayName}</span></p>
-              {!canCreate && (
-                <p className="text-xs text-destructive mt-1">وصلت للحد اليومي المجاني ⛔</p>
-              )}
+              <div className="flex items-center justify-center gap-2">
+                {!isGuest && dbUser?.avatar_url && (
+                  <img src={dbUser.avatar_url} className="w-6 h-6 rounded-full border border-primary" alt="" />
+                )}
+                <p className="text-muted-foreground text-sm">
+                  مرحباً، <span className="text-foreground font-bold">{displayName}</span>
+                  {isPremium && <span className="text-yellow-400 mr-1 text-xs">👑 برو</span>}
+                  {isGuest && <span className="text-muted-foreground text-xs mr-1">(ضيف)</span>}
+                </p>
+              </div>
+              {!canCreate && <p className="text-xs text-destructive mt-1">وصلت للحد اليومي المجاني ⛔</p>}
             </div>
 
-            {/* REWARD BOX */}
             <RewardBox />
 
-            {/* MODE SELECTOR */}
+            {/* Mode selector */}
             <div>
               <p className="text-xs text-muted-foreground font-semibold mb-3 text-center tracking-wider">اختر وضع اللعب</p>
               <div className="grid grid-cols-2 gap-3">
@@ -193,10 +233,10 @@ export default function Home() {
             {/* Quick stats */}
             <div className="grid grid-cols-4 gap-2">
               {[
-                { label: "الألعاب", value: user.stats.totalGames },
-                { label: "انتصارات", value: user.wins },
-                { label: "بقاء أفضل", value: user.stats.survivalBest },
-                { label: "تحديات", value: user.totalChallenges },
+                { label: "الانتصارات", value: dbUser?.total_wins ?? localUser.wins },
+                { label: "النقاط", value: dbUser?.total_points ?? 0 },
+                { label: "بقاء أفضل", value: localUser.stats.survivalBest },
+                { label: "الستريك", value: streak },
               ].map((s) => (
                 <div key={s.label} className="bg-card border border-border rounded-xl p-2 text-center card-hover">
                   <p className="text-lg font-black text-primary">{s.value}</p>
@@ -207,25 +247,29 @@ export default function Home() {
 
             {/* Bottom links */}
             <div className="flex flex-wrap justify-center gap-x-4 gap-y-2">
-              <button onClick={() => navigate("/stats")} className="text-xs text-secondary hover:text-secondary/80 transition-colors flex items-center gap-1">
+              <button onClick={() => navigate("/stats")} className="text-xs text-secondary hover:text-secondary/80 transition-colors">
                 📊 إحصائياتي
               </button>
-              <span className="text-border hidden sm:inline">|</span>
-              <button onClick={() => navigate("/leaderboard")} className="text-xs text-yellow-400 hover:text-yellow-300 transition-colors flex items-center gap-1">
+              <span className="text-border">|</span>
+              <button onClick={() => navigate("/leaderboard")} className="text-xs text-yellow-400 hover:text-yellow-300 transition-colors">
                 🏆 المتصدرون
               </button>
-              <span className="text-border hidden sm:inline">|</span>
-              {user.isPremium ? (
-                <span className="text-xs text-yellow-400 font-bold flex items-center gap-1">👑 برو مفعّل</span>
+              <span className="text-border">|</span>
+              {isPremium ? (
+                <span className="text-xs text-yellow-400 font-bold">👑 برو مفعّل</span>
               ) : (
-                <button onClick={() => navigate("/premium")} className="text-xs text-yellow-400 hover:text-yellow-300 transition-colors flex items-center gap-1 font-bold">
+                <button onClick={() => navigate("/premium")} className="text-xs text-yellow-400 hover:text-yellow-300 transition-colors font-bold">
                   👑 ترقية إلى برو
                 </button>
               )}
-              <span className="text-border">|</span>
-              <button onClick={() => setHasName(false)} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-                تغيير الاسم ✏️
-              </button>
+              {isGuest && (
+                <>
+                  <span className="text-border">|</span>
+                  <button onClick={signOut} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                    🔵 سجّل الدخول
+                  </button>
+                </>
+              )}
             </div>
           </>
         )}
@@ -238,9 +282,8 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Footer */}
       <footer className="py-3 text-center text-xs text-muted-foreground border-t border-border/30">
-        <span className="text-primary">ميدان</span> — النسخة المجانية: 5 تحديات يومياً
+        <span className="text-primary">ميدان</span> — {isGuest ? "الوضع الضيف (ميزات محدودة)" : "النسخة المجانية: 5 تحديات يومياً"}
       </footer>
     </div>
   );
