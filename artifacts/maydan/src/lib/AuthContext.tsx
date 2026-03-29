@@ -117,7 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loadOrCreateDbUser]);
 
   async function signInWithGoogle() {
-    const redirectTo = `${window.location.origin}${import.meta.env.BASE_URL}`;
+    const redirectTo = "https://maydan.replit.app/";
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo, skipBrowserRedirect: true },
