@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -24,21 +24,109 @@ import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
 
-// When the app loads inside a Google OAuth popup, detect the session and close the popup
-function PopupAuthCloser() {
+// Detect if this page load is an OAuth callback (hash or query params from Supabase/Google)
+function detectAuthCallback(): boolean {
+  const hash = window.location.hash;
+  const search = window.location.search;
+  return (
+    hash.includes("access_token=") ||
+    hash.includes("error_description=") ||
+    search.includes("code=") ||
+    search.includes("error=")
+  );
+}
+
+// Shown when the popup (or main window) lands on the OAuth redirect URL.
+// Supabase automatically exchanges the token (detectSessionInUrl: true).
+// We wait for the session, then close the popup or clean the URL.
+function AuthCallbackHandler() {
+  const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
+
   useEffect(() => {
-    const isPopup = window.opener && window.opener !== window;
-    if (!isPopup) return;
-    // Listen for session; once set, close popup so main window's onAuthStateChange fires
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
-      if (s) { setTimeout(() => window.close(), 300); }
+    let closed = false;
+
+    function finish(hasSession: boolean) {
+      if (closed) return;
+      if (!hasSession) { setStatus("error"); return; }
+      setStatus("success");
+
+      const isPopup = !!(window.opener && window.opener !== window);
+      if (isPopup) {
+        // Close popup — main window's onAuthStateChange (via storage event) will fire
+        setTimeout(() => window.close(), 400);
+      } else {
+        // Standalone tab — strip the hash/code and reload cleanly
+        setTimeout(() => {
+          window.history.replaceState(null, "", window.location.pathname);
+          window.location.reload();
+        }, 600);
+      }
+    }
+
+    // Supabase processes the URL tokens automatically; we just poll for the result
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) finish(true);
     });
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      if (s) { setTimeout(() => window.close(), 300); }
+
+    // Also check immediately in case it was already processed
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) finish(true);
     });
-    return () => subscription.unsubscribe();
+
+    // Timeout fallback
+    const timer = setTimeout(() => {
+      setStatus("error");
+    }, 10_000);
+
+    return () => {
+      closed = true;
+      subscription.unsubscribe();
+      clearTimeout(timer);
+    };
   }, []);
-  return null;
+
+  return (
+    <div className="min-h-screen gradient-hero star-bg flex flex-col items-center justify-center gap-5 p-6 text-center"
+      style={{ background: "hsl(220 20% 8%)" }}>
+      <div className="w-24 h-24 rounded-full flex items-center justify-center gold-glow"
+        style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}>
+        <span className="text-5xl">⚔️</span>
+      </div>
+
+      {status === "loading" && (
+        <>
+          <div className="flex gap-1.5">
+            {[0, 1, 2].map(i => (
+              <div key={i} className="w-2.5 h-2.5 rounded-full bg-primary animate-bounce"
+                style={{ animationDelay: `${i * 0.15}s` }} />
+            ))}
+          </div>
+          <p className="text-foreground font-bold text-lg">جاري تسجيل الدخول...</p>
+          <p className="text-muted-foreground text-sm">يرجى الانتظار</p>
+        </>
+      )}
+
+      {status === "success" && (
+        <>
+          <p className="text-green-400 font-bold text-lg">✓ تم تسجيل الدخول بنجاح</p>
+          <p className="text-muted-foreground text-sm">جاري إغلاق النافذة...</p>
+        </>
+      )}
+
+      {status === "error" && (
+        <>
+          <p className="text-destructive font-bold text-lg">حدث خطأ أثناء تسجيل الدخول</p>
+          <button
+            onClick={() => { window.location.href = "/"; }}
+            className="mt-2 px-6 py-3 rounded-2xl font-bold text-background"
+            style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}
+          >
+            العودة للرئيسية
+          </button>
+        </>
+      )}
+    </div>
+  );
 }
 
 function LoadingScreen() {
@@ -69,7 +157,7 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
 }
 
 function AppRoutes() {
-  const { session, dbUser, isGuest, isLoading, needsUsername } = useAuth();
+  const { session, isGuest, isLoading, needsUsername } = useAuth();
 
   if (isLoading) return <LoadingScreen />;
 
@@ -101,17 +189,27 @@ function AppRoutes() {
 }
 
 function App() {
+  // If this page load is an OAuth callback, bypass all routing and handle it directly.
+  // This prevents Wouter from misinterpreting #access_token= as a hash route.
+  const isCallback = detectAuthCallback();
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <AuthProvider>
-          <PopupAuthCloser />
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <div className="max-w-md mx-auto min-h-screen">
-              <AppRoutes />
-            </div>
-          </WouterRouter>
-        </AuthProvider>
+        {isCallback ? (
+          // Standalone callback handler — no AuthProvider needed, just Supabase client
+          <div className="max-w-md mx-auto min-h-screen">
+            <AuthCallbackHandler />
+          </div>
+        ) : (
+          <AuthProvider>
+            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+              <div className="max-w-md mx-auto min-h-screen">
+                <AppRoutes />
+              </div>
+            </WouterRouter>
+          </AuthProvider>
+        )}
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
