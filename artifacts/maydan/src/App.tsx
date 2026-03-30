@@ -20,6 +20,7 @@ import Tournament from "@/pages/Tournament";
 import Premium from "@/pages/Premium";
 import Onboarding from "@/pages/Onboarding";
 import Leaderboard from "@/pages/Leaderboard";
+import Profile from "@/pages/Profile";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -182,6 +183,7 @@ function AppRoutes() {
         <Route path="/tournament" component={Tournament} />
         <Route path="/premium" component={Premium} />
         <Route path="/leaderboard" component={Leaderboard} />
+        <Route path="/profile" component={Profile} />
         <Route component={NotFound} />
       </Switch>
     </OnboardingGuard>
