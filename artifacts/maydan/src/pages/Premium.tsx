@@ -51,7 +51,7 @@ export default function Premium() {
   return (
     <div className="min-h-screen gradient-hero flex flex-col">
       <header className="p-4 flex items-center gap-3 border-b border-border/30">
-        <button onClick={() => navigate(-1 as any)} className="text-muted-foreground hover:text-foreground text-xl">←</button>
+        <button onClick={() => navigate("/")} className="text-muted-foreground hover:text-foreground text-xl">←</button>
         <h1 className="text-lg font-bold">ميدان برو 👑</h1>
         {activated && (
           <span className="mr-auto text-xs bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-2.5 py-1 rounded-full font-bold">
