@@ -26,6 +26,10 @@ interface AuthContextType {
   googleDisplayName: string;
   isFirstLogin: boolean;
   signInWithGoogle: () => Promise<void>;
+  signInWithApple: () => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<string | null>;
+  signUpWithEmail: (email: string, password: string, username: string) => Promise<string | null>;
+  resetPassword: (email: string) => Promise<string | null>;
   playAsGuest: () => void;
   signOut: () => Promise<void>;
   setDbUser: (user: DbUser) => void;
@@ -62,17 +66,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // New user — create record
       const avatarUrl: string = authUser.user_metadata?.avatar_url ?? "";
+      const existingUsername: string = authUser.user_metadata?.username ?? "";
       const { data: newUser, error: insertError } = await supabase
         .from("users")
-        .insert({ auth_id: authUser.id, avatar_url: avatarUrl })
+        .insert({ auth_id: authUser.id, avatar_url: avatarUrl, username: existingUsername || null })
         .select()
         .single();
 
       if (newUser && !insertError) {
         setDbUser(newUser);
-        setNeedsUsername(true);
+        setNeedsUsername(!existingUsername);
         setIsFirstLogin(true);
       }
     } catch (e) {
@@ -86,7 +90,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [session, loadOrCreateDbUser]);
 
   useEffect(() => {
-    // Guest short-circuit
     if (localStorage.getItem(GUEST_KEY)) {
       setIsGuest(true);
       setIsLoading(false);
@@ -105,6 +108,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
       if (s) {
+        localStorage.removeItem(GUEST_KEY);
+        setIsGuest(false);
         loadOrCreateDbUser(s.user);
       } else {
         setDbUser(null);
@@ -119,8 +124,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function signInWithGoogle() {
     await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: "https://maydan.replit.app" },
+      options: { redirectTo: window.location.origin },
     });
+  }
+
+  async function signInWithApple() {
+    await supabase.auth.signInWithOAuth({
+      provider: "apple",
+      options: { redirectTo: window.location.origin },
+    });
+  }
+
+  async function signInWithEmail(email: string, password: string): Promise<string | null> {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      if (error.message.includes("Invalid login credentials")) return "البريد الإلكتروني أو كلمة المرور غير صحيحة";
+      if (error.message.includes("Email not confirmed")) return "يرجى تأكيد بريدك الإلكتروني أولاً";
+      return error.message;
+    }
+    return null;
+  }
+
+  async function signUpWithEmail(email: string, password: string, username: string): Promise<string | null> {
+    const trimmedUsername = username.trim();
+
+    if (trimmedUsername.length < 2) return "الاسم يجب أن يكون حرفين على الأقل";
+    if (password.length < 6) return "كلمة المرور يجب أن تكون 6 أحرف على الأقل";
+
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) {
+      if (error.message.includes("already registered")) return "هذا البريد الإلكتروني مسجّل مسبقاً";
+      return error.message;
+    }
+
+    if (data.user) {
+      await supabase.from("users").insert({
+        auth_id: data.user.id,
+        username: trimmedUsername,
+        avatar_url: null,
+      });
+    }
+
+    return null;
+  }
+
+  async function resetPassword(email: string): Promise<string | null> {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    if (error) return error.message;
+    return null;
   }
 
   function playAsGuest() {
@@ -143,7 +196,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider value={{
       session, dbUser, isGuest, isLoading, needsUsername,
       googleDisplayName, isFirstLogin,
-      signInWithGoogle, playAsGuest, signOut, setDbUser, setIsFirstLogin, refreshUser,
+      signInWithGoogle, signInWithApple,
+      signInWithEmail, signUpWithEmail, resetPassword,
+      playAsGuest, signOut, setDbUser, setIsFirstLogin, refreshUser,
     }}>
       {children}
     </AuthContext.Provider>

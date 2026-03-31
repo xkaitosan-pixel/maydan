@@ -43,7 +43,7 @@ function buildBracket(names: string[]): Round[] {
 
 export default function Tournament() {
   const [, navigate] = useLocation();
-  const { dbUser } = useAuth();
+  const { dbUser, isGuest } = useAuth();
   const [phase, setPhase] = useState<Phase>("setup");
   const [playerNames, setPlayerNames] = useState<string[]>(["", "", "", ""]);
   const [categoryId, setCategoryId] = useState("mix");
@@ -226,7 +226,8 @@ export default function Tournament() {
         setChampion(champ);
         setPhase("champion");
 
-        // Save every player's score to the leaderboard
+        // Save every player's score to the leaderboard (authenticated users only)
+        if (isGuest) return;
         const u = getOrCreateUser();
         const allPlayers = Array.from(new Set(
           rounds.flatMap(r => r.matches.flatMap(m => [m.p1, m.p2].filter(Boolean)))

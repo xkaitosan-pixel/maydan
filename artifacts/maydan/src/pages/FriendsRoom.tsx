@@ -15,7 +15,7 @@ const QUESTION_TIME = 25;
 
 export default function FriendsRoom() {
   const [, navigate] = useLocation();
-  const { dbUser } = useAuth();
+  const { dbUser, isGuest } = useAuth();
   const user = getOrCreateUser();
 
   // Setup
@@ -173,7 +173,8 @@ export default function FriendsRoom() {
     setRoom(updatedRoom);
     setPlayerTimeMs(totalMs);
 
-    // Save this player's score to the leaderboard
+    // Save this player's score to the leaderboard (authenticated users only)
+    if (isGuest) { setPhase("between"); return; }
     const player = room.players[currentPlayerIdx];
     const isCurrentUser = player.name === (dbUser?.username ?? user.displayName);
     insertScore({

@@ -24,7 +24,7 @@ function RelativeTime({ ts }: { ts: string }) {
 
 export default function Leaderboard() {
   const [, navigate] = useLocation();
-  const { dbUser, isGuest } = useAuth();
+  const { dbUser, isGuest, signOut } = useAuth();
   const localUser = getOrCreateUser();
   const myName = dbUser?.username ?? localUser.displayName;
 
@@ -55,9 +55,11 @@ export default function Leaderboard() {
         <button onClick={() => navigate("/")} className="text-muted-foreground hover:text-foreground text-xl">←</button>
         <h1 className="text-lg font-bold">🏆 لوحة المتصدرين</h1>
         {isGuest && (
-          <span className="mr-auto text-xs text-muted-foreground border border-border px-2 py-1 rounded-full">
-            تسجيل الدخول يحفظ إحصائياتك
-          </span>
+          <button
+            onClick={async () => { await signOut(); }}
+            className="mr-auto text-xs px-2.5 py-1 rounded-full font-semibold transition-opacity hover:opacity-80"
+            style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)", color: "#000" }}
+          >تسجيل الدخول 👑</button>
         )}
       </header>
 
@@ -90,8 +92,22 @@ export default function Leaderboard() {
           ))}
         </div>
 
+        {/* Guest CTA */}
+        {isGuest && (
+          <div className="mx-3 mt-3 rounded-xl border border-primary/30 px-4 py-3 text-center"
+            style={{ background: "linear-gradient(135deg,rgba(217,119,6,0.12),rgba(245,158,11,0.08))" }}>
+            <p className="font-bold text-sm text-primary">سجّل دخولك لتظهر في لوحة المتصدرين 👑</p>
+            <p className="text-xs text-muted-foreground mt-0.5">النتائج محفوظة فقط للمسجّلين</p>
+            <button
+              onClick={async () => { await signOut(); }}
+              className="mt-2.5 px-5 py-1.5 rounded-xl text-xs font-bold text-background hover:opacity-90 transition"
+              style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}
+            >تسجيل الدخول</button>
+          </div>
+        )}
+
         {/* My rank */}
-        {myRank > 0 && myName && (
+        {!isGuest && myRank > 0 && myName && (
           <div className="mx-3 mt-3 bg-secondary/10 border border-secondary/30 rounded-xl px-4 py-2.5 flex items-center gap-3">
             <span className="text-2xl">{myRank <= 3 ? MEDALS[myRank - 1] : `#${myRank}`}</span>
             <div>
