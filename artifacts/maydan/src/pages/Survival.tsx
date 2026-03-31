@@ -55,6 +55,12 @@ export default function Survival() {
     setTimeAvail(cards.time === Infinity ? 99 : cards.time);
   }
 
+  // Guarantee clean visual state on every question change
+  useEffect(() => {
+    setSelectedOption(null);
+    setShowResult(false);
+  }, [currentQ?.id]);
+
   function startGame() {
     const catId = selectedCategory === "mix" ? undefined : selectedCategory;
     const first = getRandomQuestion(new Set(), catId);
@@ -390,7 +396,7 @@ export default function Survival() {
           </div>
 
           {/* Options */}
-          <div className="grid grid-cols-1 gap-3 mb-4">
+          <div key={currentQ.id} className="grid grid-cols-1 gap-3 mb-4">
             {currentQ.options.map((option, idx) => {
               let cls = "option-btn w-full p-4 rounded-xl text-right font-medium text-sm bg-card";
               if (showResult) {
@@ -398,7 +404,7 @@ export default function Survival() {
                 else if (idx === selectedOption) cls += " wrong";
               }
               return (
-                <button key={idx} onClick={() => handleAnswer(idx)} disabled={showResult} className={cls}>
+                <button key={`${currentQ.id}-${idx}`} onClick={() => handleAnswer(idx)} disabled={showResult} className={cls}>
                   <span className="flex items-center gap-3">
                     <span className="w-7 h-7 rounded-full border border-current flex items-center justify-center text-xs font-bold shrink-0">
                       {["أ","ب","ج","د"][idx]}

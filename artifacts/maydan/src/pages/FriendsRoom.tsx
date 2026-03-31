@@ -80,6 +80,12 @@ export default function FriendsRoom() {
     setPhase("turn_intro");
   }
 
+  // Guarantee clean visual state on every question change
+  useEffect(() => {
+    setSelected(null);
+    setShowResult(false);
+  }, [currentQIdx]);
+
   useEffect(() => {
     if (phase !== "turn_intro") return;
     if (introCountdown <= 0) {
@@ -401,7 +407,7 @@ export default function FriendsRoom() {
           <div className="bg-card border border-border rounded-2xl p-5 mb-4 text-center slide-in">
             <p className="text-lg font-bold leading-relaxed">{currentQ.question}</p>
           </div>
-          <div className="grid grid-cols-1 gap-3">
+          <div key={currentQ.id} className="grid grid-cols-1 gap-3">
             {currentQ.options.map((opt, idx) => {
               let cls = "option-btn w-full p-4 rounded-xl text-right font-medium text-sm bg-card";
               if (showResult) {
@@ -409,7 +415,7 @@ export default function FriendsRoom() {
                 else if (idx === selected) cls += " wrong";
               }
               return (
-                <button key={idx} onClick={() => handleAnswer(idx)} disabled={showResult} className={cls}>
+                <button key={`${currentQ.id}-${idx}`} onClick={() => handleAnswer(idx)} disabled={showResult} className={cls}>
                   <span className="flex items-center gap-3">
                     <span className="w-7 h-7 rounded-full border border-current flex items-center justify-center text-xs font-bold shrink-0">{["أ","ب","ج","د"][idx]}</span>
                     <span className="flex-1">{opt}</span>
