@@ -6,6 +6,8 @@ import {
   generateRoomCode, saveRoom, getRoom, getOrCreateUser,
   RoomData, RoomPlayer
 } from "@/lib/storage";
+import { insertScore } from "@/lib/db";
+import { useAuth } from "@/lib/AuthContext";
 
 type Phase = "setup" | "lobby" | "turn_intro" | "playing" | "between" | "results";
 
@@ -13,6 +15,7 @@ const QUESTION_TIME = 25;
 
 export default function FriendsRoom() {
   const [, navigate] = useLocation();
+  const { dbUser } = useAuth();
   const user = getOrCreateUser();
 
   // Setup
@@ -169,6 +172,19 @@ export default function FriendsRoom() {
     saveRoom(updatedRoom);
     setRoom(updatedRoom);
     setPlayerTimeMs(totalMs);
+
+    // Save this player's score to the leaderboard
+    const player = room.players[currentPlayerIdx];
+    const isCurrentUser = player.name === (dbUser?.username ?? user.displayName);
+    insertScore({
+      user_id: isCurrentUser ? (dbUser?.id ?? null) : null,
+      username: player.name || "لاعب",
+      category: room.categoryId,
+      score,
+      total: room.questions.length,
+      game_mode: "room",
+    });
+
     setPhase("between");
   }
 
