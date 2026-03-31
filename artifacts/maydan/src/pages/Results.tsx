@@ -97,7 +97,7 @@ export default function Results() {
         ? `🏆 فزت في تحدي ${catLabel}!\nنتيجتي: ${myScore}/${total} (${pct}%)\nرتبتي: ${rank.icon} ${rank.title}\nتحداني إذا تجرأ 😏\n${shareUrl}`
         : `⚔️ خضت تحدي ${catLabel} في ميدان!\nنتيجتي: ${myScore}/${total}\nهل تستطيع التغلب عليّ؟\n${shareUrl}`;
     }
-    return `⚔️ تحداك ${challenge.creatorName} في ${catLabel}!\nنتيجته: ${creatorScore}/${total}\nهل تستطيع التغلب عليه؟\n${shareUrl}`;
+    return `⚔️ تحداك ${challenge?.creatorName ?? ""} في ${catLabel}!\nنتيجته: ${creatorScore}/${total}\nهل تستطيع التغلب عليه؟\n${shareUrl}`;
   }
 
   function shareResult() {
