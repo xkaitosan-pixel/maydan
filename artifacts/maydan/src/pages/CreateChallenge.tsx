@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { CATEGORIES, getQuestionsByCategory } from "@/lib/questions";
 import { saveChallenge, incrementChallengesCount, generateId, getOrCreateUser, canCreateChallenge, getRemainingChallenges } from "@/lib/storage";
+import CategoryCard from "@/components/CategoryCard";
 
 export default function CreateChallenge() {
   const [, navigate] = useLocation();
@@ -172,58 +173,13 @@ export default function CreateChallenge() {
             {filtered.map((cat) => {
               const isLocked = cat.isPremium && !user.isPremium;
               return (
-                <button
+                <CategoryCard
                   key={cat.id}
+                  cat={cat}
+                  isLocked={isLocked}
+                  questionCount={15}
                   onClick={() => handleSelectCategory(cat.id, cat.isPremium)}
-                  disabled={isLocked}
-                  className={`relative rounded-2xl overflow-hidden text-right transition-all card-hover ${
-                    isLocked ? "opacity-60 cursor-not-allowed" : "hover:scale-[1.02] active:scale-[0.98]"
-                  }`}
-                >
-                  {/* Gradient background */}
-                  <div
-                    className="absolute inset-0"
-                    style={{
-                      background: `linear-gradient(135deg, ${cat.gradientFrom}22, ${cat.gradientTo}33)`,
-                      borderWidth: 1,
-                      borderColor: `${cat.gradientFrom}44`,
-                    }}
-                  />
-                  <div
-                    className="absolute inset-0 rounded-2xl"
-                    style={{ border: `1px solid ${cat.gradientFrom}44` }}
-                  />
-
-                  <div className="relative p-4 flex flex-col gap-2">
-                    {/* Lock badge */}
-                    {isLocked && (
-                      <span className="absolute top-2 left-2 text-sm bg-background/60 rounded-full w-6 h-6 flex items-center justify-center">
-                        🔒
-                      </span>
-                    )}
-
-                    <span className="text-3xl">{cat.icon}</span>
-                    <div>
-                      <p className="font-bold text-sm text-foreground leading-tight">{cat.name}</p>
-                      <div className="flex items-center gap-1 mt-1">
-                        <span
-                          className="text-xs px-2 py-0.5 rounded-full font-medium"
-                          style={{
-                            background: `${cat.gradientFrom}22`,
-                            color: cat.gradientFrom,
-                          }}
-                        >
-                          15 سؤال
-                        </span>
-                        {cat.isPremium && (
-                          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-yellow-500/20 text-yellow-400">
-                            ⭐ بريميوم
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </button>
+                />
               );
             })}
           </div>

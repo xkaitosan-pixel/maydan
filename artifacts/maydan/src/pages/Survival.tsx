@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { questions, CATEGORIES, getQuestionsByCategory, getCategoryById, Question } from "@/lib/questions";
+import CategoryCard from "@/components/CategoryCard";
 import { recordSurvivalGame, recordCategoryAnswers, getSurvivalRank, getAvailablePowerCards, useSkipCard, useTimeCard, getOrCreateUser, addLeaderboardEntry } from "@/lib/storage";
 import { insertScore, updateUserStats } from "@/lib/db";
 import { useAuth } from "@/lib/AuthContext";
@@ -226,22 +227,14 @@ export default function Survival() {
           <p className="text-xs text-muted-foreground mb-3 text-center font-semibold">اختر الفئة</p>
           <div className="grid grid-cols-2 gap-3">
             {selectableCats.map(cat => (
-              <button
+              <CategoryCard
                 key={cat.id}
+                cat={cat as any}
+                isSelected={selectedCategory === cat.id}
+                questionCount={cat.id === "mix" ? 225 : 15}
                 onClick={() => setSelectedCategory(cat.id)}
-                className={`relative rounded-2xl p-4 text-right transition-all card-hover ${selectedCategory === cat.id ? "ring-2" : ""}`}
-                style={{
-                  background: `linear-gradient(135deg, ${cat.gFrom}22, ${cat.gTo}33)`,
-                  border: `2px solid ${selectedCategory === cat.id ? cat.gFrom : cat.gFrom + "44"}`,
-                  ...(selectedCategory === cat.id ? { ringColor: cat.gFrom } : {})
-                }}
-              >
-                <span className="text-2xl">{cat.icon}</span>
-                <p className="text-sm font-bold text-foreground mt-1 leading-tight">{cat.name}</p>
-                {selectedCategory === cat.id && (
-                  <span className="absolute top-2 left-2 text-xs" style={{ color: cat.gFrom }}>✓</span>
-                )}
-              </button>
+                size="small"
+              />
             ))}
           </div>
 

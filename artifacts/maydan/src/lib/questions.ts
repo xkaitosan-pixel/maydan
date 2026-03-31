@@ -18,21 +18,21 @@ export interface Category {
 }
 
 export const CATEGORIES: Category[] = [
-  { id: "islamic", name: "ثقافة إسلامية", icon: "🕌", gradient: "from-emerald-600 to-teal-500", gradientFrom: "#059669", gradientTo: "#14b8a6" },
-  { id: "geography", name: "جغرافيا عالمية", icon: "🌍", gradient: "from-blue-600 to-cyan-500", gradientFrom: "#2563eb", gradientTo: "#06b6d4" },
-  { id: "general", name: "معلومات عامة", icon: "🧠", gradient: "from-purple-600 to-violet-500", gradientFrom: "#9333ea", gradientTo: "#8b5cf6" },
-  { id: "sports", name: "رياضة عالمية", icon: "⚽", gradient: "from-green-600 to-lime-500", gradientFrom: "#16a34a", gradientTo: "#84cc16" },
-  { id: "movies", name: "أفلام ومسلسلات", icon: "🎬", gradient: "from-red-600 to-rose-500", gradientFrom: "#dc2626", gradientTo: "#f43f5e" },
-  { id: "gaming", name: "ألعاب فيديو", icon: "🎮", gradient: "from-indigo-600 to-blue-500", gradientFrom: "#4f46e5", gradientTo: "#3b82f6" },
-  { id: "anime", name: "أنمي", icon: "🌸", gradient: "from-pink-500 to-fuchsia-500", gradientFrom: "#ec4899", gradientTo: "#d946ef" },
-  { id: "cars", name: "سيارات", icon: "🚗", gradient: "from-orange-600 to-amber-500", gradientFrom: "#ea580c", gradientTo: "#f59e0b" },
-  { id: "food", name: "طعام خليجي", icon: "🍽️", gradient: "from-yellow-600 to-orange-400", gradientFrom: "#ca8a04", gradientTo: "#fb923c" },
-  { id: "business", name: "أعمال وريادة", icon: "💰", gradient: "from-amber-600 to-yellow-400", gradientFrom: "#d97706", gradientTo: "#facc15" },
-  { id: "science", name: "علوم وتكنولوجيا", icon: "🔬", gradient: "from-sky-600 to-blue-400", gradientFrom: "#0284c7", gradientTo: "#60a5fa" },
-  { id: "arabhistory", name: "تاريخ عربي", icon: "📚", gradient: "from-stone-600 to-amber-700", gradientFrom: "#57534e", gradientTo: "#b45309" },
-  { id: "animals", name: "حيوانات وطبيعة", icon: "🐾", gradient: "from-teal-600 to-green-400", gradientFrom: "#0d9488", gradientTo: "#4ade80" },
-  { id: "popculture", name: "ثقافة شعبية", icon: "🎭", gradient: "from-violet-600 to-pink-500", gradientFrom: "#7c3aed", gradientTo: "#ec4899" },
-  { id: "legends", name: "تحدي الأساطير", icon: "🏆", gradient: "from-yellow-500 to-amber-400", gradientFrom: "#eab308", gradientTo: "#f59e0b", isPremium: true },
+  { id: "islamic",    name: "ثقافة إسلامية",    icon: "🕌", gradient: "from-emerald-800 to-emerald-950", gradientFrom: "#1a6b3c", gradientTo: "#0d3d22" },
+  { id: "geography",  name: "جغرافيا عالمية",   icon: "🌍", gradient: "from-blue-800 to-blue-950",     gradientFrom: "#1a3a6b", gradientTo: "#0d1f3d" },
+  { id: "general",    name: "معلومات عامة",      icon: "🧠", gradient: "from-purple-800 to-purple-950", gradientFrom: "#4a1a6b", gradientTo: "#2a0d3d" },
+  { id: "sports",     name: "رياضة عالمية",      icon: "⚽", gradient: "from-orange-800 to-orange-950", gradientFrom: "#6b3a1a", gradientTo: "#3d1f0d" },
+  { id: "movies",     name: "أفلام ومسلسلات",    icon: "🎬", gradient: "from-red-800 to-red-950",       gradientFrom: "#6b1a1a", gradientTo: "#3d0d0d" },
+  { id: "gaming",     name: "ألعاب فيديو",        icon: "🎮", gradient: "from-cyan-800 to-cyan-950",     gradientFrom: "#1a5a6b", gradientTo: "#0d2d3d" },
+  { id: "anime",      name: "أنمي",               icon: "🌸", gradient: "from-pink-800 to-pink-950",     gradientFrom: "#6b1a4a", gradientTo: "#3d0d2a" },
+  { id: "cars",       name: "سيارات",             icon: "🚗", gradient: "from-neutral-700 to-neutral-900",gradientFrom: "#4a4a4a", gradientTo: "#1a1a1a" },
+  { id: "food",       name: "طعام خليجي",         icon: "🍽️", gradient: "from-amber-800 to-amber-950",  gradientFrom: "#6b5a1a", gradientTo: "#3d320d" },
+  { id: "business",   name: "أعمال وريادة",       icon: "💰", gradient: "from-yellow-800 to-yellow-950", gradientFrom: "#5a4a0d", gradientTo: "#2d250a" },
+  { id: "science",    name: "علوم وتكنولوجيا",    icon: "🔬", gradient: "from-indigo-800 to-indigo-950", gradientFrom: "#1a2a6b", gradientTo: "#0d152d" },
+  { id: "arabhistory",name: "تاريخ عربي",         icon: "📚", gradient: "from-stone-700 to-stone-900",   gradientFrom: "#5a3a1a", gradientTo: "#3d1f0d" },
+  { id: "animals",    name: "حيوانات وطبيعة",     icon: "🐾", gradient: "from-green-800 to-green-950",   gradientFrom: "#1a5a2a", gradientTo: "#0d2d15" },
+  { id: "popculture", name: "ثقافة شعبية",        icon: "🎭", gradient: "from-violet-800 to-violet-950", gradientFrom: "#5a1a6b", gradientTo: "#2d0d3d" },
+  { id: "legends",    name: "تحدي الأساطير",      icon: "🏆", gradient: "from-yellow-700 to-yellow-950", gradientFrom: "#6b5000", gradientTo: "#3d2d00", isPremium: true },
 ];
 
 export const questions: Question[] = [
