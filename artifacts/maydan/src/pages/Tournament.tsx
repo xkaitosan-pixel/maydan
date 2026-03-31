@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { questions, CATEGORIES, getCategoryById } from "@/lib/questions";
+import { insertScore } from "@/lib/db";
+import { getOrCreateUser } from "@/lib/storage";
+import { useAuth } from "@/lib/AuthContext";
 
 type Phase = "setup" | "bracket" | "turn_intro" | "playing" | "match_result" | "champion";
 
@@ -40,6 +43,7 @@ function buildBracket(names: string[]): Round[] {
 
 export default function Tournament() {
   const [, navigate] = useLocation();
+  const { dbUser } = useAuth();
   const [phase, setPhase] = useState<Phase>("setup");
   const [playerNames, setPlayerNames] = useState<string[]>(["", "", "", ""]);
   const [categoryId, setCategoryId] = useState("mix");
@@ -221,6 +225,31 @@ export default function Tournament() {
         const champ = rounds[currentRound].matches[currentMatch].winner || "";
         setChampion(champ);
         setPhase("champion");
+
+        // Save every player's score to the leaderboard
+        const u = getOrCreateUser();
+        const allPlayers = Array.from(new Set(
+          rounds.flatMap(r => r.matches.flatMap(m => [m.p1, m.p2].filter(Boolean)))
+        ));
+        for (const playerName of allPlayers) {
+          const playerScore = rounds.reduce<number>((tot, round) =>
+            tot + round.matches.reduce<number>((s, m) => {
+              if (m.p1 === playerName && m.score1 != null) return s + m.score1;
+              if (m.p2 === playerName && m.score2 != null) return s + m.score2;
+              return s;
+            }, 0), 0);
+          const matchesPlayed = rounds.reduce((n, r) =>
+            n + r.matches.filter(m => (m.p1 === playerName || m.p2 === playerName) && m.winner != null).length, 0);
+          const isCurrentUser = playerName === (dbUser?.username ?? u.displayName);
+          insertScore({
+            user_id: isCurrentUser ? (dbUser?.id ?? null) : null,
+            username: playerName || "لاعب",
+            category: categoryId,
+            score: playerScore,
+            total: matchesPlayed * MATCH_QUESTIONS,
+            game_mode: "tournament",
+          });
+        }
       }
     }
   }
