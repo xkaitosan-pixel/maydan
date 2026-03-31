@@ -46,6 +46,12 @@ export default function Quiz() {
     loadPowerCards();
   }, [challengeId, role]);
 
+  // Guarantee clean visual state on every question change
+  useEffect(() => {
+    setSelectedOption(null);
+    setShowResult(false);
+  }, [currentIndex]);
+
   const goToNextQuestion = useCallback((ans: (number | null)[]) => {
     const nextIndex = currentIndex + 1;
     if (nextIndex >= (challenge?.questions.length || 0)) {
@@ -237,7 +243,7 @@ export default function Quiz() {
             <p className="text-lg font-bold leading-relaxed">{currentQuestion.question}</p>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 mb-4">
+          <div key={currentQuestion.id} className="grid grid-cols-1 gap-3 mb-4">
             {currentQuestion.options.map((option, idx) => {
               let cls = "option-btn w-full p-4 rounded-xl text-right font-medium text-sm bg-card";
               if (showResult) {
@@ -245,7 +251,7 @@ export default function Quiz() {
                 else if (idx === selectedOption) cls += " wrong";
               }
               return (
-                <button key={idx} onClick={() => handleAnswer(idx)} disabled={showResult || isTransitioning} className={cls}>
+                <button key={`${currentQuestion.id}-${idx}`} onClick={() => handleAnswer(idx)} disabled={showResult || isTransitioning} className={cls}>
                   <span className="flex items-center gap-3">
                     <span className="w-7 h-7 rounded-full border border-current flex items-center justify-center text-xs font-bold shrink-0">
                       {["أ","ب","ج","د"][idx]}
