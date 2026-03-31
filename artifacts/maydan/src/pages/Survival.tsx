@@ -175,9 +175,9 @@ export default function Survival() {
     if (u.displayName) {
       addLeaderboardEntry({ name: u.displayName, score: finalScore, total: 0, category: selectedCategory, type: "survival" });
     }
-    // Sync to Supabase for authenticated users
+    // Sync to Supabase for all users (authenticated + guests)
     const supName = dbUser?.username ?? u.displayName;
-    if (supName && !isGuest) {
+    if (supName) {
       insertScore({ user_id: dbUser?.id ?? null, username: supName, category: selectedCategory, score: finalScore, total: 0, game_mode: "survival" });
       if (dbUser?.id) updateUserStats(dbUser.id, { total_points: finalScore * 10 });
     }

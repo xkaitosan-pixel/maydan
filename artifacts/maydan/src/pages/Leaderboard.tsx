@@ -56,7 +56,7 @@ export default function Leaderboard() {
         <h1 className="text-lg font-bold">🏆 لوحة المتصدرين</h1>
         {isGuest && (
           <span className="mr-auto text-xs text-muted-foreground border border-border px-2 py-1 rounded-full">
-            نتائجك لا تُسجَّل كضيف
+            تسجيل الدخول يحفظ إحصائياتك
           </span>
         )}
       </header>
