@@ -127,7 +127,7 @@ export default function Quiz() {
     if (timerRef.current) clearInterval(timerRef.current);
     const totalTime = Math.floor((Date.now() - startTime) / 1000);
     const questionList = challenge.questions.map(id => questions.find(q => q.id === id)!);
-    const score = finalAnswers.reduce((acc, ans, idx) => acc + (ans === questionList[idx]?.correct ? 1 : 0), 0);
+    const score = finalAnswers.reduce<number>((acc, ans, idx) => acc + (ans === questionList[idx]?.correct ? 1 : 0), 0);
 
     // Record stats
     recordGamePlayed();
