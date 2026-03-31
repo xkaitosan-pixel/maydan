@@ -154,7 +154,7 @@ export default function Tournament() {
       setTimeLeft(QUESTION_TIME);
     } else {
       // Count score for current player
-      const score = ans.reduce((acc, a, i) => {
+      const score = ans.reduce<number>((acc, a, i) => {
         const q = questions.find(q => q.id === matchQuestions[i]);
         return acc + (a === q?.correct ? 1 : 0);
       }, 0);
