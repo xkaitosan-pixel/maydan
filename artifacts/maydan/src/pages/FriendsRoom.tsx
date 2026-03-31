@@ -153,7 +153,7 @@ export default function FriendsRoom() {
     if (!room) return;
     if (timerRef.current) clearInterval(timerRef.current);
     const totalMs = Date.now() - startTime;
-    const score = finalAnswers.reduce((acc, ans, i) => {
+    const score = finalAnswers.reduce<number>((acc, ans, i) => {
       const q = questions.find(q => q.id === room.questions[i]);
       return acc + (ans === q?.correct ? 1 : 0);
     }, 0);
