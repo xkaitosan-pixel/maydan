@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { questions, CATEGORIES, getCategoryById } from "@/lib/questions";
+import CategoryCard from "@/components/CategoryCard";
 import {
   generateRoomCode, saveRoom, getRoom, getOrCreateUser,
   RoomData, RoomPlayer
@@ -242,18 +243,14 @@ export default function FriendsRoom() {
             <p className="text-xs text-muted-foreground mb-2 font-semibold">الفئة</p>
             <div className="grid grid-cols-2 gap-2">
               {validCats.slice(0, 6).map(c => (
-                <button
+                <CategoryCard
                   key={c.id}
+                  cat={c as any}
+                  isSelected={categoryId === c.id}
+                  questionCount={c.id === "mix" ? 225 : 15}
                   onClick={() => setCategoryId(c.id)}
-                  className="rounded-xl p-3 text-right text-sm transition-all"
-                  style={{
-                    background: `linear-gradient(135deg, ${c.gFrom}22, ${c.gTo}33)`,
-                    border: `1.5px solid ${categoryId === c.id ? c.gFrom : c.gFrom + "44"}`,
-                  }}
-                >
-                  <span className="text-xl">{c.icon}</span>
-                  <p className="font-bold text-foreground text-xs mt-0.5 leading-tight">{c.name}</p>
-                </button>
+                  size="small"
+                />
               ))}
             </div>
             <select
