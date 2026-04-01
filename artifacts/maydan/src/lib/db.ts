@@ -9,7 +9,7 @@ export interface ScoreEntry {
   username: string;
   category: string;
   score: number;
-  total: number;
+  total?: number;       // optional — column may not exist in older DB schemas
   game_mode: string;
   created_at: string;
 }
@@ -19,15 +19,16 @@ export async function insertScore(entry: {
   username: string;
   category: string;
   score: number;
-  total?: number;
   game_mode: string;
 }): Promise<boolean> {
-  const payload = {
+  // NOTE: 'total' column excluded — the table was created without it.
+  // If you want to add it, run in Supabase SQL Editor:
+  //   ALTER TABLE scores ADD COLUMN IF NOT EXISTS total INT DEFAULT 0;
+  const payload: Record<string, unknown> = {
     user_id: entry.user_id ?? null,
     username: entry.username,
     category: entry.category,
     score: entry.score,
-    total: entry.total ?? 0,
     game_mode: entry.game_mode,
   };
   const { data, error } = await supabase.from("scores").insert(payload).select();
