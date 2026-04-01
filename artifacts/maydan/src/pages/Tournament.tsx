@@ -247,7 +247,6 @@ export default function Tournament() {
             username: playerName || "لاعب",
             category: categoryId,
             score: playerScore,
-            total: matchesPlayed * MATCH_QUESTIONS,
             game_mode: "tournament",
           });
         }
