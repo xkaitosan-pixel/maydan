@@ -162,7 +162,20 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
 }
 
 function AppRoutes() {
+  const [location] = useLocation();
   const { session, isGuest, isLoading, needsUsername } = useAuth();
+
+  // Party routes are fully public — no login required
+  const isPartyRoute = location.startsWith("/party");
+  if (isPartyRoute) {
+    return (
+      <Switch>
+        <Route path="/party/host" component={PartyHost} />
+        <Route path="/party/guest" component={PartyGuest} />
+        <Route path="/party" component={Party} />
+      </Switch>
+    );
+  }
 
   if (isLoading) return <LoadingScreen />;
 
