@@ -232,7 +232,7 @@ export default function Quiz() {
       </header>
 
       <div className={`flex-1 flex flex-col p-4 ${isTransitioning ? "opacity-0 transition-opacity" : "opacity-100 transition-opacity"}`}>
-        <div className="flex-1 flex flex-col justify-center">
+        <div key={currentIndex} className="flex-1 flex flex-col justify-center">
           <div className="text-center mb-3">
             <span className="text-xs px-3 py-1 rounded-full" style={{ background: `${category?.gradientFrom}22`, color: category?.gradientFrom, border: `1px solid ${category?.gradientFrom}44` }}>
               {currentQuestion.difficulty === "easy" ? "سهل" : currentQuestion.difficulty === "medium" ? "متوسط" : "صعب"}
@@ -243,7 +243,7 @@ export default function Quiz() {
             <p className="text-lg font-bold leading-relaxed">{currentQuestion.question}</p>
           </div>
 
-          <div key={currentQuestion.id} className="grid grid-cols-1 gap-3 mb-4">
+          <div className="grid grid-cols-1 gap-3 mb-4">
             {currentQuestion.options.map((option, idx) => {
               let cls = "option-btn w-full p-4 rounded-xl text-right font-medium text-sm bg-card";
               if (showResult) {

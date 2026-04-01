@@ -415,11 +415,11 @@ export default function Tournament() {
           </div>
           <p className="text-center text-xs text-muted-foreground mt-1">السؤال {currentQIdx + 1} / {MATCH_QUESTIONS}</p>
         </header>
-        <div className="flex-1 flex flex-col justify-center p-4">
+        <div key={`${currentRound}-${currentMatch}-${playingFor}-${currentQIdx}`} className="flex-1 flex flex-col justify-center p-4">
           <div className="bg-card border border-border rounded-2xl p-5 mb-4 text-center slide-in">
             <p className="text-lg font-bold leading-relaxed">{currentQ.question}</p>
           </div>
-          <div key={currentQ.id} className="grid grid-cols-1 gap-3">
+          <div className="grid grid-cols-1 gap-3">
             {currentQ.options.map((opt, idx) => {
               let cls = "option-btn w-full p-4 rounded-xl text-right font-medium text-sm bg-card";
               if (showResult) {
