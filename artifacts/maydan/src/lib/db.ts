@@ -21,16 +21,22 @@ export async function insertScore(entry: {
   score: number;
   total?: number;
   game_mode: string;
-}): Promise<void> {
-  const { error } = await supabase.from("scores").insert({
+}): Promise<boolean> {
+  const payload = {
     user_id: entry.user_id ?? null,
     username: entry.username,
     category: entry.category,
     score: entry.score,
     total: entry.total ?? 0,
     game_mode: entry.game_mode,
-  });
-  if (error) console.error("insertScore error", error);
+  };
+  const { data, error } = await supabase.from("scores").insert(payload).select();
+  if (error) {
+    console.error("[ميدان] insertScore FAILED ✗", error.code, error.message, error.details);
+    return false;
+  }
+  console.log("[ميدان] Score saved ✓", { username: entry.username, score: entry.score, mode: entry.game_mode, id: data?.[0]?.id });
+  return true;
 }
 
 export async function getWeeklyLeaderboard(category?: string): Promise<ScoreEntry[]> {
@@ -42,7 +48,8 @@ export async function getWeeklyLeaderboard(category?: string): Promise<ScoreEntr
     .order("score", { ascending: false })
     .limit(50);
   if (category && category !== "all") q = q.eq("category", category);
-  const { data } = await q;
+  const { data, error } = await q;
+  if (error) console.error("[ميدان] getWeeklyLeaderboard error", error.message);
   return dedupeByUsername(data ?? []);
 }
 
@@ -53,7 +60,8 @@ export async function getAllTimeLeaderboard(category?: string): Promise<ScoreEnt
     .order("score", { ascending: false })
     .limit(200);
   if (category && category !== "all") q = q.eq("category", category);
-  const { data } = await q;
+  const { data, error } = await q;
+  if (error) console.error("[ميدان] getAllTimeLeaderboard error", error.message);
   return dedupeByUsername(data ?? []);
 }
 
