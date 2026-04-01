@@ -81,6 +81,12 @@ export default function Survival() {
     setPhase("playing");
   }
 
+  // Guarantee clean visual state whenever question changes (safety net against stale CSS)
+  useEffect(() => {
+    setSelectedOption(null);
+    setShowResult(false);
+  }, [currentQ?.id]);
+
   // Timer effect
   useEffect(() => {
     if (phase !== "playing" || showResult || !currentQ) return;
