@@ -182,7 +182,6 @@ export default function FriendsRoom() {
       username: player.name || "لاعب",
       category: room.categoryId,
       score,
-      total: room.questions.length,
       game_mode: "room",
     });
 
