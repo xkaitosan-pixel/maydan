@@ -266,6 +266,20 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Party Mode button */}
+            <button
+              onClick={() => navigate("/party")}
+              className="w-full h-14 rounded-2xl font-black text-base flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.98] transition-all relative overflow-hidden"
+              style={{ background: "linear-gradient(135deg,#1e1b4b,#312e81)", border: "2px solid rgba(139,92,246,0.5)" }}
+            >
+              <span className="text-2xl">📺</span>
+              <div className="text-right">
+                <p className="text-white font-black text-sm leading-tight">وضع التجمعات</p>
+                <p className="text-purple-300 text-xs font-normal">العب مع الأصدقاء على شاشة كبيرة</p>
+              </div>
+              {!isPremium && <span className="mr-auto bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 text-xs px-2 py-0.5 rounded-full font-bold">جديد ✨</span>}
+            </button>
+
             {/* Quick stats */}
             <div className="grid grid-cols-4 gap-2">
               {[

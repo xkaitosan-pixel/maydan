@@ -1,0 +1,76 @@
+Add a new "Party Mode" (وضع التجمعات) to ميدان app.
+
+HOW IT WORKS:
+- Host opens app and creates a party room
+- A large room code appears (e.g. "MAYDAN-4829")
+- Guests join by going to maydanapp.com/party 
+  and entering the room code
+- No login required for guests - just enter a nickname
+- Host controls the game from their device
+- Questions appear on host screen (meant for TV display)
+- Players answer from their phones
+- Live leaderboard updates after each question
+- Works with Supabase Realtime
+
+SCREENS NEEDED:
+
+1. Party Home (/party):
+   - Two big buttons:
+     * "أنشئ غرفة 📺" (Host)
+     * "انضم لغرفة 🎮" (Guest - enter code)
+
+2. Host Screen (/party/host):
+   - Large room code display (copy/share button)
+   - List of players who joined (live updates)
+   - Category selector
+   - Question count selector (10/20/30)
+   - Big "ابدأ اللعبة 🚀" button
+   - TV-friendly large text design
+   - Shows current question large + timer
+   - Shows live player rankings after each answer
+
+3. Guest Screen (/party/guest):
+   - Enter room code screen
+   - Enter nickname (اسمك)
+   - Waiting room: "في انتظار بدء اللعبة..."
+   - Shows player list
+   - Answer buttons (A/B/C/D) large and easy to tap
+   - Shows your current rank after each question
+   - Final results screen
+
+4. Supabase Realtime:
+   - party_rooms table: code, host_id, status, 
+     category, current_question, settings
+   - party_players table: room_code, nickname, 
+     score, answered_current
+   - Use Supabase Realtime subscriptions for live sync
+
+5. Add "وضع التجمعات 📺" button on home screen
+   (Premium feature - show lock for free users)
+
+Design: Same dark gold/purple theme
+Arabic RTL, large text for TV viewing
+
+Run this SQL in Supabase first:
+CREATE TABLE IF NOT EXISTS party_rooms (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code TEXT UNIQUE NOT NULL,
+  host_id TEXT,
+  status TEXT DEFAULT 'waiting',
+  category TEXT,
+  current_question INT DEFAULT 0,
+  total_questions INT DEFAULT 10,
+  created_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS party_players (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_code TEXT REFERENCES party_rooms(code),
+  nickname TEXT,
+  score INT DEFAULT 0,
+  answered_current BOOLEAN DEFAULT false,
+  last_answer INT,
+  created_at TIMESTAMP DEFAULT now()
+);
+
+Push to GitHub after completing.

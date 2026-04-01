@@ -22,6 +22,9 @@ import Onboarding from "@/pages/Onboarding";
 import Leaderboard from "@/pages/Leaderboard";
 import Profile from "@/pages/Profile";
 import Admin from "@/pages/Admin";
+import Party from "@/pages/Party";
+import PartyHost from "@/pages/PartyHost";
+import PartyGuest from "@/pages/PartyGuest";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -159,7 +162,20 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
 }
 
 function AppRoutes() {
+  const [location] = useLocation();
   const { session, isGuest, isLoading, needsUsername } = useAuth();
+
+  // Party routes are fully public — no login required
+  const isPartyRoute = location.startsWith("/party");
+  if (isPartyRoute) {
+    return (
+      <Switch>
+        <Route path="/party/host" component={PartyHost} />
+        <Route path="/party/guest" component={PartyGuest} />
+        <Route path="/party" component={Party} />
+      </Switch>
+    );
+  }
 
   if (isLoading) return <LoadingScreen />;
 
@@ -186,6 +202,9 @@ function AppRoutes() {
         <Route path="/leaderboard" component={Leaderboard} />
         <Route path="/profile" component={Profile} />
         <Route path="/admin" component={Admin} />
+        <Route path="/party/host" component={PartyHost} />
+        <Route path="/party/guest" component={PartyGuest} />
+        <Route path="/party" component={Party} />
         <Route component={NotFound} />
       </Switch>
     </OnboardingGuard>
