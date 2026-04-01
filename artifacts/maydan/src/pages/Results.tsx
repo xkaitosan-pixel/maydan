@@ -49,7 +49,6 @@ export default function Results() {
           username: supabaseName,
           category: challenge.categoryId,
           score: myScore,
-          total: challenge.questions.length,
           game_mode: "challenge",
         });
         if (dbUser?.id) {
