@@ -189,25 +189,28 @@
 }
 
 .option-btn {
-  transition: all 0.2s ease;
   border: 2px solid hsl(var(--border));
+  /* No base transition — prevents any flash when a fresh button mounts */
 }
 
 .option-btn:hover:not(:disabled) {
   border-color: hsl(45 85% 50% / 0.6);
   background-color: hsl(45 85% 50% / 0.08);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
 .option-btn.correct {
   border-color: hsl(130 60% 45%);
   background-color: hsl(130 60% 45% / 0.15);
   color: hsl(130 60% 65%);
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
 }
 
 .option-btn.wrong {
   border-color: hsl(0 70% 50%);
   background-color: hsl(0 70% 50% / 0.15);
   color: hsl(0 70% 65%);
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
 }
 
 .progress-ring {
