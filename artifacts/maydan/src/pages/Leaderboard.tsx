@@ -32,6 +32,7 @@ export default function Leaderboard() {
   const [category, setCategory] = useState("all");
   const [entries, setEntries] = useState<ScoreEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     setLoading(true);
@@ -40,7 +41,7 @@ export default function Leaderboard() {
       setEntries(data);
       setLoading(false);
     }).catch(() => setLoading(false));
-  }, [tab, category]);
+  }, [tab, category, refreshKey]);
 
   const myRank = myName ? entries.findIndex(e => e.username === myName) + 1 : -1;
 
@@ -54,6 +55,12 @@ export default function Leaderboard() {
       <header className="p-4 flex items-center gap-3 border-b border-border/30">
         <button onClick={() => navigate("/")} className="text-muted-foreground hover:text-foreground text-xl">←</button>
         <h1 className="text-lg font-bold">🏆 لوحة المتصدرين</h1>
+        <button
+          onClick={() => setRefreshKey(k => k + 1)}
+          disabled={loading}
+          className="text-muted-foreground hover:text-foreground text-lg disabled:opacity-40 transition-opacity"
+          title="تحديث"
+        >{loading ? "⏳" : "🔄"}</button>
         {isGuest && (
           <button
             onClick={async () => { await signOut(); }}
@@ -125,14 +132,24 @@ export default function Leaderboard() {
               <p className="text-muted-foreground text-sm">جاري التحميل...</p>
             </div>
           ) : entries.length === 0 ? (
-            <div className="text-center py-16 fade-in-up">
+            <div className="text-center py-14 fade-in-up">
               <p className="text-5xl mb-4">🏆</p>
-              <p className="text-muted-foreground font-bold">لا توجد نتائج بعد</p>
-              <p className="text-xs text-muted-foreground mt-1">العب أي وضع لتظهر هنا!</p>
-              <button
-                onClick={() => navigate("/")}
-                className="mt-5 px-6 py-2.5 rounded-xl gradient-gold text-background font-bold text-sm hover:opacity-90"
-              >العب الآن</button>
+              <p className="text-foreground font-bold">لا يوجد متصدرون بعد</p>
+              <p className="text-xs text-muted-foreground mt-1 px-6">
+                {isGuest
+                  ? "سجّل دخولك وانتهِ من لعبة لتظهر هنا"
+                  : "انتهِ من لعبة بوضع البقاء أو البطولة وستظهر نتيجتك هنا"}
+              </p>
+              <div className="flex flex-col gap-2 items-center mt-5">
+                <button
+                  onClick={() => navigate("/")}
+                  className="px-6 py-2.5 rounded-xl gradient-gold text-background font-bold text-sm hover:opacity-90"
+                >العب الآن</button>
+                <button
+                  onClick={() => setRefreshKey(k => k + 1)}
+                  className="text-xs text-muted-foreground hover:text-foreground mt-1"
+                >🔄 تحديث القائمة</button>
+              </div>
             </div>
           ) : (
             entries.map((e, i) => {
