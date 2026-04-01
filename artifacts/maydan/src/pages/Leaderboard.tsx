@@ -154,7 +154,7 @@ export default function Leaderboard() {
           ) : (
             entries.map((e, i) => {
               const isMe = e.username === myName;
-              const pct = e.total > 0 ? `${Math.round((e.score / e.total) * 100)}%` : `${e.score}`;
+              const pct = (e.total && e.total > 0) ? `${Math.round((e.score / e.total) * 100)}%` : `${e.score} نقطة`;
               return (
                 <div
                   key={e.id}
