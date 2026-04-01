@@ -11,6 +11,21 @@ import StreakMilestone from "@/components/StreakMilestone";
 import RewardBox from "@/components/RewardBox";
 import NotificationBanner from "@/components/NotificationBanner";
 
+const STREAK_POPUP_KEY = "maydan_streak_popup_v1";
+function wasStreakShownToday(milestone: number): boolean {
+  try {
+    const s = localStorage.getItem(STREAK_POPUP_KEY);
+    if (!s) return false;
+    const { date, m } = JSON.parse(s);
+    return date === new Date().toISOString().slice(0, 10) && m === milestone;
+  } catch { return false; }
+}
+function markStreakShown(milestone: number) {
+  localStorage.setItem(STREAK_POPUP_KEY, JSON.stringify({
+    date: new Date().toISOString().slice(0, 10), m: milestone,
+  }));
+}
+
 export default function Home() {
   const [, navigate] = useLocation();
   const { dbUser, isGuest, signOut, refreshUser, googleDisplayName } = useAuth();
@@ -37,7 +52,7 @@ export default function Home() {
         setHasGuestName(true);
       }
       const hit = updateStreak();
-      if (hit) setMilestone(hit);
+      if (hit && !wasStreakShownToday(hit)) { setMilestone(hit); markStreakShown(hit); }
       setStreak(user.streak);
       setLongestStreak(user.longestStreak);
       setNotifications(getActiveNotifications());
@@ -51,7 +66,8 @@ export default function Home() {
           setStreak(result.streak_count);
           setLongestStreak(result.longest_streak);
           // Check milestone
-          if ([3, 7, 30].includes(result.streak_count)) setMilestone(result.streak_count);
+          const ms = result.streak_count;
+          if ([3, 7, 30].includes(ms) && !wasStreakShownToday(ms)) { setMilestone(ms); markStreakShown(ms); }
           refreshUser();
         }
       });
