@@ -84,6 +84,9 @@ export default function PartyGuest() {
   const myIdRef = useRef("");
   const phaseRef = useRef<GuestPhase>("enter_code");
   const questionStartRef = useRef(0);
+  const currentQIdxRef = useRef(-1);
+  // Track last seen DB state to avoid re-triggering transitions on every poll tick
+  const lastSeenRef = useRef({ status: "", qIdx: -1 });
 
   // Cleanup
   useEffect(() => {
@@ -108,14 +111,32 @@ export default function PartyGuest() {
     }
   }
 
-  // ── Polling fallback for player list ─────────────────────────────────────
-  function startPolling(code: string) {
+  // ── PRIMARY: poll party_rooms every 1.5s for all game state ─────────────
+  // Realtime is unreliable; polling is the authoritative sync mechanism.
+  function startRoomPolling(code: string) {
     if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(() => {
-      if (["waiting", "leaderboard", "finished"].includes(phaseRef.current)) {
-        fetchPlayers(code);
-      }
-    }, 2500);
+    pollRef.current = setInterval(async () => {
+      try {
+        const { data: roomData } = await supabase
+          .from("party_rooms").select("*").eq("code", code).single();
+        if (!roomData) return;
+
+        const newStatus = roomData.status as string;
+        const newQIdx = roomData.current_question as number;
+        const last = lastSeenRef.current;
+
+        // Only trigger a phase transition when something actually changed in DB
+        if (newStatus !== last.status || newQIdx !== last.qIdx) {
+          lastSeenRef.current = { status: newStatus, qIdx: newQIdx };
+          handleRoomUpdate(roomData as RoomData);
+        }
+
+        // Always refresh player list in social phases
+        if (["waiting", "leaderboard", "finished", "reveal"].includes(phaseRef.current)) {
+          fetchPlayers(code);
+        }
+      } catch { /* network hiccup, ignore */ }
+    }, 1500);
   }
 
   // ── Step 1: look up room by code ─────────────────────────────────────────
@@ -153,20 +174,31 @@ export default function PartyGuest() {
     const qs = getPartyQuestions(room.code, room.category || "mix", room.total_questions || 10);
     setPartyQs(qs);
 
+    // Seed lastSeen so the first poll doesn't immediately fire a duplicate transition
+    lastSeenRef.current = { status: "lobby", qIdx: 0 };
+
+    // Realtime as secondary speed-boost; polling is the primary driver
     subscribeToRoom(room.code);
     fetchPlayers(room.code);
-    startPolling(room.code);
+    // PRIMARY: poll party_rooms every 1.5s
+    startRoomPolling(room.code);
     phaseRef.current = "waiting";
     setPhase("waiting");
   }
 
-  // ── Realtime subscription ────────────────────────────────────────────────
+  // ── Realtime subscription (secondary / speed-boost only) ─────────────────
+  // Polling is primary. Realtime gives instant response when it works.
   function subscribeToRoom(code: string) {
     const channel = supabase
       .channel("guest-room:" + code + ":" + Math.random())
       .on("postgres_changes",
         { event: "UPDATE", schema: "public", table: "party_rooms", filter: `code=eq.${code}` },
-        (payload) => handleRoomUpdate(payload.new as RoomData))
+        (payload) => {
+          const r = payload.new as RoomData;
+          // Sync lastSeen so polling doesn't re-process this same change
+          lastSeenRef.current = { status: r.status, qIdx: r.current_question };
+          handleRoomUpdate(r);
+        })
       .on("postgres_changes",
         { event: "*", schema: "public", table: "party_players", filter: `room_code=eq.${code}` },
         () => fetchPlayers(code))
@@ -174,15 +206,26 @@ export default function PartyGuest() {
     channelRef.current = channel;
   }
 
-  // ── Handle room status changes ───────────────────────────────────────────
+  // ── Handle room status changes (called by poll AND realtime) ────────────
   function handleRoomUpdate(updatedRoom: RoomData) {
     setRoom(updatedRoom);
     const newStatus = updatedRoom.status;
 
     if (newStatus === "question") {
       const qIdx = updatedRoom.current_question;
+
+      // Guard: this question is already active or answered — don't reset state
+      if (
+        qIdx === currentQIdxRef.current &&
+        (phaseRef.current === "question" ||
+         phaseRef.current === "answered" ||
+         phaseRef.current === "reveal")
+      ) return;
+
+      // New question or first question — show answer buttons
       const now = Date.now();
       questionStartRef.current = now;
+      currentQIdxRef.current = qIdx;
       setCurrentQIdx(qIdx);
       setSelected(null);
       setRoundPoints(null);
@@ -192,23 +235,27 @@ export default function PartyGuest() {
 
     } else if (newStatus === "reveal") {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (phaseRef.current === "reveal") return; // already there
       phaseRef.current = "reveal";
       setPhase("reveal");
       fetchPlayers(updatedRoom.code);
 
     } else if (newStatus === "leaderboard") {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (phaseRef.current === "leaderboard") return;
       phaseRef.current = "leaderboard";
       setPhase("leaderboard");
       fetchPlayers(updatedRoom.code);
 
     } else if (newStatus === "finished") {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (phaseRef.current === "finished") return;
       phaseRef.current = "finished";
       setPhase("finished");
       fetchPlayers(updatedRoom.code);
       playSound("gameover");
     }
+    // "lobby" status → stay on waiting screen, nothing to do
   }
 
   // ── Local countdown timer ────────────────────────────────────────────────
