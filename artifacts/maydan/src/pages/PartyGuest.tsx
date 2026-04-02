@@ -207,12 +207,12 @@ export default function PartyGuest() {
             value={codeInput}
             onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
             onKeyDown={(e) => e.key === "Enter" && lookupRoom()}
-            placeholder="MAYDAN-XXXX"
-            className="w-full h-14 bg-card border-2 border-border rounded-xl px-4 text-center text-foreground text-xl font-black placeholder:text-muted-foreground outline-none focus:border-primary tracking-widest"
-            maxLength={12}
+            placeholder="XXXX"
+            className="w-full h-14 bg-card border-2 border-border rounded-xl px-4 text-center text-foreground text-3xl font-black placeholder:text-muted-foreground outline-none focus:border-primary tracking-widest"
+            maxLength={4}
           />
           {errorMsg && <p className="text-destructive text-sm text-center">{errorMsg}</p>}
-          <button onClick={lookupRoom} disabled={codeInput.length < 6}
+          <button onClick={lookupRoom} disabled={codeInput.length < 4}
             className="w-full h-12 rounded-xl font-black text-background disabled:opacity-40"
             style={{ background: "linear-gradient(135deg,#7c3aed,#8b5cf6)" }}>
             انضم

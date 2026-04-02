@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import StreakMilestone from "@/components/StreakMilestone";
 import RewardBox from "@/components/RewardBox";
 import NotificationBanner from "@/components/NotificationBanner";
+import { toggleTheme, getTheme } from "@/lib/theme";
+import { isSoundEnabled, toggleSound, playClick } from "@/lib/sound";
 
 const STREAK_POPUP_KEY = "maydan_streak_popup_v1";
 function wasStreakShownToday(milestone: number): boolean {
@@ -37,6 +39,20 @@ export default function Home() {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [streak, setStreak] = useState(0);
   const [longestStreak, setLongestStreak] = useState(0);
+  const [isDark, setIsDark] = useState(() => getTheme() === "dark");
+  const [soundOn, setSoundOn] = useState(() => isSoundEnabled());
+
+  function handleThemeToggle() {
+    playClick();
+    toggleTheme();
+    setIsDark((prev) => !prev);
+  }
+
+  function handleSoundToggle() {
+    const next = toggleSound();
+    setSoundOn(next);
+    if (next) playClick();
+  }
 
   // Decide the display name
   const displayName = dbUser?.username ?? (hasGuestName ? guestName : "");
@@ -128,6 +144,18 @@ export default function Home() {
               <span className="text-xs font-bold text-orange-400">{streak}</span>
             </div>
           )}
+          {/* Sound toggle */}
+          <button
+            onClick={handleSoundToggle}
+            className="w-9 h-9 rounded-full bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors text-base"
+            title={soundOn ? "كتم الأصوات" : "تشغيل الأصوات"}
+          >{soundOn ? "🔊" : "🔇"}</button>
+          {/* Theme toggle */}
+          <button
+            onClick={handleThemeToggle}
+            className="w-9 h-9 rounded-full bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors text-base"
+            title={isDark ? "الوضع النهاري" : "الوضع الليلي"}
+          >{isDark ? "🌙" : "☀️"}</button>
           {/* Avatar / User indicator */}
           {!isGuest && dbUser?.avatar_url ? (
             <img
@@ -278,6 +306,20 @@ export default function Home() {
                 <p className="text-purple-300 text-xs font-normal">العب مع الأصدقاء على شاشة كبيرة</p>
               </div>
               {!isPremium && <span className="mr-auto bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 text-xs px-2 py-0.5 rounded-full font-bold">جديد ✨</span>}
+            </button>
+
+            {/* Ranked Mode button */}
+            <button
+              onClick={() => navigate("/ranked")}
+              className="w-full h-14 rounded-2xl font-black text-base flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.98] transition-all relative overflow-hidden"
+              style={{ background: "linear-gradient(135deg,#7c2d12,#c2410c)", border: "2px solid rgba(249,115,22,0.5)" }}
+            >
+              <span className="text-2xl">⚡</span>
+              <div className="text-right">
+                <p className="text-white font-black text-sm leading-tight">تحدي المتصدرين</p>
+                <p className="text-orange-300 text-xs font-normal">1v1 مصنّف — تسابق لتصعيد رتبتك</p>
+              </div>
+              <span className="mr-auto bg-orange-500/20 border border-orange-500/40 text-orange-300 text-xs px-2 py-0.5 rounded-full font-bold">مصنّف ⚡</span>
             </button>
 
             {/* Quick stats */}

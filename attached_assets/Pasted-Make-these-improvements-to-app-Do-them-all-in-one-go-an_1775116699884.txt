@@ -1,0 +1,120 @@
+Make these improvements to ميدان app. 
+Do them all in one go and push to GitHub.
+
+═══════════════════════════════
+FIX 1 - Party Mode bugs:
+═══════════════════════════════
+- Room code must be 4 digits only (e.g. 4829)
+  not "ميدان-4829"
+- Fix guest not appearing in host lobby:
+  Use Supabase Realtime subscription in host screen
+  to listen for new players joining party_players table
+  where room_code matches
+- Fix real-time sync between host and guests
+
+═══════════════════════════════
+FIX 2 - Answer selection persists (all modes):
+═══════════════════════════════
+In Quiz.tsx, Survival.tsx, Tournament.tsx, FriendsRoom.tsx:
+- Add key prop to entire question+answers container
+- Reset ALL answer states on question change:
+  setSelectedAnswer(null)
+  setAnswerState(null)
+  setIsAnswered(false)
+
+═══════════════════════════════
+ADD 1 - Sound effects:
+═══════════════════════════════
+Add subtle sound effects using Web Audio API (no external files):
+- Correct answer: pleasant chime sound
+- Wrong answer: low buzz sound  
+- Timer ticking: subtle tick when < 10 seconds
+- Game over: fanfare sound
+- Button click: soft click sound
+Add sound toggle button 🔊/🔇 in settings/home
+
+═══════════════════════════════
+ADD 2 - Font change:
+═══════════════════════════════
+Change all Arabic text font to "Tajawal" from Google Fonts
+It's more modern and distinctive than the current font
+Import in index.html: 
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+Apply globally: font-family: 'Tajawal', sans-serif;
+
+═══════════════════════════════
+ADD 3 - Ranked Mode (تحدي المتصدرين):
+═══════════════════════════════
+New game mode: Real-time 1v1 Ranked Battle
+
+How it works:
+1. Player selects 3 preferred categories
+2. System finds opponent (any available player)
+3. Game uses randomly selected category
+4. 10 questions, 10 seconds each
+5. Scoring: answer in second 1 = 10pts, 
+   second 2 = 9pts... second 10 = 1pt, no answer = 0pt
+6. After each question: 1.5 second result screen
+   showing both players' answers and points
+7. Question ends immediately when BOTH players answer
+8. Final screen: winner announcement + points breakdown
+9. If opponent disconnects: auto-win after 30 seconds
+
+Matchmaking:
+- Player enters queue → searches for opponent
+- Show "جاري البحث عن خصم..." with animation
+- If no opponent found in 60s → offer Practice mode
+
+Ranked Leaderboard:
+- ONLY ranked mode scores count
+- Weekly season (resets every Sunday)
+- Ranks: برونز🥉 → فضة🥈 → ذهب🥇 → بلاتين💎 → أسطورة👑
+- Points needed: 0/100/300/600/1000
+- Show rank badge on profile
+
+Database - run this SQL in Supabase:
+CREATE TABLE IF NOT EXISTS ranked_queue (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id TEXT,
+  username TEXT,
+  preferred_categories JSONB,
+  rank_points INT DEFAULT 0,
+  status TEXT DEFAULT 'waiting',
+  created_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS ranked_matches (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  player1_id TEXT,
+  player1_name TEXT,
+  player2_id TEXT,
+  player2_name TEXT,
+  category TEXT,
+  status TEXT DEFAULT 'active',
+  current_question INT DEFAULT 0,
+  player1_score INT DEFAULT 0,
+  player2_score INT DEFAULT 0,
+  winner_id TEXT,
+  created_at TIMESTAMP DEFAULT now()
+);
+
+═══════════════════════════════
+ADD 4 - Leaderboard = Ranked only:
+═══════════════════════════════
+- Change leaderboard to show ONLY ranked mode scores
+- Show: rank badge, username, points, wins/losses
+- Weekly tab + All-time tab
+- Other game modes show stats in profile only
+- Add "موسم هذا الأسبوع ينتهي في X أيام" countdown
+
+═══════════════════════════════
+ADD 5 - Light/Dark mode:
+═══════════════════════════════
+Add theme toggle in settings:
+- Dark mode: current dark theme (default)
+- Light mode: white/light gray background, 
+  dark text, gold accents
+- Save preference in localStorage
+- Toggle button in home screen header 🌙/☀️
+
+Push everything to GitHub when done.

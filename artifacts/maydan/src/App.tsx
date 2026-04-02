@@ -25,6 +25,7 @@ import Admin from "@/pages/Admin";
 import Party from "@/pages/Party";
 import PartyHost from "@/pages/PartyHost";
 import PartyGuest from "@/pages/PartyGuest";
+import RankedMode from "@/pages/RankedMode";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -165,14 +166,23 @@ function AppRoutes() {
   const [location] = useLocation();
   const { session, isGuest, isLoading, needsUsername } = useAuth();
 
-  // Party routes are fully public — no login required
+  // Party + Ranked routes are public — no login required
   const isPartyRoute = location.startsWith("/party");
+  const isRankedRoute = location.startsWith("/ranked");
   if (isPartyRoute) {
     return (
       <Switch>
         <Route path="/party/host" component={PartyHost} />
         <Route path="/party/guest" component={PartyGuest} />
         <Route path="/party" component={Party} />
+      </Switch>
+    );
+  }
+
+  if (isRankedRoute) {
+    return (
+      <Switch>
+        <Route path="/ranked" component={RankedMode} />
       </Switch>
     );
   }
@@ -202,9 +212,7 @@ function AppRoutes() {
         <Route path="/leaderboard" component={Leaderboard} />
         <Route path="/profile" component={Profile} />
         <Route path="/admin" component={Admin} />
-        <Route path="/party/host" component={PartyHost} />
-        <Route path="/party/guest" component={PartyGuest} />
-        <Route path="/party" component={Party} />
+        <Route path="/ranked" component={RankedMode} />
         <Route component={NotFound} />
       </Switch>
     </OnboardingGuard>
