@@ -14,6 +14,9 @@ interface RoomData {
   category: string;
   current_question: number;
   total_questions: number;
+  answer_time?: number;
+  show_question_on_phone?: boolean;
+  scoring_type?: string;
 }
 
 interface PlayerRow {
@@ -25,7 +28,7 @@ interface PlayerRow {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const QUESTION_TIME = 20;
+const DEFAULT_QUESTION_TIME = 20;
 const MEDALS = ["🥇", "🥈", "🥉"];
 
 const ANSWER_COLORS = [
@@ -35,8 +38,9 @@ const ANSWER_COLORS = [
   { bg: "#27ae60", dark: "#1e8449", emoji: "🟢", label: "د" },
 ];
 
-function calcPoints(elapsedMs: number): number {
-  const maxMs = QUESTION_TIME * 1000;
+function calcPoints(elapsedMs: number, answerTimeSec: number, scoring: string): number {
+  if (scoring === "equal") return 1000;
+  const maxMs = answerTimeSec * 1000;
   return Math.max(100, Math.round(1000 - (Math.min(elapsedMs, maxMs) / maxMs) * 900));
 }
 
@@ -74,7 +78,7 @@ export default function PartyGuest() {
   const [partyQs, setPartyQs] = useState<typeof questions>([]);
   const [currentQIdx, setCurrentQIdx] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
-  const [timeLeft, setTimeLeft] = useState(QUESTION_TIME);
+  const [timeLeft, setTimeLeft] = useState(DEFAULT_QUESTION_TIME);
   const [allPlayers, setAllPlayers] = useState<PlayerRow[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -258,13 +262,15 @@ export default function PartyGuest() {
     // "lobby" status → stay on waiting screen, nothing to do
   }
 
-  // ── Local countdown timer ────────────────────────────────────────────────
+  // ── Local countdown timer (uses room's answer_time setting) ─────────────
   function startTimer(startMs: number) {
-    setTimeLeft(QUESTION_TIME);
+    // Read room data at call time (polling has updated it by now)
+    const totalSec = room?.answer_time || DEFAULT_QUESTION_TIME;
+    setTimeLeft(totalSec);
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
       const elapsed = (Date.now() - startMs) / 1000;
-      const remaining = Math.max(0, QUESTION_TIME - Math.floor(elapsed));
+      const remaining = Math.max(0, totalSec - Math.floor(elapsed));
       setTimeLeft(remaining);
       if (remaining <= 5 && remaining > 0) playSound("tick");
       if (remaining <= 0) clearInterval(timerRef.current!);
@@ -279,7 +285,9 @@ export default function PartyGuest() {
     const elapsedMs = Date.now() - questionStartRef.current;
     const q = partyQs[currentQIdx];
     const isCorrect = q && idx === q.correct;
-    const pts = isCorrect ? calcPoints(elapsedMs) : 0;
+    const roomAnswerTime = room?.answer_time || DEFAULT_QUESTION_TIME;
+    const roomScoring = room?.scoring_type || "speed";
+    const pts = isCorrect ? calcPoints(elapsedMs, roomAnswerTime, roomScoring) : 0;
 
     setSelected(idx);
     setRoundPoints(pts);
@@ -303,7 +311,8 @@ export default function PartyGuest() {
 
   // ── Derived values ───────────────────────────────────────────────────────
   const currentQ = partyQs[currentQIdx] ?? null;
-  const timerPct = (timeLeft / QUESTION_TIME) * 100;
+  const roomAnswerTime = room?.answer_time || DEFAULT_QUESTION_TIME;
+  const timerPct = (timeLeft / roomAnswerTime) * 100;
   const isDanger = timeLeft <= 5;
   const sorted = [...allPlayers].sort((a, b) => b.score - a.score);
   const myRank = sorted.findIndex(p => p.id === myId) + 1;
@@ -459,9 +468,15 @@ export default function PartyGuest() {
           </div>
         </header>
 
-        {/* Instruction — no question text */}
+        {/* Question text (optional) or instruction */}
         <div className="px-4 py-3 text-center">
-          <p className="text-muted-foreground text-sm font-bold">انظر إلى الشاشة الكبيرة واختر إجابتك 👇</p>
+          {room?.show_question_on_phone && currentQ ? (
+            <div className="bg-card border border-border rounded-xl p-3 mb-2">
+              <p className="text-sm font-bold leading-relaxed">{currentQ.question}</p>
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-sm font-bold">انظر إلى الشاشة الكبيرة واختر إجابتك 👇</p>
+          )}
         </div>
 
         {/* 4 big colored answer buttons */}

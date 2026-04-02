@@ -17,7 +17,6 @@ interface PartyPlayer {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const QUESTION_TIME = 20;
 const MEDALS = ["🥇", "🥈", "🥉"];
 
 const ANSWER_COLORS = [
@@ -52,8 +51,9 @@ function getPartyQuestions(code: string, category: string, count: number) {
   return seededShuffle(pool, code + category).slice(0, Math.min(count, pool.length));
 }
 
-function calcPoints(elapsedMs: number): number {
-  const maxMs = QUESTION_TIME * 1000;
+function calcPoints(elapsedMs: number, answerTimeSec: number, scoring: string): number {
+  if (scoring === "equal") return 1000;
+  const maxMs = answerTimeSec * 1000;
   return Math.max(100, Math.round(1000 - (Math.min(elapsedMs, maxMs) / maxMs) * 900));
 }
 
@@ -94,13 +94,17 @@ export default function PartyHost() {
   const [roomCode, setRoomCode] = useState("");
   const [category, setCategory] = useState("mix");
   const [questionCount, setQuestionCount] = useState(10);
+  const [answerTime, setAnswerTime] = useState(20);
+  const [showQuestionOnPhone, setShowQuestionOnPhone] = useState(false);
+  const [scoringType, setScoringType] = useState<"speed" | "equal">("speed");
   const [players, setPlayers] = useState<PartyPlayer[]>([]);
   const [partyQs, setPartyQs] = useState<typeof questions>([]);
   const [currentQIdx, setCurrentQIdx] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(QUESTION_TIME);
+  const [timeLeft, setTimeLeft] = useState(20);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [questionStartTime, setQuestionStartTime] = useState(0);
+  const [allAnsweredAlert, setAllAnsweredAlert] = useState(false);
 
   // Refs to avoid stale closures
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -110,6 +114,8 @@ export default function PartyHost() {
   const phaseRef = useRef<HostPhase>("setup");
   const currentQIdxRef = useRef(0);
   const partyQsRef = useRef<typeof questions>([]);
+  const answerTimeRef = useRef(20);
+  const scoringTypeRef = useRef<"speed" | "equal">("speed");
 
   // Cleanup on unmount
   useEffect(() => {
@@ -150,12 +156,19 @@ export default function PartyHost() {
     const code = generateCode();
     codeRef.current = code;
 
+    // Sync refs so closures use current settings
+    answerTimeRef.current = answerTime;
+    scoringTypeRef.current = scoringType;
+
     const { error: err } = await supabase.from("party_rooms").insert({
       code,
       status: "lobby",
       category,
       total_questions: questionCount,
       current_question: 0,
+      answer_time: answerTime,
+      show_question_on_phone: showQuestionOnPhone,
+      scoring_type: scoringType,
     });
     if (err) { setError("خطأ في إنشاء الغرفة: " + err.message); setCreating(false); return; }
 
@@ -211,11 +224,12 @@ export default function PartyHost() {
 
   // ── Timer ────────────────────────────────────────────────────────────────
   function startTimer(qIdx: number, startMs: number) {
-    setTimeLeft(QUESTION_TIME);
+    const totalSec = answerTimeRef.current;
+    setTimeLeft(totalSec);
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
       const elapsed = (Date.now() - startMs) / 1000;
-      const remaining = Math.max(0, QUESTION_TIME - Math.floor(elapsed));
+      const remaining = Math.max(0, totalSec - Math.floor(elapsed));
       setTimeLeft(remaining);
       if (remaining <= 5 && remaining > 0) playSound("tick");
       if (remaining <= 0) {
@@ -225,13 +239,17 @@ export default function PartyHost() {
     }, 500);
   }
 
-  // ── Check if all answered ────────────────────────────────────────────────
+  // ── Check if all answered → auto-advance with brief notification ─────────
   useEffect(() => {
     if (phase !== "question") return;
     const total = players.length;
     if (total > 0 && players.every(p => p.answered_current)) {
       if (timerRef.current) clearInterval(timerRef.current);
-      revealAnswers(currentQIdxRef.current, questionStartTime);
+      setAllAnsweredAlert(true);
+      setTimeout(() => {
+        setAllAnsweredAlert(false);
+        revealAnswers(currentQIdxRef.current, questionStartTime);
+      }, 1500);
     }
   }, [players, phase]);
 
@@ -255,7 +273,7 @@ export default function PartyHost() {
       for (const p of allPlayers as PartyPlayer[]) {
         if (p.last_answer === q.correct && p.answered_current) {
           const elapsed = (Date.now() - startMs);
-          const pts = calcPoints(elapsed);
+          const pts = calcPoints(elapsed, answerTimeRef.current, scoringTypeRef.current);
           await supabase.from("party_players")
             .update({ score: p.score + pts })
             .eq("id", p.id);
@@ -294,7 +312,7 @@ export default function PartyHost() {
   // ── Derived values ───────────────────────────────────────────────────────
   const currentQ = partyQs[currentQIdx] ?? null;
   const answeredCount = players.filter(p => p.answered_current).length;
-  const timerPct = (timeLeft / QUESTION_TIME) * 100;
+  const timerPct = (timeLeft / (answerTimeRef.current || 20)) * 100;
   const isDanger = timeLeft <= 5;
   const sorted = [...players].sort((a, b) => b.score - a.score);
 
@@ -311,15 +329,17 @@ export default function PartyHost() {
       ...CATEGORIES.filter(c => !c.isPremium).map(c => ({ id: c.id, name: c.name, icon: c.icon })),
     ];
     return (
-      <div className="min-h-screen gradient-hero flex flex-col p-5 gap-6">
+      <div className="min-h-screen gradient-hero flex flex-col p-5 gap-5 overflow-y-auto pb-8">
         <header className="flex items-center gap-3">
           <button onClick={() => navigate("/party")} className="text-muted-foreground text-xl">←</button>
           <h1 className="text-lg font-black">📺 إعداد اللعبة</h1>
         </header>
 
-        <div className="space-y-6">
-          <div>
-            <p className="text-xs text-muted-foreground font-bold mb-3">الفئة</p>
+        <div className="space-y-4">
+
+          {/* Category */}
+          <div className="bg-card border border-border rounded-2xl p-4">
+            <p className="text-xs text-muted-foreground font-bold mb-3">🎲 الفئة</p>
             <div className="flex flex-wrap gap-2">
               {cats.map(c => (
                 <button key={c.id} onClick={() => setCategory(c.id)}
@@ -330,16 +350,63 @@ export default function PartyHost() {
             </div>
           </div>
 
-          <div>
-            <p className="text-xs text-muted-foreground font-bold mb-3">عدد الأسئلة</p>
-            <div className="flex gap-3">
-              {[10, 15, 20].map(n => (
+          {/* Question count */}
+          <div className="bg-card border border-border rounded-2xl p-4">
+            <p className="text-xs text-muted-foreground font-bold mb-3">🎯 عدد الأسئلة</p>
+            <div className="flex gap-2">
+              {[5, 10, 15, 20].map(n => (
                 <button key={n} onClick={() => setQuestionCount(n)}
-                  className={`flex-1 py-4 rounded-xl font-black text-lg border transition-all ${questionCount === n ? "text-background border-primary" : "bg-card border-border text-muted-foreground"}`}
-                  style={questionCount === n ? { background: "linear-gradient(135deg,#d97706,#f59e0b)" } : {}}>
+                  className={`flex-1 h-11 rounded-xl font-black text-base border transition-all ${questionCount === n ? "bg-primary text-background border-primary" : "bg-background border-border text-foreground"}`}>
                   {n}
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Answer time */}
+          <div className="bg-card border border-border rounded-2xl p-4">
+            <p className="text-xs text-muted-foreground font-bold mb-3">⏱️ وقت الإجابة (ثانية)</p>
+            <div className="flex gap-2 flex-wrap">
+              {[5, 10, 15, 20, 30, 60].map(n => (
+                <button key={n} onClick={() => setAnswerTime(n)}
+                  className={`flex-1 min-w-[44px] h-11 rounded-xl font-black text-base border transition-all ${answerTime === n ? "bg-primary text-background border-primary" : "bg-background border-border text-foreground"}`}>
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Show question on phone */}
+          <div className="bg-card border border-border rounded-2xl p-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-bold">📱 إظهار السؤال على الجوال</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {showQuestionOnPhone ? "اللاعبون يرون السؤال على هواتفهم" : "وضع كاهوت — انظر للشاشة الكبيرة"}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowQuestionOnPhone(v => !v)}
+                className={`relative w-12 h-7 rounded-full flex-shrink-0 transition-colors duration-200 ${showQuestionOnPhone ? "bg-primary" : "bg-muted"}`}>
+                <span className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${showQuestionOnPhone ? "translate-x-6" : "translate-x-1"}`} />
+              </button>
+            </div>
+          </div>
+
+          {/* Scoring type */}
+          <div className="bg-card border border-border rounded-2xl p-4">
+            <p className="text-xs text-muted-foreground font-bold mb-3">🏆 نظام النقاط</p>
+            <div className="flex gap-3">
+              <button onClick={() => setScoringType("speed")}
+                className={`flex-1 py-3 rounded-xl border font-bold text-sm transition-all ${scoringType === "speed" ? "bg-primary text-background border-primary" : "bg-background border-border text-foreground"}`}>
+                <div>⚡ سريع</div>
+                <div className="text-xs font-normal opacity-70 mt-0.5">الأسرع يحصل أكثر</div>
+              </button>
+              <button onClick={() => setScoringType("equal")}
+                className={`flex-1 py-3 rounded-xl border font-bold text-sm transition-all ${scoringType === "equal" ? "bg-primary text-background border-primary" : "bg-background border-border text-foreground"}`}>
+                <div>⚖️ عادل</div>
+                <div className="text-xs font-normal opacity-70 mt-0.5">الكل يحصل 1000</div>
+              </button>
             </div>
           </div>
 
@@ -378,14 +445,22 @@ export default function PartyHost() {
         {/* Settings summary */}
         <div className="flex gap-2 justify-center flex-wrap">
           <span className="text-xs px-3 py-1 rounded-full bg-card border border-border text-muted-foreground">
-            {CATEGORIES.find(c => c.id === category)?.icon || "🌐"} {CATEGORIES.find(c => c.id === category)?.name || "مزيج"}
+            {category === "mix" ? "🌐 مزيج" : `${CATEGORIES.find(c => c.id === category)?.icon || ""} ${CATEGORIES.find(c => c.id === category)?.name || ""}`}
           </span>
           <span className="text-xs px-3 py-1 rounded-full bg-card border border-border text-muted-foreground">
-            ❓ {questionCount} سؤال
+            🎯 {questionCount} سؤال
           </span>
           <span className="text-xs px-3 py-1 rounded-full bg-card border border-border text-muted-foreground">
-            ⏱️ {QUESTION_TIME}ث لكل سؤال
+            ⏱️ {answerTime}ث
           </span>
+          <span className="text-xs px-3 py-1 rounded-full bg-card border border-border text-muted-foreground">
+            {scoringType === "speed" ? "⚡ سريع" : "⚖️ عادل"}
+          </span>
+          {showQuestionOnPhone && (
+            <span className="text-xs px-3 py-1 rounded-full bg-primary/10 border border-primary/30 text-primary">
+              📱 سؤال على الجوال
+            </span>
+          )}
         </div>
 
         {/* Live player list */}
@@ -427,17 +502,36 @@ export default function PartyHost() {
   // ── QUESTION (TV screen) ─────────────────────────────────────────────────
   if (phase === "question" && currentQ) {
     return (
-      <div className="min-h-screen gradient-hero flex flex-col">
+      <div className="min-h-screen gradient-hero flex flex-col party-host-screen">
+        <style>{`
+          @media (orientation: landscape) and (max-height: 500px) {
+            .party-host-screen .tv-question { font-size: 1.5rem !important; }
+            .party-host-screen .tv-timer   { font-size: 3rem !important; }
+            .party-host-screen .tv-answers { grid-template-columns: 1fr 1fr !important; }
+            .party-host-screen .tv-answer-box { min-height: 60px !important; padding: 8px !important; }
+            .party-host-screen .tv-answer-text { font-size: 0.9rem !important; }
+          }
+        `}</style>
+
+        {/* All-answered celebration banner */}
+        {allAnsweredAlert && (
+          <div className="fixed inset-x-0 top-4 z-50 flex justify-center px-4">
+            <div className="bg-green-500 text-white px-6 py-3 rounded-2xl font-black text-lg shadow-2xl animate-bounce">
+              أجاب الجميع! 🎉
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <header className="p-3 border-b border-border/30">
           <div className="flex justify-between items-center mb-2">
             <span className="text-xs text-muted-foreground font-bold px-2 py-1 bg-card rounded-lg">
               {currentQIdx + 1} / {partyQs.length}
             </span>
-            <span className={`text-4xl font-black tabular-nums ${isDanger ? "timer-danger" : "text-primary"}`}>
+            <span className={`text-4xl font-black tabular-nums tv-timer ${isDanger ? "timer-danger" : "text-primary"}`}>
               {timeLeft}
             </span>
-            <span className="text-xs px-2 py-1 bg-card rounded-lg text-muted-foreground">
+            <span className={`text-xs px-2 py-1 rounded-lg font-bold ${answeredCount === players.length ? "bg-green-500/20 text-green-400 border border-green-500/30" : "bg-card text-muted-foreground"}`}>
               {answeredCount}/{players.length} أجابوا
             </span>
           </div>
@@ -453,17 +547,17 @@ export default function PartyHost() {
         {/* Question */}
         <div className="px-4 py-5">
           <div className="bg-card border border-border rounded-2xl p-5 text-center min-h-[80px] flex items-center justify-center">
-            <p className="text-xl font-black leading-relaxed">{currentQ.question}</p>
+            <p className="text-xl font-black leading-relaxed tv-question">{currentQ.question}</p>
           </div>
         </div>
 
         {/* 4 colored answer boxes */}
-        <div className="flex-1 px-4 pb-4 grid grid-cols-2 gap-3">
+        <div className="flex-1 px-4 pb-4 grid grid-cols-2 gap-3 tv-answers">
           {ANSWER_COLORS.map((color, idx) => (
-            <div key={idx} className="rounded-2xl flex flex-col items-center justify-center p-4 text-white font-black text-center min-h-[90px]"
+            <div key={idx} className="rounded-2xl flex flex-col items-center justify-center p-4 text-white font-black text-center min-h-[90px] tv-answer-box"
               style={{ background: `linear-gradient(135deg,${color.bg},${color.dark})` }}>
               <span className="text-2xl">{color.emoji}</span>
-              <span className="text-base mt-1 leading-tight">{currentQ.options[idx]}</span>
+              <span className="text-base mt-1 leading-tight tv-answer-text">{currentQ.options[idx]}</span>
             </div>
           ))}
         </div>
