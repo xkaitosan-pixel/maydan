@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useParams } from "wouter";
 import { questions, getCategoryById } from "@/lib/questions";
 import { getChallenge, saveChallenge, getOrCreateUser, recordGamePlayed, recordCategoryAnswers, getAvailablePowerCards, useSkipCard, useTimeCard } from "@/lib/storage";
+import { playCorrect, playWrong, playTick } from "@/lib/sound";
 
 const QUESTION_TIME = 30;
 
@@ -81,9 +82,11 @@ export default function Quiz() {
           newAnswers[currentIndex] = null;
           setAnswers(newAnswers);
           setShowResult(true);
+          playWrong();
           setTimeout(() => goToNextQuestion(newAnswers), 1200);
           return 0;
         }
+        if (prev <= 5) playTick();
         return prev - 1;
       });
     }, 1000);
@@ -98,6 +101,9 @@ export default function Quiz() {
     const newAnswers = [...answers];
     newAnswers[currentIndex] = optionIndex;
     setAnswers(newAnswers);
+    // Play sound based on correctness
+    if (optionIndex === currentQuestion?.correct) playCorrect();
+    else playWrong();
     setTimeout(() => goToNextQuestion(newAnswers), 1200);
   }
 
