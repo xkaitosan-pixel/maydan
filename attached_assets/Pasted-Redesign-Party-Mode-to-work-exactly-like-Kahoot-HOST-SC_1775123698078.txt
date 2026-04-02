@@ -1,0 +1,79 @@
+Redesign Party Mode to work exactly like Kahoot.
+
+HOST SCREEN (designed for TV/big screen):
+1. Lobby screen:
+   - Large room code in center (4 digits)
+   - Live list of players joining with animation
+   - "ابدأ اللعبة" button when ready
+   - Game settings: category, number of questions
+
+2. Question screen (TV display):
+   - Large question text in center
+   - 4 colored answer boxes (no text on host screen)
+     * Red (A), Blue (B), Yellow (C), Green (D)
+   - Countdown timer (big, animated)
+   - "X لاعب أجاب" live counter
+   - Auto-advance when all answer OR timer ends
+
+3. Answer reveal screen (3 seconds):
+   - Show correct answer highlighted
+   - Show how many picked each option (bar chart)
+   - Show top 3 players instantly
+
+4. Leaderboard screen (between questions):
+   - Top 5 players with scores
+   - Animated ranking changes
+   - "السؤال التالي" button for host
+
+5. Final podium screen:
+   - 🥇🥈🥉 top 3 players
+   - Confetti animation
+   - Share results button
+
+GUEST SCREEN (phone):
+1. Join screen:
+   - Enter 4-digit code
+   - Enter nickname (اسمك)
+   
+2. Waiting room:
+   - "في انتظار بدء اللعبة..."
+   - Show other players joining
+   - Your nickname displayed
+
+3. Answer screen:
+   - 4 large colored buttons matching host colors:
+     * 🔴 A  🔵 B
+     * 🟡 C  🟢 D
+   - NO question text on phone (look at TV!)
+   - Big timer countdown
+   - After answering: show "✓ تم الإجابة" 
+
+4. Result screen (after each question):
+   - Correct/Wrong indication
+   - Points earned this round
+   - Current rank "أنت في المركز X"
+
+5. Final screen:
+   - Your final rank and score
+   - Podium if top 3
+
+SCORING (Kahoot style):
+- Correct + fast = more points
+- Max 1000 points per question
+- Speed bonus: answer in 1s = 1000pts, 
+  10s = 100pts (linear scale)
+- Wrong answer = 0 points
+
+REALTIME SYNC:
+- Use Supabase Realtime for all state changes
+- party_rooms: tracks game phase and current question
+- party_players: tracks scores and answers
+- Host controls all transitions
+- Guests only see answer buttons
+
+Add these columns to party_rooms:
+ALTER TABLE party_rooms ADD COLUMN IF NOT EXISTS phase TEXT DEFAULT 'lobby';
+ALTER TABLE party_rooms ADD COLUMN IF NOT EXISTS question_start_time BIGINT;
+ALTER TABLE party_rooms ADD COLUMN IF NOT EXISTS show_results BOOLEAN DEFAULT false;
+
+Push to GitHub after completing.
