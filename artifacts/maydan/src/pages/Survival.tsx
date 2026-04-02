@@ -5,6 +5,7 @@ import CategoryCard from "@/components/CategoryCard";
 import { recordSurvivalGame, recordCategoryAnswers, getSurvivalRank, getAvailablePowerCards, useSkipCard, useTimeCard, getOrCreateUser, addLeaderboardEntry } from "@/lib/storage";
 import { insertScore, updateUserStats } from "@/lib/db";
 import { useAuth } from "@/lib/AuthContext";
+import { playSound } from "@/lib/sound";
 
 const LIVES_START = 3;
 const BASE_TIME = 30;
@@ -96,10 +97,10 @@ export default function Survival() {
       setTimeLeft(prev => {
         if (prev <= 1) {
           clearInterval(timerRef.current!);
-          // Time out = wrong
           handleTimeOut();
           return 0;
         }
+        if (prev <= 5) playSound("tick");
         return prev - 1;
       });
     }, 1000);
@@ -111,6 +112,7 @@ export default function Survival() {
     if (timerRef.current) clearInterval(timerRef.current);
     if (!currentQ) return;
     setShowResult(true);
+    playSound("wrong");
     setTotalAnswers(prev => ({ ...prev, [currentQ.category]: (prev[currentQ.category] || 0) + 1 }));
 
     setLives(prev => {
@@ -132,6 +134,7 @@ export default function Survival() {
     setShowResult(true);
 
     const isCorrect = idx === currentQ.correct;
+    playSound(isCorrect ? "correct" : "wrong");
     const cat = currentQ.category;
     setTotalAnswers(prev => ({ ...prev, [cat]: (prev[cat] || 0) + 1 }));
 

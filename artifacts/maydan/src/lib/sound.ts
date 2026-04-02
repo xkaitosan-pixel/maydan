@@ -1,33 +1,29 @@
-// ── AudioContext — created on first user gesture, never on load ───────────────
+// ── AudioContext ─────────────────────────────────────────────────────────────
+// Created lazily on ANY user gesture — never at module load.
+// getCtx() is safe to call from within event handlers: it auto-creates if needed.
 
 let _ctx: AudioContext | null = null;
-let _initialized = false;
 
 function getCtx(): AudioContext | null {
-  if (!_ctx) return null;
+  if (!_ctx) {
+    try {
+      _ctx = new AudioContext();
+    } catch { return null; }
+  }
   if (_ctx.state === "suspended") {
     _ctx.resume().catch(() => {});
   }
   return _ctx;
 }
 
-function createCtx() {
-  if (_ctx) return;
-  try {
-    _ctx = new AudioContext();
-    if (_ctx.state === "suspended") _ctx.resume().catch(() => {});
-  } catch { /* unsupported */ }
-}
-
 /**
- * Call once (e.g. in main.tsx or App.tsx) to wire up the first-gesture
- * listener that unlocks AudioContext for the rest of the session.
+ * Optionally call once at startup to pre-register a capture listener that
+ * creates the AudioContext on the very first gesture — ensures it is ready
+ * even before the first playSound call.
  */
 export function initSoundOnFirstGesture() {
-  if (_initialized) return;
-  _initialized = true;
   const unlock = () => {
-    createCtx();
+    getCtx(); // warm up context
     document.removeEventListener("click", unlock, true);
     document.removeEventListener("touchstart", unlock, true);
     document.removeEventListener("keydown", unlock, true);
@@ -56,7 +52,7 @@ export function toggleSound(): boolean {
   return next;
 }
 
-// ── Primitive tone builder ────────────────────────────────────────────────────
+// ── Core tone builder ─────────────────────────────────────────────────────────
 
 function tone(
   freq: number,
@@ -64,16 +60,15 @@ function tone(
   type: OscillatorType = "sine",
   vol = 0.25,
   delayS = 0,
-  freqEnd?: number,   // optional frequency ramp end value
+  freqEnd?: number,
 ) {
   if (!getSoundEnabled()) return;
-  const c = getCtx();
+  const c = getCtx();          // auto-creates context inside any gesture
   if (!c) return;
   try {
     const now = c.currentTime;
     const osc = c.createOscillator();
     const gain = c.createGain();
-
     osc.connect(gain);
     gain.connect(c.destination);
 
@@ -84,7 +79,7 @@ function tone(
     }
 
     gain.gain.setValueAtTime(0, now + delayS);
-    gain.gain.linearRampToValueAtTime(vol, now + delayS + 0.005); // quick attack
+    gain.gain.linearRampToValueAtTime(vol, now + delayS + 0.005);
     gain.gain.setValueAtTime(vol, now + delayS + dur * 0.7);
     gain.gain.exponentialRampToValueAtTime(0.001, now + delayS + dur);
 
@@ -93,25 +88,25 @@ function tone(
   } catch { /* ignore */ }
 }
 
-// ── Sound effects ─────────────────────────────────────────────────────────────
+// ── Named effects ─────────────────────────────────────────────────────────────
 
-/** Two quick ascending tones: C5 → E5 */
+/** Two ascending tones: C5 → E5 */
 export function playCorrect() {
-  tone(523, 0.15, "sine", 0.3);          // C5
-  tone(659, 0.15, "sine", 0.3, 0.18);   // E5
+  tone(523, 0.15, "sine", 0.3);
+  tone(659, 0.15, "sine", 0.3, 0.18);
 }
 
-/** One low descending tone: E3 → C3 */
+/** Descending sawtooth: E3 → C3 */
 export function playWrong() {
-  tone(165, 0.3, "sawtooth", 0.25, 0, 131); // E3 ramps to C3
+  tone(165, 0.3, "sawtooth", 0.25, 0, 131);
 }
 
-/** Very short tick: 800 Hz, 50 ms */
+/** Short tick: 800 Hz, 50 ms */
 export function playClick() {
   tone(800, 0.05, "sine", 0.15);
 }
 
-/** Soft timer warning tick: 600 Hz, 80 ms */
+/** Soft timer warning: 600 Hz, 80 ms */
 export function playTick() {
   tone(600, 0.08, "sine", 0.1);
 }
@@ -124,4 +119,19 @@ export function playGameOver() {
 /** Match-found chime */
 export function playMatchFound() {
   [440, 550, 660].forEach((f, i) => tone(f, 0.2, "sine", 0.28, i * 0.12));
+}
+
+/**
+ * Unified helper — accepts 'correct' | 'wrong' | 'click' | 'tick' | 'gameover'.
+ * Also used as a test sound: playSound('click') from the toggle button.
+ */
+export function playSound(type: "correct" | "wrong" | "click" | "tick" | "gameover" | "match") {
+  switch (type) {
+    case "correct":  return playCorrect();
+    case "wrong":    return playWrong();
+    case "click":    return playClick();
+    case "tick":     return playTick();
+    case "gameover": return playGameOver();
+    case "match":    return playMatchFound();
+  }
 }

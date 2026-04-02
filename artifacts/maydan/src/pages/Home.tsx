@@ -11,7 +11,7 @@ import StreakMilestone from "@/components/StreakMilestone";
 import RewardBox from "@/components/RewardBox";
 import NotificationBanner from "@/components/NotificationBanner";
 import { toggleTheme, getTheme } from "@/lib/theme";
-import { isSoundEnabled, toggleSound, playClick } from "@/lib/sound";
+import { isSoundEnabled, toggleSound, playClick, playSound } from "@/lib/sound";
 
 const STREAK_POPUP_KEY = "maydan_streak_popup_v1";
 function wasStreakShownToday(milestone: number): boolean {
@@ -51,7 +51,9 @@ export default function Home() {
   function handleSoundToggle() {
     const next = toggleSound();
     setSoundOn(next);
-    if (next) playClick();
+    // Play a test tone immediately when sound is turned ON
+    // getCtx() auto-creates AudioContext inside this gesture, so it always works
+    if (next) playSound("correct");
   }
 
   // Decide the display name
