@@ -71,6 +71,53 @@ html, body, #root {
   }
 }
 
+/* ── Responsive page containers ────────────────────────────────────────── */
+
+/* Narrow content column (quizzes, guest screens): max 640px → 720px */
+.rp-narrow {
+  width: 100%;
+  max-width: 640px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Medium content column (leaderboard, party guest): max 760px */
+.rp-medium {
+  width: 100%;
+  max-width: 760px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Wide content column (home): max 1100px */
+.rp-wide {
+  width: 100%;
+  max-width: 1100px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+@media (min-width: 768px) {
+  /* Larger tap targets on desktop */
+  .desktop-btn {
+    padding-top: 0.875rem;
+    padding-bottom: 0.875rem;
+    font-size: 1.05rem;
+  }
+
+  /* 2-column mode grid on desktop */
+  .modes-grid-desktop {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+  }
+
+  /* Answer boxes bigger on desktop */
+  .answer-btn-desktop {
+    min-height: 5rem;
+    font-size: 1.1rem;
+  }
+}
+
 :root {
   --button-outline: rgba(0,0,0, .10);
   --badge-outline: rgba(0,0,0, .05);

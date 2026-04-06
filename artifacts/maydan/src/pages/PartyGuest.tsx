@@ -327,7 +327,7 @@ export default function PartyGuest() {
           <h1 className="text-3xl font-black text-primary">انضم للعبة</h1>
           <p className="text-muted-foreground text-sm mt-2">أدخل رمز الغرفة المكون من 4 أرقام</p>
         </div>
-        <div className="w-full max-w-sm space-y-4">
+        <div className="w-full max-w-sm md:max-w-md space-y-4">
           <input
             value={codeInput}
             onChange={e => setCodeInput(e.target.value.replace(/\D/g, ""))}
@@ -361,7 +361,7 @@ export default function PartyGuest() {
             الغرفة: <span className="text-primary font-bold">{room?.code}</span>
           </p>
         </div>
-        <div className="w-full max-w-sm space-y-4">
+        <div className="w-full max-w-sm md:max-w-md space-y-4">
           <input
             value={nickname}
             onChange={e => setNickname(e.target.value)}
@@ -446,6 +446,7 @@ export default function PartyGuest() {
 
     return (
       <div className="min-h-screen gradient-hero flex flex-col">
+        <div className="rp-medium flex flex-col flex-1 w-full">
         {/* Timer header */}
         <header className="p-4 border-b border-border/30">
           <div className="flex justify-between items-center mb-2">
@@ -495,6 +496,7 @@ export default function PartyGuest() {
               <span className="text-2xl">{color.label}</span>
             </button>
           ))}
+        </div>
         </div>
       </div>
     );
@@ -555,7 +557,7 @@ export default function PartyGuest() {
             أنت في المركز <span className="font-black text-foreground">#{myRank || "-"}</span>
           </p>
         </div>
-        <div className="w-full max-w-sm space-y-2">
+        <div className="w-full max-w-sm md:max-w-md space-y-2">
           {sorted.slice(0, 5).map((p, i) => (
             <div key={p.id}
               className={`flex items-center gap-3 rounded-2xl px-4 py-3 border ${
@@ -597,7 +599,7 @@ export default function PartyGuest() {
           )}
         </div>
 
-        <div className="w-full max-w-sm space-y-2">
+        <div className="w-full max-w-sm md:max-w-md space-y-2">
           {sorted.map((p, i) => (
             <div key={p.id}
               className={`flex items-center gap-3 rounded-2xl px-4 py-3 border ${

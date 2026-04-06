@@ -231,35 +231,37 @@ export default function Survival() {
         </header>
 
         <div className="flex-1 overflow-y-auto p-4">
-          {/* Rules */}
-          <div className="bg-red-500/10 border border-red-500/25 rounded-2xl p-4 mb-4 text-sm space-y-1.5">
-            <p className="font-bold text-red-400 mb-2">⚔️ قواعد وضع البقاء</p>
-            <p className="text-muted-foreground">❤️ لديك 3 أرواح — الإجابة الخاطئة تُفقدك روحاً</p>
-            <p className="text-muted-foreground">⏱️ الوقت يقل كل 5 إجابات صحيحة (30←25←20←15)</p>
-            <p className="text-muted-foreground">🃏 لديك بطاقتا قوة: تخطي ووقت إضافي</p>
-          </div>
+          <div className="rp-narrow">
+            {/* Rules */}
+            <div className="bg-red-500/10 border border-red-500/25 rounded-2xl p-4 mb-4 text-sm space-y-1.5">
+              <p className="font-bold text-red-400 mb-2">⚔️ قواعد وضع البقاء</p>
+              <p className="text-muted-foreground">❤️ لديك 3 أرواح — الإجابة الخاطئة تُفقدك روحاً</p>
+              <p className="text-muted-foreground">⏱️ الوقت يقل كل 5 إجابات صحيحة (30←25←20←15)</p>
+              <p className="text-muted-foreground">🃏 لديك بطاقتا قوة: تخطي ووقت إضافي</p>
+            </div>
 
-          <p className="text-xs text-muted-foreground mb-3 text-center font-semibold">اختر الفئة</p>
-          <div className="grid grid-cols-2 gap-3">
-            {selectableCats.map(cat => (
-              <CategoryCard
-                key={cat.id}
-                cat={cat as any}
-                isSelected={selectedCategory === cat.id}
-                questionCount={cat.id === "mix" ? 225 : 15}
-                onClick={() => setSelectedCategory(cat.id)}
-                size="small"
-              />
-            ))}
-          </div>
+            <p className="text-xs text-muted-foreground mb-3 text-center font-semibold">اختر الفئة</p>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {selectableCats.map(cat => (
+                <CategoryCard
+                  key={cat.id}
+                  cat={cat as any}
+                  isSelected={selectedCategory === cat.id}
+                  questionCount={cat.id === "mix" ? 225 : 15}
+                  onClick={() => setSelectedCategory(cat.id)}
+                  size="small"
+                />
+              ))}
+            </div>
 
-          <button
-            onClick={startGame}
-            className="w-full h-14 mt-5 rounded-xl text-white font-black text-lg transition-opacity hover:opacity-90"
-            style={{ background: "linear-gradient(135deg, #dc2626, #ef4444)" }}
-          >
-            🏃 ابدأ البقاء
-          </button>
+            <button
+              onClick={startGame}
+              className="w-full h-14 mt-5 rounded-xl text-white font-black text-lg transition-opacity hover:opacity-90"
+              style={{ background: "linear-gradient(135deg, #dc2626, #ef4444)" }}
+            >
+              🏃 ابدأ البقاء
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -343,6 +345,7 @@ export default function Survival() {
 
   return (
     <div className="min-h-screen gradient-hero flex flex-col">
+      <div className="rp-narrow flex flex-col flex-1 w-full">
       {/* Status bar */}
       <header className="p-4 border-b border-border/30 space-y-2">
         <div className="flex justify-between items-center">
@@ -457,6 +460,7 @@ export default function Survival() {
             </button>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

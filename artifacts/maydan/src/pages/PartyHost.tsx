@@ -149,7 +149,8 @@ export default function PartyHost() {
       document.body.style.width = "";
     };
     const check = () => {
-      const land = window.innerWidth > window.innerHeight;
+      // Landscape on mobile OR desktop (≥ 900px width) → use TV layout
+      const land = window.innerWidth > window.innerHeight || window.innerWidth >= 900;
       setIsLandscape(land);
       if (land) lockBody(); else unlockBody();
     };

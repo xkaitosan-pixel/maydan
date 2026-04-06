@@ -52,6 +52,7 @@ export default function Leaderboard() {
 
   return (
     <div className="min-h-screen gradient-hero flex flex-col">
+      <div className="rp-medium flex flex-col flex-1 w-full">
       <header className="p-4 flex items-center gap-3 border-b border-border/30">
         <button onClick={() => navigate("/")} className="text-muted-foreground hover:text-foreground text-xl">←</button>
         <h1 className="text-lg font-bold">🏆 لوحة المتصدرين</h1>
@@ -206,6 +207,7 @@ export default function Leaderboard() {
         <p className="text-center text-xs text-muted-foreground pb-5 px-4">
           {tab === "weekly" ? "🔄 يُعاد الترتيب كل أسبوع" : "🏆 أفضل النتائج عبر كل الأوقات"}
         </p>
+      </div>
       </div>
     </div>
   );
