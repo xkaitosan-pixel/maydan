@@ -1,0 +1,74 @@
+Fix 3 Party Mode bugs with root cause fixes:
+
+BUG 1 - Advances to reveal immediately when question starts:
+Root cause: phase changes before DB reset is complete.
+Fix in PartyHost.tsx - goToQuestion function:
+1. First: UPDATE party_rooms SET phase='loading' 
+2. Wait 500ms
+3. UPDATE party_players SET answered_current=false 
+   WHERE room_code=X
+4. Wait 500ms  
+5. UPDATE party_rooms SET 
+   phase='question',
+   current_question=index,
+   question_start_time=NOW()
+6. Only THEN start the timer
+7. Never allow reveal if phase !== 'question'
+
+BUG 2 - Doesn't auto-advance after all players answer:
+Root cause: Host is checking local React state (stale),
+not fresh DB data.
+Fix in PartyHost.tsx:
+- After each player answers, host must query DB directly:
+  const { count } = await supabase
+    .from('party_players')
+    .select('*', { count: 'exact' })
+    .eq('room_code', roomCode)
+    .eq('answered_current', true)
+  
+  const { data: room } = await supabase
+    .from('party_rooms')
+    .select('total_players')
+    .eq('code', roomCode)
+    .single()
+
+  if (count >= room.total_players && count > 0) {
+    goToReveal()
+  }
+
+- Poll this check every 1 second while phase='question'
+- Add total_players column:
+  ALTER TABLE party_rooms ADD COLUMN IF NOT EXISTS 
+  total_players INT DEFAULT 0;
+- Update total_players when player joins lobby
+
+BUG 3 - Landscape mode shows as square on iPhone:
+Root cause: CSS viewport and overflow issues.
+Fix:
+1. In index.html add:
+<meta name="viewport" content="width=device-width, 
+initial-scale=1.0, minimum-scale=1.0, 
+maximum-scale=1.0, user-scalable=no, 
+viewport-fit=cover">
+
+2. In index.css add:
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  overflow-x: hidden;
+}
+
+3. In PartyHost.tsx landscape layout:
+- Use vw/vh units not fixed pixels
+- width: 100vw, height: 100vh
+- position: fixed, top: 0, left: 0
+- When isLandscape: show 2 column layout
+  Left side: question text (60% width)
+  Right side: timer + answer count (40% width)
+  Bottom: 4 answer boxes in 2x2 grid
+
+Push to GitHub and also run this SQL:
+ALTER TABLE party_rooms ADD COLUMN IF NOT EXISTS 
+total_players INT DEFAULT 0;

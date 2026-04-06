@@ -120,6 +120,8 @@ export default function PartyHost() {
   // Guards to prevent double-reveal (timer race vs all-answered race)
   const revealCalledRef = useRef(false);
   const questionStartMsRef = useRef(0);
+  // Separate poll for DB-direct answered-count check during question phase
+  const answerPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -127,6 +129,7 @@ export default function PartyHost() {
       if (timerRef.current) clearInterval(timerRef.current);
       if (channelRef.current) supabase.removeChannel(channelRef.current);
       if (pollRef.current) clearInterval(pollRef.current);
+      if (answerPollRef.current) clearInterval(answerPollRef.current);
       if (codeRef.current) {
         supabase.from("party_rooms").update({ status: "finished" }).eq("code", codeRef.current);
       }
@@ -213,30 +216,39 @@ export default function PartyHost() {
     if (!roomCode || players.length === 0) return;
     if (pollRef.current) clearInterval(pollRef.current);
     playSound("match");
+    // Lock in total_players count at game start — guests' join won't change it mid-game
+    await supabase.from("party_rooms")
+      .update({ total_players: players.length })
+      .eq("code", codeRef.current);
     await goToQuestion(0);
   }
 
   // ── Transition to a specific question ────────────────────────────────────
   async function goToQuestion(qIdx: number) {
-    // Reset double-reveal guard for the new question
+    // Stop any active answer-poll and timers
+    if (answerPollRef.current) clearInterval(answerPollRef.current);
+    if (timerRef.current) clearInterval(timerRef.current);
+
+    // Reset guards
     revealCalledRef.current = false;
     setAllAnsweredAlert(false);
 
-    // Reset player answers in DB FIRST
+    // Step 1 – Reset all player answers in DB
     await supabase.from("party_players")
       .update({ answered_current: false, last_answer: null })
       .eq("room_code", codeRef.current);
 
-    // Update room status in DB
+    // Step 2 – Wait for DB propagation before we let guests start answering
+    await new Promise(r => setTimeout(r, 500));
+
+    // Step 3 – Set room to 'question' in DB so guests get the new phase
     await supabase.from("party_rooms").update({
       status: "question",
       current_question: qIdx,
     }).eq("code", codeRef.current);
 
-    // Fetch fresh player list so React state has answered_current: false
-    // BEFORE we set phase = "question" (prevents the all-answered effect from
-    // seeing stale answered_current: true data from the previous question)
-    await fetchPlayers(codeRef.current);
+    // Step 4 – Small delay then update local state
+    await new Promise(r => setTimeout(r, 300));
 
     const now = Date.now();
     questionStartMsRef.current = now;
@@ -245,7 +257,56 @@ export default function PartyHost() {
     setQuestionStartTime(now);
     phaseRef.current = "question";
     setPhase("question");
+
+    // Step 5 – Start the visual countdown
     startTimer(qIdx, now);
+
+    // Step 6 – Poll DB directly (not stale React state) every 1s to check all answered
+    startAnswerPolling(codeRef.current);
+  }
+
+  // ── Poll DB for answered count (avoids stale React state entirely) ────────
+  function startAnswerPolling(code: string) {
+    if (answerPollRef.current) clearInterval(answerPollRef.current);
+    answerPollRef.current = setInterval(async () => {
+      // Stop polling if we've moved on
+      if (phaseRef.current !== "question" || revealCalledRef.current) {
+        clearInterval(answerPollRef.current!);
+        return;
+      }
+      try {
+        // Fresh count directly from DB — no stale React state
+        const { count: answeredCount } = await supabase
+          .from("party_players")
+          .select("*", { count: "exact", head: true })
+          .eq("room_code", code)
+          .eq("answered_current", true);
+
+        const { data: roomRow } = await supabase
+          .from("party_rooms")
+          .select("total_players")
+          .eq("code", code)
+          .single();
+
+        const total = roomRow?.total_players ?? 0;
+
+        // Also update the displayed player list for the answered counter
+        if (answeredCount !== null && answeredCount > 0) {
+          fetchPlayers(code);
+        }
+
+        if (answeredCount !== null && total > 0 && answeredCount >= total) {
+          clearInterval(answerPollRef.current!);
+          revealCalledRef.current = true;
+          if (timerRef.current) clearInterval(timerRef.current);
+          setAllAnsweredAlert(true);
+          setTimeout(() => {
+            setAllAnsweredAlert(false);
+            revealAnswers(currentQIdxRef.current, questionStartMsRef.current);
+          }, 1500);
+        }
+      } catch { /* network hiccup, retry next tick */ }
+    }, 1000);
   }
 
   // ── Timer ────────────────────────────────────────────────────────────────
@@ -267,24 +328,8 @@ export default function PartyHost() {
     }, 500);
   }
 
-  // ── Check if all answered → auto-advance with brief notification ─────────
-  useEffect(() => {
-    if (phase !== "question") return;
-    if (revealCalledRef.current) return; // already advancing
-    const total = players.length;
-    const answeredCount = players.filter(p => p.answered_current).length;
-    // Require at least 1 answer AND everyone answered — prevents vacuous-true
-    // from pre-reset stale state at question start
-    if (total > 0 && answeredCount > 0 && answeredCount === total) {
-      revealCalledRef.current = true; // lock to prevent double-fire
-      if (timerRef.current) clearInterval(timerRef.current);
-      setAllAnsweredAlert(true);
-      setTimeout(() => {
-        setAllAnsweredAlert(false);
-        revealAnswers(currentQIdxRef.current, questionStartMsRef.current);
-      }, 1500);
-    }
-  }, [players, phase]);
+  // NOTE: All-answered auto-advance is now handled by startAnswerPolling()
+  // which queries the DB directly every 1s — no more stale React state issues.
 
   // ── Reveal answers & calculate scores ────────────────────────────────────
   const revealAnswers = useCallback(async (qIdx: number, startMs: number) => {
@@ -535,20 +580,130 @@ export default function PartyHost() {
 
   // ── QUESTION (TV screen) ─────────────────────────────────────────────────
   if (phase === "question" && currentQ) {
-    return (
-      <div className={`min-h-screen gradient-hero flex flex-col${isLandscape ? " landscape-host" : ""}`}>
-        <style>{`
-          .landscape-host { overflow: hidden; max-height: 100vh; }
-          .landscape-host header { padding: 6px 12px !important; }
-          .landscape-host .tv-question { font-size: 1.4rem !important; line-height: 1.3 !important; }
-          .landscape-host .tv-timer { font-size: 2.5rem !important; }
-          .landscape-host .tv-question-box { padding: 10px 16px !important; min-height: unset !important; }
-          .landscape-host .tv-answers { display: grid; grid-template-columns: 1fr 1fr !important; gap: 8px !important; padding: 6px !important; }
-          .landscape-host .tv-answer-box { min-height: 55px !important; padding: 8px !important; }
-          .landscape-host .tv-answer-text { font-size: 0.85rem !important; }
-          .landscape-host .tv-skip { padding: 6px !important; }
-        `}</style>
+    const AnswerBoxes = () => (
+      <div className="grid grid-cols-2 gap-2">
+        {ANSWER_COLORS.map((color, idx) => (
+          <div key={idx}
+            className="rounded-2xl flex flex-col items-center justify-center p-3 text-white font-black text-center"
+            style={{ background: `linear-gradient(135deg,${color.bg},${color.dark})`, minHeight: isLandscape ? "15vh" : "90px" }}>
+            <span style={{ fontSize: isLandscape ? "1.5rem" : "1.5rem" }}>{color.emoji}</span>
+            <span style={{ fontSize: isLandscape ? "0.9rem" : "0.9rem", marginTop: "4px", lineHeight: 1.2 }}>{currentQ.options[idx]}</span>
+          </div>
+        ))}
+      </div>
+    );
 
+    if (isLandscape) {
+      // ── LANDSCAPE / TV layout ─────────────────────────────────────────────
+      return (
+        <div style={{
+          position: "fixed", inset: 0,
+          width: "100vw", height: "100vh",
+          display: "flex", flexDirection: "column",
+          overflow: "hidden",
+          background: "hsl(220 20% 8%)",
+        }}>
+          {/* All-answered banner */}
+          {allAnsweredAlert && (
+            <div style={{ position: "absolute", top: 12, left: 0, right: 0, zIndex: 50, display: "flex", justifyContent: "center" }}>
+              <div style={{ background: "#22c55e", color: "white", padding: "10px 28px", borderRadius: 16, fontWeight: 900, fontSize: "1.2rem", boxShadow: "0 4px 24px rgba(0,0,0,0.4)" }}>
+                أجاب الجميع! 🎉
+              </div>
+            </div>
+          )}
+
+          {/* Top row: question (60%) + info panel (40%) */}
+          <div style={{ display: "flex", flex: "0 0 auto", height: "45vh", gap: 12, padding: "12px 12px 6px" }}>
+            {/* Question text — 60% */}
+            <div style={{
+              flex: "0 0 60%",
+              background: "hsl(220 18% 11%)",
+              border: "1px solid hsl(220 15% 18%)",
+              borderRadius: 20,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              padding: "16px 24px", textAlign: "center",
+            }}>
+              <p style={{ fontSize: "clamp(1.1rem, 2.5vw, 2rem)", fontWeight: 900, lineHeight: 1.4, color: "hsl(45 90% 92%)" }}>
+                {currentQ.question}
+              </p>
+            </div>
+
+            {/* Timer + info — 40% */}
+            <div style={{
+              flex: "0 0 40%",
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+              gap: 12,
+            }}>
+              {/* Big timer */}
+              <div style={{
+                fontSize: "clamp(3rem, 8vw, 6rem)",
+                fontWeight: 900,
+                color: isDanger ? "#ef4444" : "hsl(45 85% 50%)",
+                fontVariantNumeric: "tabular-nums",
+                lineHeight: 1,
+              }}>
+                {timeLeft}
+              </div>
+              {/* Progress bar */}
+              <div style={{ width: "80%", height: 10, background: "hsl(220 15% 18%)", borderRadius: 99, overflow: "hidden" }}>
+                <div style={{
+                  height: "100%", borderRadius: 99,
+                  width: `${timerPct}%`,
+                  background: isDanger ? "linear-gradient(90deg,#ef4444,#dc2626)" : "linear-gradient(90deg,#d97706,#f59e0b)",
+                  transition: "width 0.5s linear",
+                }} />
+              </div>
+              {/* Answered count */}
+              <div style={{
+                padding: "8px 20px", borderRadius: 12, fontWeight: 700, fontSize: "1rem",
+                background: answeredCount === players.length ? "rgba(34,197,94,0.15)" : "hsl(220 18% 11%)",
+                border: `1px solid ${answeredCount === players.length ? "rgba(34,197,94,0.4)" : "hsl(220 15% 18%)"}`,
+                color: answeredCount === players.length ? "#4ade80" : "hsl(45 40% 60%)",
+              }}>
+                {answeredCount}/{players.length} أجابوا
+              </div>
+              {/* Question number */}
+              <div style={{ fontSize: "0.8rem", color: "hsl(45 40% 50%)", fontWeight: 700 }}>
+                سؤال {currentQIdx + 1} / {partyQs.length}
+              </div>
+              {/* Skip */}
+              <button onClick={() => {
+                if (!revealCalledRef.current) {
+                  revealCalledRef.current = true;
+                  if (timerRef.current) clearInterval(timerRef.current);
+                  revealAnswers(currentQIdx, questionStartMsRef.current);
+                }
+              }} style={{
+                padding: "6px 16px", borderRadius: 10, border: "1px solid hsl(220 15% 18%)",
+                background: "hsl(220 18% 11%)", color: "hsl(45 40% 60%)", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer",
+              }}>
+                ⏭️ تخطى
+              </button>
+            </div>
+          </div>
+
+          {/* Bottom: 4 answer boxes */}
+          <div style={{ flex: 1, padding: "6px 12px 12px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {ANSWER_COLORS.map((color, idx) => (
+              <div key={idx}
+                style={{
+                  borderRadius: 16,
+                  display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center",
+                  gap: 12, padding: "8px 16px", fontWeight: 900, textAlign: "center",
+                  background: `linear-gradient(135deg,${color.bg},${color.dark})`,
+                }}>
+                <span style={{ fontSize: "1.8rem" }}>{color.emoji}</span>
+                <span style={{ color: "white", fontSize: "clamp(0.8rem, 1.8vw, 1.1rem)", lineHeight: 1.3 }}>{currentQ.options[idx]}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ── PORTRAIT layout ───────────────────────────────────────────────────
+    return (
+      <div className="min-h-screen gradient-hero flex flex-col">
         {/* All-answered celebration banner */}
         {allAnsweredAlert && (
           <div className="fixed inset-x-0 top-4 z-50 flex justify-center px-4">
@@ -564,7 +719,7 @@ export default function PartyHost() {
             <span className="text-xs text-muted-foreground font-bold px-2 py-1 bg-card rounded-lg">
               {currentQIdx + 1} / {partyQs.length}
             </span>
-            <span className={`text-4xl font-black tabular-nums tv-timer ${isDanger ? "timer-danger" : "text-primary"}`}>
+            <span className={`text-4xl font-black tabular-nums ${isDanger ? "timer-danger" : "text-primary"}`}>
               {timeLeft}
             </span>
             <span className={`text-xs px-2 py-1 rounded-lg font-bold ${answeredCount === players.length ? "bg-green-500/20 text-green-400 border border-green-500/30" : "bg-card text-muted-foreground"}`}>
@@ -582,20 +737,14 @@ export default function PartyHost() {
 
         {/* Question */}
         <div className="px-4 py-5">
-          <div className="bg-card border border-border rounded-2xl p-5 text-center min-h-[80px] flex items-center justify-center tv-question-box">
-            <p className="text-xl font-black leading-relaxed tv-question">{currentQ.question}</p>
+          <div className="bg-card border border-border rounded-2xl p-5 text-center min-h-[80px] flex items-center justify-center">
+            <p className="text-xl font-black leading-relaxed">{currentQ.question}</p>
           </div>
         </div>
 
         {/* 4 colored answer boxes */}
-        <div className="flex-1 px-4 pb-4 grid grid-cols-2 gap-3 tv-answers">
-          {ANSWER_COLORS.map((color, idx) => (
-            <div key={idx} className="rounded-2xl flex flex-col items-center justify-center p-4 text-white font-black text-center min-h-[90px] tv-answer-box"
-              style={{ background: `linear-gradient(135deg,${color.bg},${color.dark})` }}>
-              <span className="text-2xl">{color.emoji}</span>
-              <span className="text-base mt-1 leading-tight tv-answer-text">{currentQ.options[idx]}</span>
-            </div>
-          ))}
+        <div className="flex-1 px-4 pb-4">
+          <AnswerBoxes />
         </div>
 
         {/* Skip button */}
