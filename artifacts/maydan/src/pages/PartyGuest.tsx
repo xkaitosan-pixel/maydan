@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { supabase } from "@/lib/supabase";
 import { questions } from "@/lib/questions";
+import QuestionImage from "@/components/QuestionImage";
 import { playSound } from "@/lib/sound";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -469,8 +470,11 @@ export default function PartyGuest() {
           </div>
         </header>
 
-        {/* Question text (optional) or instruction */}
+        {/* Question image (always shown if present) + text (optional) */}
         <div className="px-4 py-3 text-center">
+          {currentQ?.image_url && (
+            <QuestionImage url={currentQ.image_url} maxHeight={150} className="mb-2" />
+          )}
           {room?.show_question_on_phone && currentQ ? (
             <div className="bg-card border border-border rounded-xl p-3 mb-2">
               <p className="text-sm font-bold leading-relaxed">{currentQ.question}</p>

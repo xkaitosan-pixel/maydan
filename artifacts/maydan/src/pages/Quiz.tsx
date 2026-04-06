@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useParams } from "wouter";
 import { questions, getCategoryById } from "@/lib/questions";
+import QuestionImage from "@/components/QuestionImage";
 import { getChallenge, saveChallenge, getOrCreateUser, recordGamePlayed, recordCategoryAnswers, getAvailablePowerCards, useSkipCard, useTimeCard } from "@/lib/storage";
 import { playCorrect, playWrong, playTick } from "@/lib/sound";
 
@@ -246,6 +247,9 @@ export default function Quiz() {
           </div>
 
           <div className="bg-card border border-border rounded-2xl p-5 mb-4 text-center slide-in">
+            {currentQuestion.image_url && (
+              <QuestionImage url={currentQuestion.image_url} maxHeight={200} className="mb-3" />
+            )}
             <p className="text-lg font-bold leading-relaxed">{currentQuestion.question}</p>
           </div>
 

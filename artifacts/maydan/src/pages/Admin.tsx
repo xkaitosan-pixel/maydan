@@ -185,6 +185,44 @@ function QuestionModal({
               </select>
             </div>
           </div>
+
+          {/* Image URL */}
+          <div>
+            <label className="text-xs font-medium text-white/60 mb-2 block">
+              🖼️ رابط الصورة <span className="text-white/30">(اختياري)</span>
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="url"
+                value={draft.image_url ?? ""}
+                onChange={(e) => setDraft((p) => ({ ...p, image_url: e.target.value || undefined }))}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm text-white border border-white/10"
+                style={{ background: "hsl(220 20% 18%)" }}
+                placeholder="https://..."
+                dir="ltr"
+              />
+              {draft.image_url && (
+                <button
+                  type="button"
+                  onClick={() => setDraft((p) => ({ ...p, image_url: undefined }))}
+                  className="w-10 h-10 rounded-xl flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 border border-white/10 flex-shrink-0"
+                  title="حذف الصورة"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            {draft.image_url && (
+              <div className="mt-3 rounded-xl overflow-hidden border border-white/10 bg-white/5 flex items-center justify-center" style={{ minHeight: 80 }}>
+                <img
+                  src={draft.image_url}
+                  alt="معاينة"
+                  className="max-h-40 object-contain rounded-xl"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                />
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Modal footer */}
@@ -314,13 +352,14 @@ export default function Admin() {
       q = { ...q, id: maxId + 1 };
     }
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       id: q.id,
       question: q.question,
       options: q.options,
       correct: q.correct,
       category: q.category,
       difficulty: q.difficulty,
+      image_url: q.image_url ?? null,
     };
 
     if (dbConnected) {

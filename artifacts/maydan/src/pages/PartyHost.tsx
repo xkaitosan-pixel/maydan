@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { supabase } from "@/lib/supabase";
 import { questions, CATEGORIES } from "@/lib/questions";
+import QuestionImage from "@/components/QuestionImage";
 import { playSound } from "@/lib/sound";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -638,9 +639,12 @@ export default function PartyHost() {
               background: "hsl(220 18% 11%)",
               border: "1px solid hsl(220 15% 18%)",
               borderRadius: 20,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              padding: "16px 24px", textAlign: "center",
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+              padding: "16px 24px", textAlign: "center", gap: 12, overflow: "hidden",
             }}>
+              {currentQ.image_url && (
+                <QuestionImage url={currentQ.image_url} maxHeight={300} className="w-full" />
+              )}
               <p style={{ fontSize: "clamp(1.1rem, 2.5vw, 2rem)", fontWeight: 900, lineHeight: 1.4, color: "hsl(45 90% 92%)" }}>
                 {currentQ.question}
               </p>
@@ -755,7 +759,10 @@ export default function PartyHost() {
 
         {/* Question */}
         <div className="px-4 py-5">
-          <div className="bg-card border border-border rounded-2xl p-5 text-center min-h-[80px] flex items-center justify-center">
+          <div className="bg-card border border-border rounded-2xl p-5 text-center">
+            {currentQ.image_url && (
+              <QuestionImage url={currentQ.image_url} maxHeight={200} className="mb-3" />
+            )}
             <p className="text-xl font-black leading-relaxed">{currentQ.question}</p>
           </div>
         </div>

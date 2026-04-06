@@ -5,6 +5,7 @@ export interface Question {
   correct: number;
   category: string;
   difficulty: "easy" | "medium" | "hard";
+  image_url?: string;
 }
 
 export interface Category {

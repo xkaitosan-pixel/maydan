@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { questions, CATEGORIES, getQuestionsByCategory, getCategoryById, Question } from "@/lib/questions";
+import QuestionImage from "@/components/QuestionImage";
 import CategoryCard from "@/components/CategoryCard";
 import { recordSurvivalGame, recordCategoryAnswers, getSurvivalRank, getAvailablePowerCards, useSkipCard, useTimeCard, getOrCreateUser, addLeaderboardEntry } from "@/lib/storage";
 import { insertScore, updateUserStats } from "@/lib/db";
@@ -404,6 +405,9 @@ export default function Survival() {
 
           {/* Question */}
           <div className="bg-card border border-border rounded-2xl p-5 mb-4 text-center slide-in">
+            {currentQ.image_url && (
+              <QuestionImage url={currentQ.image_url} maxHeight={200} className="mb-3" />
+            )}
             <p className="text-lg font-bold leading-relaxed">{currentQ.question}</p>
           </div>
 
