@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
-import { questions, CATEGORIES, getQuestionsByCategory, getCategoryById, Question } from "@/lib/questions";
+import { CATEGORIES, getCategoryById, Question } from "@/lib/questions";
+import { fetchGameQuestions } from "@/lib/questionService";
 import QuestionImage from "@/components/QuestionImage";
 import CategoryCard from "@/components/CategoryCard";
 import { recordSurvivalGame, recordCategoryAnswers, getSurvivalRank, getAvailablePowerCards, useSkipCard, useTimeCard, getOrCreateUser, addLeaderboardEntry } from "@/lib/storage";
@@ -21,13 +22,6 @@ function getTimerForScore(score: number): number {
   return Math.max(MIN_TIME, BASE_TIME - reductions * TIME_DECREMENT);
 }
 
-function getRandomQuestion(usedIds: Set<number>, categoryId?: string): Question | null {
-  const pool = categoryId
-    ? questions.filter(q => q.category === categoryId && !usedIds.has(q.id))
-    : questions.filter(q => q.category !== "legends" && !usedIds.has(q.id));
-  if (pool.length === 0) return null;
-  return pool[Math.floor(Math.random() * pool.length)];
-}
 
 export default function Survival() {
   const [, navigate] = useLocation();
@@ -50,6 +44,7 @@ export default function Survival() {
   const [timeAvail, setTimeAvail] = useState(0);
   const [powerUsed, setPowerUsed] = useState<{ skip: boolean; time: boolean }>({ skip: false, time: false });
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const questionPoolRef = useRef<Question[]>([]);
 
   function loadPowerCards() {
     const cards = getAvailablePowerCards();
@@ -63,10 +58,11 @@ export default function Survival() {
     setShowResult(false);
   }, [currentQ?.id]);
 
-  function startGame() {
-    const catId = selectedCategory === "mix" ? undefined : selectedCategory;
-    const first = getRandomQuestion(new Set(), catId);
-    if (!first) return;
+  async function startGame() {
+    const pool = await fetchGameQuestions(selectedCategory);
+    if (!pool.length) return;
+    questionPoolRef.current = pool;
+    const first = pool[0];
     const t = BASE_TIME;
     setLives(LIVES_START);
     setScore(0);
@@ -159,9 +155,9 @@ export default function Survival() {
 
   function nextQuestion(currentScore?: number) {
     const s = currentScore ?? score;
-    const catId = selectedCategory === "mix" ? undefined : selectedCategory;
-    const next = getRandomQuestion(usedIds, catId);
-    if (!next) { endGame(s); return; }
+    const pool = questionPoolRef.current.filter(q => !usedIds.has(q.id));
+    if (!pool.length) { endGame(s); return; }
+    const next = pool[Math.floor(Math.random() * pool.length)];
 
     const newMax = getTimerForScore(s);
     setUsedIds(prev => new Set([...prev, next.id]));

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
-import { questions, CATEGORIES, getCategoryById } from "@/lib/questions";
+import { CATEGORIES, getCategoryById, Question } from "@/lib/questions";
+import { fetchGameQuestions } from "@/lib/questionService";
 import { insertScore } from "@/lib/db";
 import { getOrCreateUser } from "@/lib/storage";
 import { useAuth } from "@/lib/AuthContext";
@@ -51,7 +52,7 @@ export default function Tournament() {
   const [currentRound, setCurrentRound] = useState(0);
   const [currentMatch, setCurrentMatch] = useState(0);
   const [playingFor, setPlayingFor] = useState<"p1" | "p2">("p1");
-  const [matchQuestions, setMatchQuestions] = useState<number[]>([]);
+  const [matchQuestions, setMatchQuestions] = useState<Question[]>([]);
   const [p1Score, setP1Score] = useState(0);
   const [p2Score, setP2Score] = useState(0);
   const [currentQIdx, setCurrentQIdx] = useState(0);
@@ -77,15 +78,11 @@ export default function Tournament() {
   }
 
   // ── BRACKET ──
-  function startNextMatch() {
+  async function startNextMatch() {
     if (!rounds[currentRound]) return;
     const match = rounds[currentRound].matches[currentMatch];
     if (!match) return;
-    // pick questions
-    const pool = categoryId === "mix"
-      ? questions.filter(q => q.category !== "legends")
-      : questions.filter(q => q.category === categoryId);
-    const qs = [...pool].sort(() => Math.random() - 0.5).slice(0, MATCH_QUESTIONS).map(q => q.id);
+    const qs = await fetchGameQuestions(categoryId, MATCH_QUESTIONS);
     setMatchQuestions(qs);
     setP1Score(0);
     setP2Score(0);
@@ -159,7 +156,7 @@ export default function Tournament() {
     } else {
       // Count score for current player
       const score = ans.reduce<number>((acc, a, i) => {
-        const q = questions.find(q => q.id === matchQuestions[i]);
+        const q = matchQuestions[i];
         return acc + (a === q?.correct ? 1 : 0);
       }, 0);
       if (playingFor === "p1") {
@@ -254,9 +251,7 @@ export default function Tournament() {
     }
   }
 
-  const currentQ = phase === "playing" && matchQuestions[currentQIdx]
-    ? questions.find(q => q.id === matchQuestions[currentQIdx])
-    : null;
+  const currentQ = phase === "playing" ? (matchQuestions[currentQIdx] ?? null) : null;
   const timerPct = (timeLeft / QUESTION_TIME) * 100;
   const isDanger = timeLeft <= 7;
   const match = rounds[currentRound]?.matches[currentMatch];

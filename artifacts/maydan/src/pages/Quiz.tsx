@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useParams } from "wouter";
-import { questions, getCategoryById } from "@/lib/questions";
+import { getCategoryById, Question } from "@/lib/questions";
+import { fetchQuestionsByIds } from "@/lib/questionService";
 import QuestionImage from "@/components/QuestionImage";
 import { getChallenge, saveChallenge, getOrCreateUser, recordGamePlayed, recordCategoryAnswers, getAvailablePowerCards, useSkipCard, useTimeCard } from "@/lib/storage";
 import { playCorrect, playWrong, playTick } from "@/lib/sound";
@@ -26,6 +27,7 @@ export default function Quiz() {
   const [skipAvail, setSkipAvail] = useState(0);
   const [timeAvail, setTimeAvail] = useState(0);
   const [powerUsed, setPowerUsed] = useState<{ skip: boolean; time: boolean }>({ skip: false, time: false });
+  const [loadedQs, setLoadedQs] = useState<Question[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const challenge = getChallenge(challengeId);
@@ -46,6 +48,7 @@ export default function Quiz() {
     }
     setAnswers(new Array(challenge.questions.length).fill(null));
     loadPowerCards();
+    fetchQuestionsByIds(challenge.questions).then(setLoadedQs);
   }, [challengeId, role]);
 
   // Guarantee clean visual state on every question change
@@ -133,7 +136,7 @@ export default function Quiz() {
     if (!challenge) return;
     if (timerRef.current) clearInterval(timerRef.current);
     const totalTime = Math.floor((Date.now() - startTime) / 1000);
-    const questionList = challenge.questions.map(id => questions.find(q => q.id === id)!);
+    const questionList = challenge.questions.map(id => loadedQs.find(q => q.id === id)!);
     const score = finalAnswers.reduce<number>((acc, ans, idx) => acc + (ans === questionList[idx]?.correct ? 1 : 0), 0);
 
     // Record stats
@@ -168,8 +171,19 @@ export default function Quiz() {
 
   if (!challenge) return null;
 
+  if (loadedQs.length === 0) {
+    return (
+      <div className="min-h-screen gradient-hero flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-muted-foreground text-sm">جاري تحميل الأسئلة...</p>
+        </div>
+      </div>
+    );
+  }
+
   const questionIds = challenge.questions;
-  const currentQuestion = questions.find(q => q.id === questionIds[currentIndex]);
+  const currentQuestion = loadedQs.find(q => q.id === questionIds[currentIndex]) ?? null;
   if (!currentQuestion) return null;
 
   const timerPercent = (timeLeft / QUESTION_TIME) * 100;

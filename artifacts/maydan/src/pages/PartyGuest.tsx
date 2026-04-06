@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { supabase } from "@/lib/supabase";
-import { questions } from "@/lib/questions";
+import { Question } from "@/lib/questions";
+import { fetchSeededQuestions } from "@/lib/questionService";
 import QuestionImage from "@/components/QuestionImage";
 import { playSound } from "@/lib/sound";
 
@@ -58,11 +59,8 @@ function seededShuffle<T>(arr: T[], seed: string): T[] {
   return result;
 }
 
-function getPartyQuestions(code: string, category: string, count: number) {
-  const pool = category === "mix"
-    ? questions.filter(q => q.category !== "legends")
-    : questions.filter(q => q.category === category);
-  return seededShuffle(pool, code + category).slice(0, Math.min(count, pool.length));
+async function getPartyQuestions(code: string, category: string, count: number) {
+  return fetchSeededQuestions(category, code + category, count);
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -76,7 +74,7 @@ export default function PartyGuest() {
   const [myId, setMyId] = useState("");
   const [myScore, setMyScore] = useState(0);
   const [roundPoints, setRoundPoints] = useState<number | null>(null);
-  const [partyQs, setPartyQs] = useState<typeof questions>([]);
+  const [partyQs, setPartyQs] = useState<Question[]>([]);
   const [currentQIdx, setCurrentQIdx] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState(DEFAULT_QUESTION_TIME);
@@ -176,7 +174,7 @@ export default function PartyGuest() {
     myIdRef.current = data.id;
     setMyId(data.id);
 
-    const qs = getPartyQuestions(room.code, room.category || "mix", room.total_questions || 10);
+    const qs = await getPartyQuestions(room.code, room.category || "mix", room.total_questions || 10);
     setPartyQs(qs);
 
     // Seed lastSeen so the first poll doesn't immediately fire a duplicate transition

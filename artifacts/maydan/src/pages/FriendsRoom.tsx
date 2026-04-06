@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
-import { questions, CATEGORIES, getCategoryById } from "@/lib/questions";
+import { CATEGORIES, getCategoryById, Question } from "@/lib/questions";
+import { fetchGameQuestions, fetchQuestionsByIds } from "@/lib/questionService";
 import CategoryCard from "@/components/CategoryCard";
 import {
   generateRoomCode, saveRoom, getRoom, getOrCreateUser,
@@ -27,6 +28,7 @@ export default function FriendsRoom() {
 
   // Room
   const [room, setRoom] = useState<RoomData | null>(null);
+  const [loadedQs, setLoadedQs] = useState<Question[]>([]);
   const [currentPlayerIdx, setCurrentPlayerIdx] = useState(0);
   const [currentQIdx, setCurrentQIdx] = useState(0);
   const [answers, setAnswers] = useState<(number | null)[]>([]);
@@ -39,15 +41,11 @@ export default function FriendsRoom() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── SETUP ──────────────────────────────────────────────────────────────────
-  function handleCreateRoom() {
+  async function handleCreateRoom() {
     const validNames = playerNames.map(n => n.trim()).filter(Boolean);
     if (validNames.length < 2) return;
 
-    // pick questions
-    const catQuestions = categoryId === "mix"
-      ? questions.filter(q => q.category !== "legends")
-      : questions.filter(q => q.category === categoryId);
-    const shuffled = [...catQuestions].sort(() => Math.random() - 0.5).slice(0, questionCount);
+    const shuffled = await fetchGameQuestions(categoryId, questionCount);
 
     const code = generateRoomCode();
     const newRoom: RoomData = {
@@ -60,6 +58,7 @@ export default function FriendsRoom() {
       hostName: validNames[0],
       createdAt: new Date().toISOString(),
     };
+    setLoadedQs(shuffled);
     saveRoom(newRoom);
     setRoom(newRoom);
     setPhase("lobby");
@@ -157,7 +156,7 @@ export default function FriendsRoom() {
     if (timerRef.current) clearInterval(timerRef.current);
     const totalMs = Date.now() - startTime;
     const score = finalAnswers.reduce<number>((acc, ans, i) => {
-      const q = questions.find(q => q.id === room.questions[i]);
+      const q = loadedQs.find(q => q.id === room.questions[i]);
       return acc + (ans === q?.correct ? 1 : 0);
     }, 0);
 
@@ -204,7 +203,7 @@ export default function FriendsRoom() {
 
   // ── HELPERS ────────────────────────────────────────────────────────────────
   const cat = room ? getCategoryById(room.categoryId) : getCategoryById(categoryId);
-  const currentQ = room && phase === "playing" ? questions.find(q => q.id === room.questions[currentQIdx]) : null;
+  const currentQ = room && phase === "playing" ? (loadedQs.find(q => q.id === room.questions[currentQIdx]) ?? null) : null;
   const timerPct = (timeLeft / QUESTION_TIME) * 100;
   const isDanger = timeLeft <= 7;
 

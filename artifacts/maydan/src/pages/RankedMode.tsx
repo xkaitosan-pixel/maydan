@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { supabase } from "@/lib/supabase";
-import { questions, CATEGORIES } from "@/lib/questions";
+import { CATEGORIES, Question } from "@/lib/questions";
+import { fetchSeededQuestions } from "@/lib/questionService";
 import { useAuth } from "@/lib/AuthContext";
 import { getOrCreateUser } from "@/lib/storage";
 import { playCorrect, playWrong, playTick, playGameOver, playMatchFound } from "@/lib/sound";
@@ -53,12 +54,8 @@ function seededShuffle<T>(arr: T[], seed: string): T[] {
   return result;
 }
 
-function getMatchQuestions(matchId: string, category: string) {
-  const pool =
-    category === "mix"
-      ? questions.filter((q) => q.category !== "legends")
-      : questions.filter((q) => q.category === category);
-  return seededShuffle(pool, matchId + category).slice(0, MATCH_QUESTIONS);
+async function getMatchQuestions(matchId: string, category: string) {
+  return fetchSeededQuestions(category, matchId + category, MATCH_QUESTIONS);
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -68,7 +65,7 @@ export default function RankedMode() {
   const { dbUser, isGuest } = useAuth();
   const localUser = getOrCreateUser();
 
-  const myId = dbUser?.id ?? localUser.id ?? "";
+  const myId = dbUser?.id ?? localUser.userId ?? "";
   const myName = dbUser?.username ?? localUser.displayName ?? "لاعب";
   const [myPoints, setMyPoints] = useState(0);
 
@@ -76,7 +73,7 @@ export default function RankedMode() {
   const [selectedCats, setSelectedCats] = useState<string[]>([]);
   const [searchTimer, setSearchTimer] = useState(SEARCH_TIMEOUT);
   const [match, setMatch] = useState<RankedMatch | null>(null);
-  const [matchQs, setMatchQs] = useState<typeof questions>([]);
+  const [matchQs, setMatchQs] = useState<Question[]>([]);
   const [currentQIdx, setCurrentQIdx] = useState(0);
   const [timeLeft, setTimeLeft] = useState(QUESTION_TIME);
   const [selected, setSelected] = useState<number | null>(null);
@@ -94,7 +91,7 @@ export default function RankedMode() {
   const myIdRef = useRef(myId);
   const myNameRef = useRef(myName);
   const currentQIdxRef = useRef(0);
-  const matchQsRef = useRef<typeof questions>([]);
+  const matchQsRef = useRef<Question[]>([]);
   const phaseRef = useRef<Phase>("select_cats");
   const questionStartRef = useRef(Date.now());
 
@@ -266,7 +263,7 @@ export default function RankedMode() {
   async function startMatch(m: RankedMatch, role: "p1" | "p2") {
     matchRef.current = m;
     setMatch(m);
-    const qs = getMatchQuestions(m.id, m.category);
+    const qs = await getMatchQuestions(m.id, m.category);
     matchQsRef.current = qs;
     setMatchQs(qs);
 

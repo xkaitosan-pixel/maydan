@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { CATEGORIES, getQuestionsByCategory } from "@/lib/questions";
+import { CATEGORIES } from "@/lib/questions";
+import { fetchGameQuestions } from "@/lib/questionService";
 import { saveChallenge, incrementChallengesCount, generateId, getOrCreateUser, canCreateChallenge, getRemainingChallenges } from "@/lib/storage";
 import CategoryCard from "@/components/CategoryCard";
 
@@ -31,9 +32,9 @@ export default function CreateChallenge() {
     setStep("config");
   }
 
-  function handleStart() {
+  async function handleStart() {
     if (!selectedCategory) return;
-    const qs = getQuestionsByCategory(selectedCategory, questionCount);
+    const qs = await fetchGameQuestions(selectedCategory, questionCount);
     if (qs.length === 0) return;
 
     const challengeId = generateId();

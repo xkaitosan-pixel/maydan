@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation, useParams } from "wouter";
-import { questions, getCategoryById } from "@/lib/questions";
+import { getCategoryById, Question } from "@/lib/questions";
+import { fetchQuestionsByIds } from "@/lib/questionService";
 import { getChallenge, recordWin, getOrCreateUser, addLeaderboardEntry, getSurvivalRank } from "@/lib/storage";
 import { useAuth } from "@/lib/AuthContext";
 import { insertScore, updateUserStats } from "@/lib/db";
@@ -20,10 +21,17 @@ export default function Results() {
   const role = params.role as "creator" | "challenger";
   const [copied, setCopied] = useState(false);
   const [winRecorded, setWinRecorded] = useState(false);
+  const [loadedQs, setLoadedQs] = useState<Question[]>([]);
 
   const challenge = getChallenge(challengeId);
   const category = challenge ? getCategoryById(challenge.categoryId) : null;
   const user = getOrCreateUser();
+
+  useEffect(() => {
+    if (challenge) {
+      fetchQuestionsByIds(challenge.questions).then(setLoadedQs);
+    }
+  }, [challengeId]);
 
   useEffect(() => {
     if (!challenge || winRecorded) return;
@@ -64,7 +72,7 @@ export default function Results() {
 
   if (!challenge) { navigate("/"); return null; }
 
-  const questionList = challenge.questions.map(id => questions.find(q => q.id === id)!);
+  const questionList = challenge.questions.map(id => loadedQs.find(q => q.id === id)!);
   const total = questionList.length;
   const creatorScore = challenge.creatorScore;
   const challengerScore = challenge.challengerScore;

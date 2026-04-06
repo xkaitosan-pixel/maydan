@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { supabase } from "@/lib/supabase";
-import { questions, CATEGORIES } from "@/lib/questions";
+import { CATEGORIES, Question } from "@/lib/questions";
+import { fetchSeededQuestions } from "@/lib/questionService";
 import QuestionImage from "@/components/QuestionImage";
 import { playSound } from "@/lib/sound";
 
@@ -45,11 +46,8 @@ function seededShuffle<T>(arr: T[], seed: string): T[] {
   return result;
 }
 
-function getPartyQuestions(code: string, category: string, count: number) {
-  const pool = category === "mix"
-    ? questions.filter(q => q.category !== "legends")
-    : questions.filter(q => q.category === category);
-  return seededShuffle(pool, code + category).slice(0, Math.min(count, pool.length));
+async function getPartyQuestions(code: string, category: string, count: number) {
+  return fetchSeededQuestions(category, code + category, count);
 }
 
 function calcPoints(elapsedMs: number, answerTimeSec: number, scoring: string): number {
@@ -99,7 +97,7 @@ export default function PartyHost() {
   const [showQuestionOnPhone, setShowQuestionOnPhone] = useState(false);
   const [scoringType, setScoringType] = useState<"speed" | "equal">("speed");
   const [players, setPlayers] = useState<PartyPlayer[]>([]);
-  const [partyQs, setPartyQs] = useState<typeof questions>([]);
+  const [partyQs, setPartyQs] = useState<Question[]>([]);
   const [currentQIdx, setCurrentQIdx] = useState(0);
   const [timeLeft, setTimeLeft] = useState(20);
   const [creating, setCreating] = useState(false);
@@ -115,7 +113,7 @@ export default function PartyHost() {
   const codeRef = useRef("");
   const phaseRef = useRef<HostPhase>("setup");
   const currentQIdxRef = useRef(0);
-  const partyQsRef = useRef<typeof questions>([]);
+  const partyQsRef = useRef<Question[]>([]);
   const answerTimeRef = useRef(20);
   const scoringTypeRef = useRef<"speed" | "equal">("speed");
   // Guards to prevent double-reveal (timer race vs all-answered race)
@@ -208,7 +206,7 @@ export default function PartyHost() {
     });
     if (err) { setError("خطأ في إنشاء الغرفة: " + err.message); setCreating(false); return; }
 
-    const qs = getPartyQuestions(code, category, questionCount);
+    const qs = await getPartyQuestions(code, category, questionCount);
     setPartyQs(qs);
     partyQsRef.current = qs;
     setRoomCode(code);
