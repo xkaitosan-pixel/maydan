@@ -1,0 +1,18 @@
+{
+  "name": "ميدان - تحدي المعرفة",
+  "short_name": "ميدان",
+  "description": "ساحة المعرفة العربية",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#0d1117",
+  "theme_color": "#d97706",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

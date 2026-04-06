@@ -136,14 +136,30 @@ export default function PartyHost() {
     };
   }, []);
 
-  // Landscape detection (JS-based, reliable across all devices)
+  // Landscape detection + body scroll-lock for iPhone fullscreen
   useEffect(() => {
-    const check = () => setIsLandscape(window.innerWidth > window.innerHeight);
+    const lockBody = () => {
+      document.body.style.overflow = "hidden";
+      document.body.style.position = "fixed";
+      document.body.style.width = "100%";
+    };
+    const unlockBody = () => {
+      document.body.style.overflow = "";
+      document.body.style.position = "";
+      document.body.style.width = "";
+    };
+    const check = () => {
+      const land = window.innerWidth > window.innerHeight;
+      setIsLandscape(land);
+      if (land) lockBody(); else unlockBody();
+    };
+    check();
     window.addEventListener("resize", check);
     window.addEventListener("orientationchange", check);
     return () => {
       window.removeEventListener("resize", check);
       window.removeEventListener("orientationchange", check);
+      unlockBody();
     };
   }, []);
 
@@ -596,9 +612,10 @@ export default function PartyHost() {
     if (isLandscape) {
       // ── LANDSCAPE / TV layout ─────────────────────────────────────────────
       return (
-        <div style={{
-          position: "fixed", inset: 0,
-          width: "100vw", height: "100vh",
+        <div className="landscape-host" style={{
+          position: "fixed",
+          top: 0, left: 0, right: 0, bottom: 0,
+          width: "100dvw", height: "100dvh",
           display: "flex", flexDirection: "column",
           overflow: "hidden",
           background: "hsl(220 20% 8%)",

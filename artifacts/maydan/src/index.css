@@ -63,6 +63,14 @@ html, body, #root {
   overflow-x: hidden;
 }
 
+/* iPhone Safari WebKit: force landscape-host to fill full screen */
+@supports (-webkit-touch-callout: none) {
+  .landscape-host {
+    height: -webkit-fill-available !important;
+    min-height: -webkit-fill-available !important;
+  }
+}
+
 :root {
   --button-outline: rgba(0,0,0, .10);
   --badge-outline: rgba(0,0,0, .05);
