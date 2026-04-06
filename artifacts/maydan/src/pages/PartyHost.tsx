@@ -105,6 +105,7 @@ export default function PartyHost() {
   const [error, setError] = useState("");
   const [questionStartTime, setQuestionStartTime] = useState(0);
   const [allAnsweredAlert, setAllAnsweredAlert] = useState(false);
+  const [isLandscape, setIsLandscape] = useState(() => window.innerWidth > window.innerHeight);
 
   // Refs to avoid stale closures
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -116,6 +117,9 @@ export default function PartyHost() {
   const partyQsRef = useRef<typeof questions>([]);
   const answerTimeRef = useRef(20);
   const scoringTypeRef = useRef<"speed" | "equal">("speed");
+  // Guards to prevent double-reveal (timer race vs all-answered race)
+  const revealCalledRef = useRef(false);
+  const questionStartMsRef = useRef(0);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -126,6 +130,17 @@ export default function PartyHost() {
       if (codeRef.current) {
         supabase.from("party_rooms").update({ status: "finished" }).eq("code", codeRef.current);
       }
+    };
+  }, []);
+
+  // Landscape detection (JS-based, reliable across all devices)
+  useEffect(() => {
+    const check = () => setIsLandscape(window.innerWidth > window.innerHeight);
+    window.addEventListener("resize", check);
+    window.addEventListener("orientationchange", check);
+    return () => {
+      window.removeEventListener("resize", check);
+      window.removeEventListener("orientationchange", check);
     };
   }, []);
 
@@ -203,17 +218,28 @@ export default function PartyHost() {
 
   // ── Transition to a specific question ────────────────────────────────────
   async function goToQuestion(qIdx: number) {
-    const now = Date.now();
+    // Reset double-reveal guard for the new question
+    revealCalledRef.current = false;
+    setAllAnsweredAlert(false);
+
+    // Reset player answers in DB FIRST
+    await supabase.from("party_players")
+      .update({ answered_current: false, last_answer: null })
+      .eq("room_code", codeRef.current);
+
+    // Update room status in DB
     await supabase.from("party_rooms").update({
       status: "question",
       current_question: qIdx,
     }).eq("code", codeRef.current);
 
-    // Reset player answers
-    await supabase.from("party_players")
-      .update({ answered_current: false, last_answer: null })
-      .eq("room_code", codeRef.current);
+    // Fetch fresh player list so React state has answered_current: false
+    // BEFORE we set phase = "question" (prevents the all-answered effect from
+    // seeing stale answered_current: true data from the previous question)
+    await fetchPlayers(codeRef.current);
 
+    const now = Date.now();
+    questionStartMsRef.current = now;
     currentQIdxRef.current = qIdx;
     setCurrentQIdx(qIdx);
     setQuestionStartTime(now);
@@ -234,7 +260,9 @@ export default function PartyHost() {
       if (remaining <= 5 && remaining > 0) playSound("tick");
       if (remaining <= 0) {
         clearInterval(timerRef.current!);
-        revealAnswers(qIdx, startMs);
+        if (!revealCalledRef.current) {
+          revealAnswers(qIdx, startMs);
+        }
       }
     }, 500);
   }
@@ -242,13 +270,18 @@ export default function PartyHost() {
   // ── Check if all answered → auto-advance with brief notification ─────────
   useEffect(() => {
     if (phase !== "question") return;
+    if (revealCalledRef.current) return; // already advancing
     const total = players.length;
-    if (total > 0 && players.every(p => p.answered_current)) {
+    const answeredCount = players.filter(p => p.answered_current).length;
+    // Require at least 1 answer AND everyone answered — prevents vacuous-true
+    // from pre-reset stale state at question start
+    if (total > 0 && answeredCount > 0 && answeredCount === total) {
+      revealCalledRef.current = true; // lock to prevent double-fire
       if (timerRef.current) clearInterval(timerRef.current);
       setAllAnsweredAlert(true);
       setTimeout(() => {
         setAllAnsweredAlert(false);
-        revealAnswers(currentQIdxRef.current, questionStartTime);
+        revealAnswers(currentQIdxRef.current, questionStartMsRef.current);
       }, 1500);
     }
   }, [players, phase]);
@@ -256,6 +289,7 @@ export default function PartyHost() {
   // ── Reveal answers & calculate scores ────────────────────────────────────
   const revealAnswers = useCallback(async (qIdx: number, startMs: number) => {
     if (phaseRef.current === "reveal") return;
+    revealCalledRef.current = true; // lock in case timer fires after all-answered
     if (timerRef.current) clearInterval(timerRef.current);
     phaseRef.current = "reveal";
     setPhase("reveal");
@@ -502,15 +536,17 @@ export default function PartyHost() {
   // ── QUESTION (TV screen) ─────────────────────────────────────────────────
   if (phase === "question" && currentQ) {
     return (
-      <div className="min-h-screen gradient-hero flex flex-col party-host-screen">
+      <div className={`min-h-screen gradient-hero flex flex-col${isLandscape ? " landscape-host" : ""}`}>
         <style>{`
-          @media (orientation: landscape) and (max-height: 500px) {
-            .party-host-screen .tv-question { font-size: 1.5rem !important; }
-            .party-host-screen .tv-timer   { font-size: 3rem !important; }
-            .party-host-screen .tv-answers { grid-template-columns: 1fr 1fr !important; }
-            .party-host-screen .tv-answer-box { min-height: 60px !important; padding: 8px !important; }
-            .party-host-screen .tv-answer-text { font-size: 0.9rem !important; }
-          }
+          .landscape-host { overflow: hidden; max-height: 100vh; }
+          .landscape-host header { padding: 6px 12px !important; }
+          .landscape-host .tv-question { font-size: 1.4rem !important; line-height: 1.3 !important; }
+          .landscape-host .tv-timer { font-size: 2.5rem !important; }
+          .landscape-host .tv-question-box { padding: 10px 16px !important; min-height: unset !important; }
+          .landscape-host .tv-answers { display: grid; grid-template-columns: 1fr 1fr !important; gap: 8px !important; padding: 6px !important; }
+          .landscape-host .tv-answer-box { min-height: 55px !important; padding: 8px !important; }
+          .landscape-host .tv-answer-text { font-size: 0.85rem !important; }
+          .landscape-host .tv-skip { padding: 6px !important; }
         `}</style>
 
         {/* All-answered celebration banner */}
@@ -546,7 +582,7 @@ export default function PartyHost() {
 
         {/* Question */}
         <div className="px-4 py-5">
-          <div className="bg-card border border-border rounded-2xl p-5 text-center min-h-[80px] flex items-center justify-center">
+          <div className="bg-card border border-border rounded-2xl p-5 text-center min-h-[80px] flex items-center justify-center tv-question-box">
             <p className="text-xl font-black leading-relaxed tv-question">{currentQ.question}</p>
           </div>
         </div>
@@ -563,8 +599,14 @@ export default function PartyHost() {
         </div>
 
         {/* Skip button */}
-        <div className="p-4 border-t border-border/30">
-          <button onClick={() => { if (timerRef.current) clearInterval(timerRef.current); revealAnswers(currentQIdx, questionStartTime); }}
+        <div className="p-4 border-t border-border/30 tv-skip">
+          <button onClick={() => {
+            if (!revealCalledRef.current) {
+              revealCalledRef.current = true;
+              if (timerRef.current) clearInterval(timerRef.current);
+              revealAnswers(currentQIdx, questionStartMsRef.current);
+            }
+          }}
             className="w-full py-2.5 rounded-xl bg-card border border-border text-sm text-muted-foreground font-bold">
             ⏭️ انتقل للنتيجة الآن
           </button>
