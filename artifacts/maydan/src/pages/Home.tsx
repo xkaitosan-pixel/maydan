@@ -58,6 +58,9 @@ export default function Home() {
   const canCreate = canCreateChallenge();
 
   useEffect(() => {
+    // Debug: log viewport width so we can verify media queries fire correctly
+    console.log("[Home] window.innerWidth =", window.innerWidth);
+
     if (isGuest) {
       const user = getOrCreateUser();
       if (user.displayName) {
@@ -171,10 +174,8 @@ export default function Home() {
 
       {/* ── Main body ─────────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto">
-        <div className="rp-wide px-4 md:px-8 py-5 md:py-8">
-
-          {/* ── DESKTOP: 2-column grid ──────────────────────────────────── */}
-          <div className="flex flex-col md:flex-row md:gap-10 md:items-start">
+        {/* home-desktop activates CSS grid (340px | 1fr) at ≥768px via index.css */}
+        <div className="home-desktop py-5 px-4">
 
             {/* ── LEFT COLUMN: Identity + stats ──────────────────────────── */}
             <div className="md:w-[340px] md:flex-shrink-0 space-y-5">
@@ -374,7 +375,6 @@ export default function Home() {
               /* Right side placeholder when not signed in yet */
               <div className="flex-1 mt-5 md:mt-0" />
             )}
-          </div>
         </div>
       </div>
 

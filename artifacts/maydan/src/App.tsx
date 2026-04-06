@@ -229,13 +229,13 @@ function App() {
       <TooltipProvider>
         {isCallback ? (
           // Standalone callback handler — no AuthProvider needed, just Supabase client
-          <div className="max-w-md mx-auto min-h-screen">
+          <div className="min-h-screen w-full">
             <AuthCallbackHandler />
           </div>
         ) : (
           <AuthProvider>
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-              <div className="max-w-md mx-auto min-h-screen">
+              <div className="min-h-screen w-full">
                 <AppRoutes />
               </div>
             </WouterRouter>
