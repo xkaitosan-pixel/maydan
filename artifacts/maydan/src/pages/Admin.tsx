@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
-import { questions as staticQuestions, CATEGORIES } from "@/lib/questions";
+import { CATEGORIES } from "@/lib/questions";
 import type { Question } from "@/lib/questions";
 
 const ADMIN_EMAIL = "xkaito.san@gmail.com";
@@ -262,7 +262,7 @@ export default function Admin() {
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string>("");
-  const [dbConnected, setDbConnected] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(false);
 
   // Modal state: null = closed, "add" = new question, EditableQ = editing existing
   const [modalMode, setModalMode] = useState<"add" | "edit" | null>(null);
@@ -279,48 +279,20 @@ export default function Admin() {
   }, [userEmail]);
 
   async function loadQuestions() {
+    setLoading(true);
     setStatus("جاري تحميل الأسئلة...");
     const { data, error } = await supabase.from("questions").select("*").order("id");
-    if (error || !data || data.length === 0) {
-      setDbConnected(false);
-      setQuestions(staticQuestions.map((q) => ({ ...q })));
-      setStatus(
-        error
-          ? "⚠️ جدول قاعدة البيانات غير موجود — الأسئلة من الملف المحلي. اضغط 'تهيئة قاعدة البيانات'."
-          : "⚠️ قاعدة البيانات فارغة. اضغط 'تهيئة قاعدة البيانات' أولاً."
-      );
-    } else {
-      setDbConnected(true);
-      setQuestions(
-        data.map((q: any) => ({
-          ...q,
-          options: Array.isArray(q.options) ? q.options : JSON.parse(q.options),
-        }))
-      );
-      setStatus(`✅ تم تحميل ${data.length} سؤال من قاعدة البيانات`);
-    }
-  }
-
-  async function seedDatabase() {
-    setSaving(true);
-    setStatus("جاري رفع الأسئلة إلى قاعدة البيانات...");
-    const payload = staticQuestions.map((q) => ({
-      id: q.id,
-      question: q.question,
-      options: q.options,
-      correct: q.correct,
-      category: q.category,
-      difficulty: q.difficulty,
-    }));
-    const { error } = await supabase.from("questions").upsert(payload, { onConflict: "id" });
-    setSaving(false);
+    setLoading(false);
     if (error) {
-      setStatus(`❌ خطأ في الرفع: ${error.message}`);
-    } else {
-      setDbConnected(true);
-      setStatus(`✅ تم رفع ${payload.length} سؤال إلى قاعدة البيانات`);
-      await loadQuestions();
+      setStatus(`❌ خطأ في الاتصال بقاعدة البيانات: ${error.message}`);
+      return;
     }
+    const qs = (data ?? []).map((q: any) => ({
+      ...q,
+      options: Array.isArray(q.options) ? q.options : JSON.parse(q.options),
+    }));
+    setQuestions(qs);
+    setStatus(`✅ تم تحميل ${qs.length} سؤال من Supabase`);
   }
 
   function openEdit(q: EditableQ) {
@@ -362,15 +334,13 @@ export default function Admin() {
       image_url: q.image_url ?? null,
     };
 
-    if (dbConnected) {
-      const { error } = await supabase
-        .from("questions")
-        .upsert(payload, { onConflict: "id" });
-      if (error) {
-        setStatus(`❌ خطأ في الحفظ: ${error.message}`);
-        setSaving(false);
-        return;
-      }
+    const { error } = await supabase
+      .from("questions")
+      .upsert(payload, { onConflict: "id" });
+    if (error) {
+      setStatus(`❌ خطأ في الحفظ: ${error.message}`);
+      setSaving(false);
+      return;
     }
 
     if (modalMode === "edit") {
@@ -389,13 +359,11 @@ export default function Admin() {
     e.stopPropagation();
     if (!confirm("هل أنت متأكد من حذف هذا السؤال؟")) return;
     setSaving(true);
-    if (dbConnected) {
-      const { error } = await supabase.from("questions").delete().eq("id", id);
-      if (error) {
-        setStatus(`❌ خطأ في الحذف: ${error.message}`);
-        setSaving(false);
-        return;
-      }
+    const { error } = await supabase.from("questions").delete().eq("id", id);
+    if (error) {
+      setStatus(`❌ خطأ في الحذف: ${error.message}`);
+      setSaving(false);
+      return;
     }
     setQuestions((prev) => prev.filter((q) => q.id !== id));
     setStatus(`✅ تم حذف السؤال #${id}`);
@@ -510,39 +478,19 @@ export default function Admin() {
                 <div className="text-xs text-white/50">{label}</div>
               </div>
             ))}
-            <div
-              className={`px-4 py-2 rounded-xl text-center ${
-                dbConnected ? "bg-green-900/20" : "bg-yellow-900/20"
-              }`}
-            >
-              <div className="text-xl">
-                {dbConnected === null ? "⏳" : dbConnected ? "✅" : "⚠️"}
-              </div>
-              <div
-                className={`text-xs ${
-                  dbConnected ? "text-green-400" : "text-yellow-400"
-                }`}
-              >
-                {dbConnected === null ? "يتحقق" : dbConnected ? "متصل" : "محلي"}
+            <div className="px-4 py-2 rounded-xl text-center bg-green-900/20">
+              <div className="text-xl">{loading ? "⏳" : "✅"}</div>
+              <div className="text-xs text-green-400">
+                {loading ? "تحميل" : "Supabase"}
               </div>
             </div>
           </div>
 
           <div className="flex gap-2 mr-auto flex-wrap">
-            {!dbConnected && (
-              <button
-                onClick={seedDatabase}
-                disabled={saving}
-                className="px-4 py-2 rounded-xl font-bold text-sm text-black disabled:opacity-60"
-                style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}
-              >
-                {saving ? "⏳ جاري الرفع..." : "🚀 تهيئة قاعدة البيانات"}
-              </button>
-            )}
             <button
               onClick={loadQuestions}
-              disabled={saving}
-              className="px-4 py-2 rounded-xl text-sm border border-white/20 text-white/70 hover:border-white/40"
+              disabled={loading || saving}
+              className="px-4 py-2 rounded-xl text-sm border border-white/20 text-white/70 hover:border-white/40 disabled:opacity-50"
             >
               🔄 تحديث
             </button>
@@ -719,42 +667,6 @@ export default function Admin() {
             </table>
           </div>
         </div>
-
-        {/* SQL hint when DB not connected */}
-        {!dbConnected && (
-          <details className="rounded-xl border border-yellow-500/20 bg-yellow-900/10 p-4">
-            <summary className="text-yellow-300 text-sm font-medium cursor-pointer">
-              📋 كيفية إعداد جدول قاعدة البيانات في Supabase
-            </summary>
-            <div className="mt-3 text-xs text-white/60 space-y-2">
-              <p>افتح Supabase Dashboard → SQL Editor، ثم نفّذ الكود التالي:</p>
-              <pre
-                className="bg-black/40 rounded-lg p-3 text-green-300 overflow-x-auto text-left"
-                style={{ direction: "ltr" }}
-              >
-{`create table if not exists questions (
-  id bigint primary key,
-  question text not null,
-  options jsonb not null,
-  correct integer not null,
-  category text not null,
-  difficulty text not null,
-  created_at timestamptz default now()
-);
-alter table questions enable row level security;
-create policy "Public read" on questions
-  for select using (true);
-create policy "Authenticated write" on questions
-  for all using (auth.role() = 'authenticated');`}
-              </pre>
-              <p>
-                بعد تنفيذ الكود، اضغط{" "}
-                <strong className="text-yellow-300">"تهيئة قاعدة البيانات"</strong> لرفع
-                الأسئلة.
-              </p>
-            </div>
-          </details>
-        )}
 
         <div className="h-10" />
       </div>
