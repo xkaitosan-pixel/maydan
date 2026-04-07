@@ -2,7 +2,7 @@ const { createClient } = require('/home/runner/workspace/artifacts/maydan/node_m
 
 const supabase = createClient(
   'https://hnoqkcrzualzxkzmuwvp.supabase.co',
-  'sb_publishable_eZVVmvhqAYdiyPfBWqddTw_yk_1JxJy'
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
 // 525 new questions — IDs 226-750 — 35 per category across 15 categories

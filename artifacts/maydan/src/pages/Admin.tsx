@@ -320,7 +320,7 @@ export default function Admin() {
     setSaving(true);
 
     if (modalMode === "add") {
-      const maxId = Math.max(...questions.map((x) => x.id), 225);
+      const maxId = Math.max(...questions.map((x) => x.id), 750);
       q = { ...q, id: maxId + 1 };
     }
 
