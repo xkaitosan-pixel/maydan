@@ -64,9 +64,6 @@ export default function Home() {
   const canCreate = canCreateChallenge();
 
   useEffect(() => {
-    // Debug: log viewport width so we can verify media queries fire correctly
-    console.log("[Home] window.innerWidth =", window.innerWidth);
-
     if (isGuest) {
       const user = getOrCreateUser();
       if (user.displayName) {
