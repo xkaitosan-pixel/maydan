@@ -15,6 +15,12 @@ export interface DbUser {
   is_premium: boolean;
   total_points: number;
   created_at: string;
+  xp: number;
+  level: number;
+  coins: number;
+  rank_title: string | null;
+  achievements: unknown;
+  season_points: number;
 }
 
 interface AuthContextType {

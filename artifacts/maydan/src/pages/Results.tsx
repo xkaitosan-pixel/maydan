@@ -6,6 +6,9 @@ import { getChallenge, recordWin, getOrCreateUser, addLeaderboardEntry, getSurvi
 import { useAuth } from "@/lib/AuthContext";
 import { insertScore, updateUserStats } from "@/lib/db";
 import { Button } from "@/components/ui/button";
+import AchievementPopup from "@/components/AchievementPopup";
+import FloatingReward from "@/components/FloatingReward";
+import { awardGameRewards, XP_REWARDS, COIN_REWARDS } from "@/lib/gamification";
 
 const WA_ICON = (
   <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
@@ -22,6 +25,8 @@ export default function Results() {
   const [copied, setCopied] = useState(false);
   const [winRecorded, setWinRecorded] = useState(false);
   const [loadedQs, setLoadedQs] = useState<Question[]>([]);
+  const [showReward, setShowReward] = useState<{ xp: number; coins: number } | null>(null);
+  const [newAchievements, setNewAchievements] = useState<string[]>([]);
 
   const challenge = getChallenge(challengeId);
   const category = challenge ? getCategoryById(challenge.categoryId) : null;
@@ -65,6 +70,28 @@ export default function Results() {
             total_losses: myWon ? 0 : 1,
             total_points: myScore * 10,
           });
+          // Award XP and coins
+          const xpGain    = myWon ? XP_REWARDS.win_1v1 : 10;
+          const coinGain  = myWon ? COIN_REWARDS.win_1v1 : 0;
+          awardGameRewards({
+            userId: dbUser.id,
+            xp: xpGain,
+            coins: coinGain,
+            currentXP: dbUser.xp ?? 0,
+            currentCoins: dbUser.coins ?? 0,
+            currentLevel: dbUser.level ?? 1,
+            currentAchievements: dbUser.achievements,
+            currentSeasonPoints: dbUser.season_points ?? 0,
+            progressUpdates: {
+              total_games:      1,
+              total_correct:    myScore,
+              consecutive_wins: myWon ? 1 : 0,
+              categories_played: challenge.categoryId,
+            },
+          }).then(result => {
+            setShowReward({ xp: result.xpGained, coins: result.coinsGained });
+            if (result.newlyUnlocked.length > 0) setNewAchievements(result.newlyUnlocked);
+          }).catch(() => {});
         }
       }
     }
@@ -125,6 +152,19 @@ export default function Results() {
 
   return (
     <div className="min-h-screen gradient-hero flex flex-col">
+      {showReward && (
+        <FloatingReward
+          xp={showReward.xp}
+          coins={showReward.coins}
+          onDone={() => setShowReward(null)}
+        />
+      )}
+      {newAchievements.length > 0 && (
+        <AchievementPopup
+          unlockedIds={newAchievements}
+          onDone={() => setNewAchievements([])}
+        />
+      )}
       <header className="p-4 flex items-center gap-3 border-b border-border/30">
         <button onClick={() => navigate("/")} className="text-muted-foreground hover:text-foreground text-xl">←</button>
         <div className="flex items-center gap-2">

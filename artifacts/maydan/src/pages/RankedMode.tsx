@@ -7,6 +7,9 @@ import { useAuth } from "@/lib/AuthContext";
 import { getOrCreateUser } from "@/lib/storage";
 import { playCorrect, playWrong, playTick, playGameOver, playMatchFound } from "@/lib/sound";
 import { RANKS, getRankInfo } from "@/lib/rank";
+import AchievementPopup from "@/components/AchievementPopup";
+import FloatingReward from "@/components/FloatingReward";
+import { awardGameRewards, XP_REWARDS, COIN_REWARDS } from "@/lib/gamification";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -83,6 +86,8 @@ export default function RankedMode() {
   const [answerTime, setAnswerTime] = useState(0);
   const [winner, setWinner] = useState<"me" | "opponent" | "draw" | null>(null);
   const [countdown, setCountdown] = useState(3);
+  const [showReward, setShowReward] = useState<{ xp: number; coins: number } | null>(null);
+  const [newAchievements, setNewAchievements] = useState<string[]>([]);
 
   const searchIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -502,6 +507,32 @@ export default function RankedMode() {
     else if (!draw) playWrong();
     phaseRef.current = "finished";
     setPhase("finished");
+
+    // Award XP, coins and season points for authenticated users
+    if (dbUser?.id) {
+      const xpGain    = won ? XP_REWARDS.win_ranked : (draw ? 15 : 5);
+      const coinGain  = won ? COIN_REWARDS.win_ranked : 0;
+      awardGameRewards({
+        userId: dbUser.id,
+        xp: xpGain,
+        coins: coinGain,
+        currentXP: dbUser.xp ?? 0,
+        currentCoins: dbUser.coins ?? 0,
+        currentLevel: dbUser.level ?? 1,
+        currentAchievements: dbUser.achievements,
+        currentSeasonPoints: dbUser.season_points ?? 0,
+        seasonDelta: won ? 20 : draw ? 5 : 0,
+        progressUpdates: {
+          total_games:       1,
+          total_correct:     myFinalScore,
+          ranked_wins:       won ? 1 : 0,
+          consecutive_wins:  won ? 1 : 0,
+        },
+      }).then(result => {
+        setShowReward({ xp: result.xpGained, coins: result.coinsGained });
+        if (result.newlyUnlocked.length > 0) setNewAchievements(result.newlyUnlocked);
+      }).catch(() => {});
+    }
   }
 
   // ── RENDER ────────────────────────────────────────────────────────────────
@@ -747,6 +778,12 @@ export default function RankedMode() {
     const delta = won ? +20 : draw ? 0 : -5;
     return (
       <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-5 gap-6 text-center">
+        {showReward && (
+          <FloatingReward xp={showReward.xp} coins={showReward.coins} onDone={() => setShowReward(null)} />
+        )}
+        {newAchievements.length > 0 && (
+          <AchievementPopup unlockedIds={newAchievements} onDone={() => setNewAchievements([])} />
+        )}
         <div className="fade-in-up">
           <p className="text-7xl mb-3">{won ? "🏆" : draw ? "🤝" : "😔"}</p>
           <h1 className="text-3xl font-black" style={{ color: won ? "#f59e0b" : draw ? "#94a3b8" : "#ef4444" }}>

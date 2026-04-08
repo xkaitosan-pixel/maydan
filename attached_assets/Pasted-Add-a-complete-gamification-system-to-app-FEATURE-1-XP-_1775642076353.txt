@@ -1,0 +1,136 @@
+Add a complete gamification system to ميدان app.
+
+═══════════════════════════════
+FEATURE 1 - XP & LEVELS SYSTEM:
+═══════════════════════════════
+XP earned per action:
+- Correct answer: +10 XP
+- Win a 1v1: +50 XP
+- Win survival (10+ correct): +30 XP
+- Daily challenge complete: +20 XP
+- First game of day: +15 XP
+- Win ranked match: +40 XP
+
+Levels (based on total XP):
+- Level 1: 0 XP - مبتدئ 🥉
+- Level 2: 200 XP - متعلم 📚
+- Level 3: 500 XP - محترف ⚔️
+- Level 4: 1000 XP - فارس 🛡️
+- Level 5: 2000 XP - بطل 🏆
+- Level 6: 4000 XP - أسطورة 👑
+- Level 7: 8000 XP - بطل الميدان 🌟
+
+Show on home screen:
+- XP progress bar to next level
+- Current level badge
+- Animated XP gain after each game
+
+═══════════════════════════════
+FEATURE 2 - COINS SYSTEM (قروش):
+═══════════════════════════════
+Coins earned:
+- Win 1v1: +20 قرش
+- Complete daily challenge: +15 قرش
+- Win survival 15 questions: +25 قرش
+- Open reward box: +10-50 قرش (random)
+- First game of day: +10 قرش
+- Win ranked: +30 قرش
+
+Show coin balance with 🪙 icon in header
+
+═══════════════════════════════
+FEATURE 3 - ACHIEVEMENTS (إنجازات):
+═══════════════════════════════
+Add achievements page /achievements:
+
+Achievements list:
+1. 🎯 "أول خطوة" - العب أول لعبة
+2. 🔥 "متقد" - حقق ستريك 3 أيام
+3. ⚡ "لا يُهزم" - فز 5 مباريات متتالية
+4. 🧠 "عبقري" - أجب 50 سؤال صحيح
+5. 👑 "سيد الميدان" - تصدر اللوحة أسبوعياً
+6. 🎮 "مدمن" - العب 30 يوماً متتالياً
+7. 🏆 "بطل البطولة" - فز ببطولة كاملة
+8. 🌟 "أسطورة" - وصل للمستوى 6
+9. 🎯 "قناص" - أجب 10 أسئلة صح بدون خطأ
+10. 👥 "اجتماعي" - العب 10 ألعاب جماعية
+11. ⚔️ "المحارب" - فز 25 مباراة ranked
+12. 🔥 "الأسبوع الكامل" - العب 7 أيام متتالية
+13. 💪 "الصامد" - البق آخر شخص في البقاء 3 مرات
+14. 🎪 "المضيف" - أنشئ 5 غرف تجمعات
+15. 🌍 "الموسوعة" - العب كل الفئات الـ 15
+
+Each achievement shows:
+- Icon + title + description
+- Locked/unlocked state
+- XP + coins reward
+- Progress bar if not unlocked yet
+- "مشاركة الإنجاز" button when unlocked
+
+Check achievements after every game and unlock automatically.
+Show popup celebration when achievement unlocked! 🎉
+
+═══════════════════════════════
+FEATURE 4 - WEEKLY SEASONS:
+═══════════════════════════════
+- Season resets every Sunday at midnight
+- Season points = ranked match points only
+- Leaderboard shows season rankings
+- Season badge: برونز/فضة/ذهب/بلاتين/أسطورة
+- End of season reward based on rank:
+  * برونز: 50 قرش
+  * فضة: 100 قرش  
+  * ذهب: 200 قرش
+  * بلاتين: 400 قرش
+  * أسطورة: 1000 قرش + شارة خاصة
+- Show "الموسم ينتهي في X أيام" countdown
+
+═══════════════════════════════
+FEATURE 5 - STORE (المتجر):
+═══════════════════════════════
+New page /store with tabs:
+
+Tab 1 - إطارات الصورة (Avatar Frames):
+- إطار ذهبي: 200 قرش
+- إطار ناري: 300 قرش
+- إطار ملكي: 500 قرش
+- إطار أسطوري: 1000 قرش
+- إطار بريميوم: للمشتركين فقط
+
+Tab 2 - ألقاب (Titles):
+- "الفارس الشجاع": 150 قرش
+- "سيد المعرفة": 200 قرش
+- "أسطورة الميدان": 500 قرش
+- "قائد القادة": 800 قرش
+
+Tab 3 - بطاقات القوة (Power Cards):
+- تخطي سؤال: 50 قرش
+- وقت إضافي: 75 قرش
+- حذف خيارين: 100 قرش
+
+Show current coin balance at top.
+"شراء" button → deducts coins → item added to user.
+Show "مُجهّز" badge on equipped items.
+Equipped frame shows around avatar everywhere in app.
+
+═══════════════════════════════
+FEATURE 6 - HOME SCREEN UPDATES:
+═══════════════════════════════
+Update home screen to show:
+- XP progress bar with level badge
+- Coin balance 🪙 in header
+- Quick stats: انتصارات / مستوى / قروش
+- Achievements preview (last 3 unlocked)
+- "المتجر" button
+- "إنجازاتي" button
+
+═══════════════════════════════
+TECHNICAL:
+═══════════════════════════════
+- Save all XP/coins/achievements to Supabase users table
+- Check and award achievements after every game
+- Animate XP bar filling up after game
+- Show "+10 XP 🌟" "+20 قرش 🪙" floating text after correct answers
+- All Arabic RTL
+
+Push everything to GitHub when done.

@@ -10,8 +10,13 @@ import { Button } from "@/components/ui/button";
 import StreakMilestone from "@/components/StreakMilestone";
 import RewardBox from "@/components/RewardBox";
 import NotificationBanner from "@/components/NotificationBanner";
+import XPBar from "@/components/XPBar";
 import { toggleTheme, getTheme } from "@/lib/theme";
 import { isSoundEnabled, toggleSound, playClick, playSound } from "@/lib/sound";
+import {
+  parseAchievementsData, ACHIEVEMENTS, getSeasonTier, getDaysUntilSunday,
+  getCurrentSeasonWeek, checkSeasonReset,
+} from "@/lib/gamification";
 
 const STREAK_POPUP_KEY = "maydan_streak_popup_v1";
 function wasStreakShownToday(milestone: number): boolean {
@@ -40,6 +45,7 @@ export default function Home() {
   const [longestStreak, setLongestStreak] = useState(0);
   const [isDark, setIsDark] = useState(() => getTheme() === "dark");
   const [soundOn, setSoundOn] = useState(() => isSoundEnabled());
+  const [seasonRewardMsg, setSeasonRewardMsg] = useState<string | null>(null);
 
   function handleThemeToggle() {
     playClick();
@@ -84,6 +90,19 @@ export default function Home() {
           refreshUser();
         }
       });
+      // Season reset check
+      checkSeasonReset(
+        dbUser.id,
+        dbUser.achievements,
+        dbUser.season_points ?? 0,
+        dbUser.coins ?? 0,
+      ).then(reset => {
+        if (reset) {
+          setSeasonRewardMsg(`🏆 الموسم انتهى! حصلت على ${reset.coinsAwarded} قرش (${reset.tierName})`);
+          setTimeout(() => setSeasonRewardMsg(null), 5000);
+          refreshUser();
+        }
+      });
     }
     setNotifications(getActiveNotifications());
   }, [dbUser?.id, isGuest]);
@@ -124,9 +143,20 @@ export default function Home() {
     },
   ];
 
+  const aData           = parseAchievementsData(dbUser?.achievements);
+  const lastUnlocked    = aData.unlocked.slice(-3).map(id => ACHIEVEMENTS.find(a => a.id === id)).filter(Boolean) as typeof ACHIEVEMENTS;
+  const seasonPoints    = dbUser?.season_points ?? 0;
+  const seasonTier      = getSeasonTier(seasonPoints);
+  const daysUntilReset  = getDaysUntilSunday();
+
   return (
     <div className="min-h-screen gradient-hero star-bg flex flex-col">
       {milestone && <StreakMilestone days={milestone} onClose={() => setMilestone(null)} />}
+      {seasonRewardMsg && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 rounded-full px-6 py-3 font-bold text-sm text-white shadow-xl bg-yellow-600 border border-yellow-500/50">
+          {seasonRewardMsg}
+        </div>
+      )}
 
       {/* ── Header ───────────────────────────────────────────────────────── */}
       <header className="px-4 md:px-8 pt-4 pb-3 flex justify-between items-center border-b border-border/30">
@@ -260,6 +290,29 @@ export default function Home() {
                     </div>
                   )}
 
+                  {/* XP Bar */}
+                  {!isGuest && dbUser && (
+                    <XPBar xp={dbUser.xp ?? 0} coins={dbUser.coins ?? 0} />
+                  )}
+
+                  {/* Season Widget */}
+                  {!isGuest && dbUser && (
+                    <div
+                      className="rounded-2xl p-3 border border-white/10 flex items-center gap-3"
+                      style={{ background: "hsl(220 20% 12%)" }}
+                    >
+                      <span className="text-2xl">{seasonTier.icon}</span>
+                      <div className="flex-1">
+                        <p className="text-xs font-bold text-white">موسم الأسبوع</p>
+                        <p className="text-[10px] text-muted-foreground">{seasonTier.name} • {seasonPoints} نقطة</p>
+                      </div>
+                      <div className="text-left">
+                        <p className="text-[10px] text-muted-foreground">ينتهي خلال</p>
+                        <p className="text-xs font-bold text-yellow-400">{daysUntilReset} أيام</p>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Quick stats */}
                   <div className="grid grid-cols-4 gap-2">
                     {[
@@ -275,6 +328,26 @@ export default function Home() {
                     ))}
                   </div>
 
+                  {/* Recent achievements */}
+                  {!isGuest && lastUnlocked.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] text-muted-foreground font-semibold tracking-wider">آخر الإنجازات</p>
+                      <div className="flex gap-2">
+                        {lastUnlocked.map(a => (
+                          <button
+                            key={a.id}
+                            onClick={() => navigate("/achievements")}
+                            className="flex-1 rounded-xl p-2 border border-yellow-500/20 flex items-center gap-1.5 hover:border-yellow-500/40 transition-colors"
+                            style={{ background: "rgba(217,119,6,0.08)" }}
+                          >
+                            <span className="text-base">{a.icon}</span>
+                            <span className="text-[10px] text-yellow-400 font-bold leading-tight truncate">{a.title}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Bottom links */}
                   <div className="flex flex-wrap justify-center gap-x-4 gap-y-2">
                     <button onClick={() => navigate("/stats")} className="text-xs text-secondary hover:text-secondary/80 transition-colors">
@@ -284,6 +357,18 @@ export default function Home() {
                     <button onClick={() => navigate("/leaderboard")} className="text-xs text-yellow-400 hover:text-yellow-300 transition-colors">
                       🏆 المتصدرون
                     </button>
+                    {!isGuest && (
+                      <>
+                        <span className="text-border">|</span>
+                        <button onClick={() => navigate("/achievements")} className="text-xs text-purple-400 hover:text-purple-300 transition-colors">
+                          🏅 الإنجازات
+                        </button>
+                        <span className="text-border">|</span>
+                        <button onClick={() => navigate("/store")} className="text-xs text-yellow-400 hover:text-yellow-300 transition-colors">
+                          🛍️ المتجر
+                        </button>
+                      </>
+                    )}
                     <span className="text-border">|</span>
                     {isPremium ? (
                       <span className="text-xs text-yellow-400 font-bold">👑 برو مفعّل</span>

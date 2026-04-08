@@ -26,6 +26,8 @@ import Party from "@/pages/Party";
 import PartyHost from "@/pages/PartyHost";
 import PartyGuest from "@/pages/PartyGuest";
 import RankedMode from "@/pages/RankedMode";
+import Achievements from "@/pages/Achievements";
+import Store from "@/pages/Store";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -213,6 +215,8 @@ function AppRoutes() {
         <Route path="/profile" component={Profile} />
         <Route path="/admin" component={Admin} />
         <Route path="/ranked" component={RankedMode} />
+        <Route path="/achievements" component={Achievements} />
+        <Route path="/store" component={Store} />
         <Route component={NotFound} />
       </Switch>
     </OnboardingGuard>

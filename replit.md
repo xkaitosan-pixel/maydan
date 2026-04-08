@@ -52,11 +52,11 @@ Every package extends `tsconfig.base.json` which sets `composite: true`. The roo
 
 ### `artifacts/maydan` — ميدان تحدي المعرفة (React + Vite web app)
 
-Arabic 1vs1 knowledge challenge game. All data stored in localStorage (no backend needed).
+Arabic knowledge challenge game with Supabase backend.
 
 **Features:**
 - RTL Arabic layout, dark theme with gold/purple colors
-- **15 categories** with unique gradients, 225 Arabic questions total (15 per category)
+- **15 categories** × **50 questions** = **750 questions** stored in Supabase
 - Searchable 2-column category grid; 🔒 premium lock on "تحدي الأساطير"
 - 1vs1 challenge via shareable link (`/challenge/:id`)
 - 30-second countdown timer per question
@@ -77,8 +77,22 @@ Arabic 1vs1 knowledge challenge game. All data stored in localStorage (no backen
 - **Leaderboard** (`/leaderboard`): weekly/all-time tabs, category filter scrollable row, gold/silver/bronze medals, my-rank banner, empty state CTA; populated by challenge results, survival games, friends rooms, and tournaments; auto-resets weekly by `getWeekKey()`
 - **Viral Share Card** on Results: branded ميدان card with score/pct/rank, "شارك نتيجتك" WhatsApp button + "تحدي صديق" WhatsApp challenge link
 
+**Gamification System (new):**
+- **XP & Levels** (7 levels: مبتدئ→بطل الميدان): earned from every game, stored in `users.xp` + `users.level`
+- **Coins (قروش)**: earned by winning, displayed in XPBar on Home; spend in Store
+- **Achievements (إنجازات)** (`/achievements`): 15 achievements, progress tracking stored in `users.achievements` JSONB `{unlocked, progress, avatar_frame, season_week, power_cards_store}`
+- **Weekly Seasons**: seasonal points from ranked matches stored in `users.season_points`; auto-resets weekly and awards coins based on tier (Bronze→Legend)
+- **Store (المتجر)** (`/store`): buy avatar frames (gold/fire/royal/legend), titles (فارس شجاع etc.), power cards using coins
+- **Home Screen Updates**: XPBar component + season widget + recent achievements preview + links to /achievements and /store
+
 **Key Files:**
-- `src/lib/questions.ts` — 225 Arabic questions + CATEGORIES array with gradients
+- `src/lib/gamification.ts` — XP levels, achievements, store items, season tiers, award/purchase functions
+- `src/components/XPBar.tsx` — XP progress bar showing level icon, coin balance, level milestones
+- `src/components/AchievementPopup.tsx` — Animated achievement unlock celebration popup
+- `src/components/FloatingReward.tsx` — Floating "+XP 🌟 / +coins 🪙" animation after games
+- `src/pages/Achievements.tsx` — Achievement list page with progress tracking
+- `src/pages/Store.tsx` — Store with frames/titles/power cards tabs
+- `src/lib/questions.ts` — 750 Arabic questions (50/category) fetched from Supabase
 - `src/lib/storage.ts` — localStorage helpers (user, challenges, streak, power cards, stats, leaderboard, onboarding, premium)
 - `src/pages/Home.tsx` — Landing page with mode selector, streak display, leaderboard/premium/stats bottom links
 - `src/pages/CreateChallenge.tsx` — Category grid with search

@@ -8,6 +8,9 @@ import { recordSurvivalGame, recordCategoryAnswers, getSurvivalRank, getAvailabl
 import { insertScore, updateUserStats } from "@/lib/db";
 import { useAuth } from "@/lib/AuthContext";
 import { playSound } from "@/lib/sound";
+import AchievementPopup from "@/components/AchievementPopup";
+import FloatingReward from "@/components/FloatingReward";
+import { awardGameRewards, XP_REWARDS } from "@/lib/gamification";
 
 const LIVES_START = 3;
 const BASE_TIME = 30;
@@ -45,6 +48,8 @@ export default function Survival() {
   const [powerUsed, setPowerUsed] = useState<{ skip: boolean; time: boolean }>({ skip: false, time: false });
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const questionPoolRef = useRef<Question[]>([]);
+  const [showReward, setShowReward] = useState<{ xp: number; coins: number } | null>(null);
+  const [newAchievements, setNewAchievements] = useState<string[]>([]);
 
   function loadPowerCards() {
     const cards = getAvailablePowerCards();
@@ -185,7 +190,31 @@ export default function Survival() {
     const supName = dbUser?.username ?? u.displayName;
     if (supName && !isGuest) {
       insertScore({ user_id: dbUser?.id ?? null, username: supName, category: selectedCategory, score: finalScore, game_mode: "survival" });
-      if (dbUser?.id) updateUserStats(dbUser.id, { total_points: finalScore * 10 });
+      if (dbUser?.id) {
+        updateUserStats(dbUser.id, { total_points: finalScore * 10 });
+        // Award XP and coins
+        const xpGain = finalScore >= 10 ? XP_REWARDS.win_survival_10 : Math.max(5, finalScore * 2);
+        const survivalWin = finalScore >= 15 ? 1 : 0;
+        awardGameRewards({
+          userId: dbUser.id,
+          xp: xpGain,
+          coins: survivalWin ? 25 : 0,
+          currentXP: dbUser.xp ?? 0,
+          currentCoins: dbUser.coins ?? 0,
+          currentLevel: dbUser.level ?? 1,
+          currentAchievements: dbUser.achievements,
+          currentSeasonPoints: dbUser.season_points ?? 0,
+          progressUpdates: {
+            total_games:       1,
+            total_correct:     finalScore,
+            survival_wins:     survivalWin,
+            categories_played: selectedCategory,
+          },
+        }).then(result => {
+          setShowReward({ xp: result.xpGained, coins: result.coinsGained });
+          if (result.newlyUnlocked.length > 0) setNewAchievements(result.newlyUnlocked);
+        }).catch(() => {});
+      }
     }
     setScore(finalScore);
     setPhase("gameover");
@@ -270,6 +299,12 @@ export default function Survival() {
 
     return (
       <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-6">
+        {showReward && (
+          <FloatingReward xp={showReward.xp} coins={showReward.coins} onDone={() => setShowReward(null)} />
+        )}
+        {newAchievements.length > 0 && (
+          <AchievementPopup unlockedIds={newAchievements} onDone={() => setNewAchievements([])} />
+        )}
         <div className="w-full max-w-sm text-center fade-in-up space-y-5">
           <div className="text-7xl animate-bounce">{rank.icon}</div>
           <div>
