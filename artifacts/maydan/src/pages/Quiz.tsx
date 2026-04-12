@@ -5,6 +5,7 @@ import { fetchQuestionsByIds } from "@/lib/questionService";
 import QuestionImage from "@/components/QuestionImage";
 import { getChallenge, saveChallenge, getOrCreateUser, recordGamePlayed, recordCategoryAnswers, getAvailablePowerCards, useSkipCard, useTimeCard } from "@/lib/storage";
 import { playCorrect, playWrong, playTick } from "@/lib/sound";
+import { XP_REWARDS } from "@/lib/gamification";
 
 const QUESTION_TIME = 30;
 
@@ -28,6 +29,7 @@ export default function Quiz() {
   const [timeAvail, setTimeAvail] = useState(0);
   const [powerUsed, setPowerUsed] = useState<{ skip: boolean; time: boolean }>({ skip: false, time: false });
   const [loadedQs, setLoadedQs] = useState<Question[]>([]);
+  const [showXPPop, setShowXPPop] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const challenge = getChallenge(challengeId);
@@ -105,9 +107,13 @@ export default function Quiz() {
     const newAnswers = [...answers];
     newAnswers[currentIndex] = optionIndex;
     setAnswers(newAnswers);
-    // Play sound based on correctness
-    if (optionIndex === currentQuestion?.correct) playCorrect();
-    else playWrong();
+    if (optionIndex === currentQuestion?.correct) {
+      playCorrect();
+      setShowXPPop(true);
+      setTimeout(() => setShowXPPop(false), 1100);
+    } else {
+      playWrong();
+    }
     setTimeout(() => goToNextQuestion(newAnswers), 1200);
   }
 
@@ -223,6 +229,16 @@ export default function Quiz() {
 
   return (
     <div className="min-h-screen gradient-hero flex flex-col">
+      {/* Floating XP pop on correct answer */}
+      {showXPPop && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 pointer-events-none animate-bounce">
+          <div className="flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-black text-white border border-purple-500/40"
+            style={{ background: "linear-gradient(135deg,#7c3aed,#4c1d95)", boxShadow: "0 4px 20px rgba(124,58,237,0.5)" }}>
+            <span>⭐</span>
+            <span>+{XP_REWARDS.correct_answer} XP</span>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <header className="p-4 border-b border-border/30">
         <div className="flex justify-between items-center mb-2">

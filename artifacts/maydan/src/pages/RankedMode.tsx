@@ -65,7 +65,7 @@ async function getMatchQuestions(matchId: string, category: string) {
 
 export default function RankedMode() {
   const [, navigate] = useLocation();
-  const { dbUser, isGuest } = useAuth();
+  const { dbUser, isGuest, refreshUser } = useAuth();
   const localUser = getOrCreateUser();
 
   const myId = dbUser?.id ?? localUser.userId ?? "";
@@ -88,6 +88,7 @@ export default function RankedMode() {
   const [countdown, setCountdown] = useState(3);
   const [showReward, setShowReward] = useState<{ xp: number; coins: number } | null>(null);
   const [newAchievements, setNewAchievements] = useState<string[]>([]);
+  const [rewardSummary, setRewardSummary] = useState<{ xp: number; coins: number; achievements: number } | null>(null);
 
   const searchIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -530,7 +531,9 @@ export default function RankedMode() {
         },
       }).then(result => {
         setShowReward({ xp: result.xpGained, coins: result.coinsGained });
+        setRewardSummary({ xp: result.xpGained, coins: result.coinsGained, achievements: result.newlyUnlocked.length });
         if (result.newlyUnlocked.length > 0) setNewAchievements(result.newlyUnlocked);
+        refreshUser();
       }).catch(() => {});
     }
   }
@@ -814,6 +817,36 @@ export default function RankedMode() {
           </p>
           <p className="text-xs text-muted-foreground mt-1">المجموع: {myPoints} نقطة · {myRank.icon} {myRank.label}</p>
         </div>
+
+        {/* Reward summary */}
+        {!isGuest && (
+          <div className="w-full max-w-sm rounded-2xl p-4 border border-yellow-500/20"
+            style={{ background: "linear-gradient(135deg,rgba(217,119,6,0.1),rgba(139,92,246,0.1))" }}>
+            <p className="text-xs font-bold text-yellow-400 mb-3 text-center">🎁 مكافآت هذه الجولة</p>
+            {rewardSummary ? (
+              <div className="flex justify-around">
+                <div className="text-center">
+                  <p className="text-xl font-black text-purple-400">+{rewardSummary.xp}</p>
+                  <p className="text-[10px] text-muted-foreground">⭐ XP</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xl font-black text-yellow-400">+{rewardSummary.coins}</p>
+                  <p className="text-[10px] text-muted-foreground">🪙 قرش</p>
+                </div>
+                {rewardSummary.achievements > 0 && (
+                  <div className="text-center">
+                    <p className="text-xl font-black text-green-400">+{rewardSummary.achievements}</p>
+                    <p className="text-[10px] text-muted-foreground">🏅 إنجاز</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex justify-center">
+                <div className="w-5 h-5 border-2 border-yellow-400/40 border-t-yellow-400 rounded-full animate-spin" />
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="flex gap-3">
           <button onClick={() => { cleanup(); setPhase("select_cats"); setMatch(null); setSelected(null); setQResult(null); setCurrentQIdx(0); }}

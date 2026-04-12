@@ -19,7 +19,7 @@ const WA_ICON = (
 export default function Results() {
   const params = useParams<{ id: string; role: string }>();
   const [, navigate] = useLocation();
-  const { dbUser, isGuest } = useAuth();
+  const { dbUser, isGuest, refreshUser } = useAuth();
   const challengeId = params.id;
   const role = params.role as "creator" | "challenger";
   const [copied, setCopied] = useState(false);
@@ -27,6 +27,7 @@ export default function Results() {
   const [loadedQs, setLoadedQs] = useState<Question[]>([]);
   const [showReward, setShowReward] = useState<{ xp: number; coins: number } | null>(null);
   const [newAchievements, setNewAchievements] = useState<string[]>([]);
+  const [rewardSummary, setRewardSummary] = useState<{ xp: number; coins: number; achievements: number } | null>(null);
 
   const challenge = getChallenge(challengeId);
   const category = challenge ? getCategoryById(challenge.categoryId) : null;
@@ -90,7 +91,9 @@ export default function Results() {
             },
           }).then(result => {
             setShowReward({ xp: result.xpGained, coins: result.coinsGained });
+            setRewardSummary({ xp: result.xpGained, coins: result.coinsGained, achievements: result.newlyUnlocked.length });
             if (result.newlyUnlocked.length > 0) setNewAchievements(result.newlyUnlocked);
+            refreshUser();
           }).catch(() => {});
         }
       }
@@ -187,6 +190,30 @@ export default function Results() {
             }
           >
             <p className={`text-2xl font-black ${isWinner ? "text-white" : "text-foreground"}`}>{winnerText}</p>
+          </div>
+        )}
+
+        {/* Reward summary */}
+        {!isGuest && rewardSummary && (
+          <div className="rounded-2xl p-4 border border-yellow-500/20 fade-in-up"
+            style={{ background: "linear-gradient(135deg,rgba(217,119,6,0.1),rgba(139,92,246,0.1))" }}>
+            <p className="text-xs font-bold text-yellow-400 mb-3 text-center">🎁 مكافآت هذه الجولة</p>
+            <div className="flex justify-around">
+              <div className="text-center">
+                <p className="text-xl font-black text-purple-400">+{rewardSummary.xp}</p>
+                <p className="text-[10px] text-muted-foreground">⭐ XP</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xl font-black text-yellow-400">+{rewardSummary.coins}</p>
+                <p className="text-[10px] text-muted-foreground">🪙 قرش</p>
+              </div>
+              {rewardSummary.achievements > 0 && (
+                <div className="text-center">
+                  <p className="text-xl font-black text-green-400">+{rewardSummary.achievements}</p>
+                  <p className="text-[10px] text-muted-foreground">🏅 إنجاز</p>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

@@ -12,6 +12,8 @@ import AchievementPopup from "@/components/AchievementPopup";
 import FloatingReward from "@/components/FloatingReward";
 import { awardGameRewards, XP_REWARDS } from "@/lib/gamification";
 
+const XP_PER_CORRECT = XP_REWARDS.correct_answer;
+
 const LIVES_START = 3;
 const BASE_TIME = 30;
 const TIME_DECREMENT = 5;
@@ -28,7 +30,7 @@ function getTimerForScore(score: number): number {
 
 export default function Survival() {
   const [, navigate] = useLocation();
-  const { dbUser, isGuest } = useAuth();
+  const { dbUser, isGuest, refreshUser } = useAuth();
   const [phase, setPhase] = useState<Phase>("select");
   const [selectedCategory, setSelectedCategory] = useState<string>("mix");
 
@@ -50,6 +52,8 @@ export default function Survival() {
   const questionPoolRef = useRef<Question[]>([]);
   const [showReward, setShowReward] = useState<{ xp: number; coins: number } | null>(null);
   const [newAchievements, setNewAchievements] = useState<string[]>([]);
+  const [perAnswerXP, setPerAnswerXP] = useState(false);
+  const [rewardSummary, setRewardSummary] = useState<{ xp: number; coins: number; achievements: number } | null>(null);
 
   function loadPowerCards() {
     const cards = getAvailablePowerCards();
@@ -144,6 +148,8 @@ export default function Survival() {
       const newScore = score + 1;
       setScore(newScore);
       setCorrectAnswers(prev => ({ ...prev, [cat]: (prev[cat] || 0) + 1 }));
+      setPerAnswerXP(true);
+      setTimeout(() => setPerAnswerXP(false), 900);
       setTimeout(() => nextQuestion(newScore), 900);
     } else {
       setLives(prev => {
@@ -212,7 +218,9 @@ export default function Survival() {
           },
         }).then(result => {
           setShowReward({ xp: result.xpGained, coins: result.coinsGained });
+          setRewardSummary({ xp: result.xpGained, coins: result.coinsGained, achievements: result.newlyUnlocked.length });
           if (result.newlyUnlocked.length > 0) setNewAchievements(result.newlyUnlocked);
+          refreshUser();
         }).catch(() => {});
       }
     }
@@ -312,6 +320,36 @@ export default function Survival() {
             <p className="text-3xl font-black" style={{ color: rank.color }}>{rank.title}</p>
           </div>
 
+          {/* Reward summary card */}
+          {!isGuest && (
+            <div className="rounded-2xl p-4 border border-yellow-500/20 text-right"
+              style={{ background: "linear-gradient(135deg,rgba(217,119,6,0.1),rgba(139,92,246,0.1))" }}>
+              <p className="text-xs font-bold text-yellow-400 mb-3 text-center">🎁 مكافآت هذه الجولة</p>
+              {rewardSummary ? (
+                <div className="flex justify-around">
+                  <div className="text-center">
+                    <p className="text-xl font-black text-purple-400">+{rewardSummary.xp}</p>
+                    <p className="text-[10px] text-muted-foreground">⭐ XP</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xl font-black text-yellow-400">+{rewardSummary.coins}</p>
+                    <p className="text-[10px] text-muted-foreground">🪙 قرش</p>
+                  </div>
+                  {rewardSummary.achievements > 0 && (
+                    <div className="text-center">
+                      <p className="text-xl font-black text-green-400">+{rewardSummary.achievements}</p>
+                      <p className="text-[10px] text-muted-foreground">🏅 إنجاز</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex justify-center">
+                  <div className="w-5 h-5 border-2 border-yellow-400/40 border-t-yellow-400 rounded-full animate-spin" />
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Score big */}
           <div className="bg-card border border-border rounded-2xl p-6">
             <p className="text-6xl font-black text-primary">{score}</p>
@@ -377,6 +415,16 @@ export default function Survival() {
 
   return (
     <div className="min-h-screen gradient-hero flex flex-col">
+      {/* Per-answer XP pop */}
+      {perAnswerXP && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 pointer-events-none animate-bounce">
+          <div className="flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-black text-white border border-purple-500/40"
+            style={{ background: "linear-gradient(135deg,#7c3aed,#4c1d95)", boxShadow: "0 4px 20px rgba(124,58,237,0.5)" }}>
+            <span>⭐</span>
+            <span>+{XP_PER_CORRECT} XP</span>
+          </div>
+        </div>
+      )}
       <div className="rp-narrow flex flex-col flex-1 w-full">
       {/* Status bar */}
       <header className="p-4 border-b border-border/30 space-y-2">

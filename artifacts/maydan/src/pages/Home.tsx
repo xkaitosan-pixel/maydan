@@ -162,6 +162,12 @@ export default function Home() {
           <span className="text-xl md:text-2xl font-black text-primary">ميدان</span>
         </div>
         <div className="flex items-center gap-2">
+          {!isGuest && dbUser && (dbUser.coins ?? 0) > 0 && (
+            <div className="flex items-center gap-1 bg-yellow-500/15 border border-yellow-500/30 rounded-full px-2.5 py-1">
+              <span className="text-sm">🪙</span>
+              <span className="text-xs font-bold text-yellow-400">{(dbUser.coins ?? 0).toLocaleString()}</span>
+            </div>
+          )}
           {streak > 0 && (
             <div className="flex items-center gap-1 bg-orange-500/15 border border-orange-500/30 rounded-full px-2.5 py-1">
               <span className="text-sm">🔥</span>

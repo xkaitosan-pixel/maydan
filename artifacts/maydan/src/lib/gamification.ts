@@ -295,6 +295,57 @@ export async function purchaseItem(
   return { success: true, message: 'تم الشراء بنجاح! ✅', newCoins };
 }
 
+// ─── SIMPLE HELPERS ───────────────────────────────────────────────────────────
+
+export async function awardXP(userId: string, amount: number): Promise<number> {
+  const { data } = await supabase.from('users').select('xp').eq('id', userId).single();
+  const newXP = (data?.xp ?? 0) + amount;
+  const newLevel = LEVELS.reduce((lv, lvl) => newXP >= lvl.xp ? lvl.level : lv, 1);
+  await supabase.from('users').update({ xp: newXP, level: newLevel }).eq('id', userId);
+  return newXP;
+}
+
+export async function awardCoins(userId: string, amount: number): Promise<number> {
+  const { data } = await supabase.from('users').select('coins').eq('id', userId).single();
+  const newCoins = (data?.coins ?? 0) + amount;
+  await supabase.from('users').update({ coins: newCoins }).eq('id', userId);
+  return newCoins;
+}
+
+export async function checkAchievements(userId: string): Promise<string[]> {
+  const { data } = await supabase
+    .from('users')
+    .select('xp, level, coins, achievements, season_points')
+    .eq('id', userId)
+    .single();
+  if (!data) return [];
+  const aData = parseAchievementsData(data.achievements);
+  const progress: Record<string, number | string[]> = { ...aData.progress, level: data.level ?? 1 };
+  const newlyUnlocked: string[] = [];
+  let bonusXP = 0, bonusCoins = 0;
+  for (const ach of ACHIEVEMENTS) {
+    if (aData.unlocked.includes(ach.id)) continue;
+    const raw = progress[ach.progressKey];
+    const val = Array.isArray(raw) ? (raw as string[]).length : ((raw as number) ?? 0);
+    if (val >= ach.totalNeeded) {
+      newlyUnlocked.push(ach.id);
+      bonusXP += ach.xp;
+      bonusCoins += ach.coins;
+    }
+  }
+  if (newlyUnlocked.length > 0) {
+    const updatedAData = { ...aData, unlocked: [...aData.unlocked, ...newlyUnlocked] };
+    const newXP    = (data.xp    ?? 0) + bonusXP;
+    const newCoins = (data.coins ?? 0) + bonusCoins;
+    const newLevel = LEVELS.reduce((lv, lvl) => newXP >= lvl.xp ? lvl.level : lv, 1);
+    await supabase.from('users').update({
+      achievements: updatedAData,
+      xp: newXP, coins: newCoins, level: newLevel,
+    }).eq('id', userId);
+  }
+  return newlyUnlocked;
+}
+
 // ─── SEASON RESET CHECK ───────────────────────────────────────────────────────
 export async function checkSeasonReset(
   userId: string,
