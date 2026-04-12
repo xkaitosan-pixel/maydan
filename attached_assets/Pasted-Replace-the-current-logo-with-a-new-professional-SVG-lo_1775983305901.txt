@@ -1,0 +1,72 @@
+Replace the current ميدان logo with a new professional SVG logo.
+
+The new logo design (Concept C - Modern):
+- Dark rounded square background (#0D0D1A)
+- Two crossed swords in gold gradient
+- Purple gem at crossing point
+- Clean and modern style
+
+Replace the logo in these locations:
+1. The main app icon (public/favicon.ico area)
+2. Home screen logo image
+3. Login screen logo
+4. Party host/guest screens
+5. Any other place the current swords logo appears
+
+Create the SVG logo as a component LogoIcon.tsx:
+
+const LogoIcon = ({ size = 80 }) => (
+  <svg width={size} height={size} viewBox="0 0 120 120">
+    <rect x="0" y="0" width="120" height="120" rx="24" fill="#0D0D1A"/>
+    
+    {/* Sword 1 - left to right */}
+    <defs>
+      <linearGradient id="gold1" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stopColor="#f5d98a"/>
+        <stop offset="100%" stopColor="#b8960e"/>
+      </linearGradient>
+      <linearGradient id="gold2" x1="100%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stopColor="#f5d98a"/>
+        <stop offset="100%" stopColor="#b8960e"/>
+      </linearGradient>
+    </defs>
+    
+    {/* Sword 1 blade */}
+    <path d="M28 22 L78 82" stroke="url(#gold1)" strokeWidth="5" strokeLinecap="round"/>
+    {/* Sword 1 tip */}
+    <polygon points="78,82 86,94 73,84" fill="#D4AF37"/>
+    {/* Sword 1 guard */}
+    <rect x="16" y="40" width="26" height="5" rx="2.5" fill="#9333ea" 
+          transform="rotate(-52 29 42)"/>
+    {/* Sword 1 pommel */}
+    <circle cx="22" cy="17" r="6" fill="#7c3aed"/>
+    
+    {/* Sword 2 blade */}
+    <path d="M92 22 L42 82" stroke="url(#gold2)" strokeWidth="5" strokeLinecap="round"/>
+    {/* Sword 2 tip */}
+    <polygon points="42,82 34,94 47,84" fill="#D4AF37"/>
+    {/* Sword 2 guard */}
+    <rect x="78" y="40" width="26" height="5" rx="2.5" fill="#9333ea"
+          transform="rotate(52 91 42)"/>
+    {/* Sword 2 pommel */}
+    <circle cx="98" cy="17" r="6" fill="#7c3aed"/>
+    
+    {/* Center gem at crossing */}
+    <circle cx="60" cy="54" r="10" fill="#0D0D1A"/>
+    <circle cx="60" cy="54" r="7" fill="#9333ea"/>
+    <circle cx="60" cy="54" r="3.5" fill="#D4AF37"/>
+    
+    {/* Subtle corner stars */}
+    <circle cx="60" cy="54" r="1" fill="white" opacity="0.8"/>
+  </svg>
+);
+
+export default LogoIcon;
+
+Replace all instances of the old logo image/icon with <LogoIcon size={80}/> or appropriate size.
+
+Also update:
+- public/favicon.svg with the same design
+- manifest.json icons to reference the new SVG
+
+Push to GitHub.

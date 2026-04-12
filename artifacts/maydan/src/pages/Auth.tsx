@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/lib/AuthContext";
+import LogoIcon from "@/components/LogoIcon";
 
 type AuthView = "login" | "signup" | "forgot";
 
@@ -94,8 +95,8 @@ export default function Auth() {
   return (
     <div className="min-h-screen gradient-hero star-bg flex flex-col items-center justify-center p-5 text-center">
       {/* Logo */}
-      <div className="w-24 h-24 rounded-full gradient-gold flex items-center justify-center gold-glow mb-4 mx-auto">
-        <span className="text-5xl">⚔️</span>
+      <div className="gold-glow mb-4 mx-auto w-fit rounded-3xl">
+        <LogoIcon size={96} />
       </div>
       <h1 className="text-4xl font-black text-primary">ميدان</h1>
       <p className="text-secondary font-semibold mt-0.5 mb-6 text-sm">ساحة المعرفة العربية</p>

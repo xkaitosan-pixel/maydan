@@ -12,6 +12,7 @@ import RewardBox from "@/components/RewardBox";
 import NotificationBanner from "@/components/NotificationBanner";
 import XPBar from "@/components/XPBar";
 import { toggleTheme, getTheme } from "@/lib/theme";
+import LogoIcon from "@/components/LogoIcon";
 import { isSoundEnabled, toggleSound, playClick, playSound } from "@/lib/sound";
 import {
   parseAchievementsData, ACHIEVEMENTS, getSeasonTier, getDaysUntilSunday,
@@ -158,7 +159,7 @@ export default function Home() {
       {/* ── Header ───────────────────────────────────────────────────────── */}
       <header className="px-4 md:px-8 pt-4 pb-3 flex justify-between items-center border-b border-border/30">
         <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-full gradient-gold flex items-center justify-center text-background font-bold text-base">م</div>
+          <LogoIcon size={36} />
           <span className="text-xl md:text-2xl font-black text-primary">ميدان</span>
         </div>
         <div className="flex items-center gap-2">
@@ -215,8 +216,8 @@ export default function Home() {
 
               {/* Hero logo */}
               <div className="text-center pt-2 md:pt-6">
-                <div className="w-20 h-20 md:w-24 md:h-24 rounded-full gradient-gold flex items-center justify-center gold-glow mb-3 mx-auto">
-                  <span className="text-4xl md:text-5xl">⚔️</span>
+                <div className="gold-glow mb-3 mx-auto w-fit rounded-3xl">
+                  <LogoIcon size={96} />
                 </div>
                 <h1 className="text-4xl md:text-5xl font-black text-primary">ميدان</h1>
                 <p className="text-secondary text-sm md:text-base font-semibold mt-1">تحدي المعرفة العربي</p>

@@ -29,6 +29,7 @@ import RankedMode from "@/pages/RankedMode";
 import Achievements from "@/pages/Achievements";
 import Store from "@/pages/Store";
 import NotFound from "@/pages/not-found";
+import LogoIcon from "@/components/LogoIcon";
 
 const queryClient = new QueryClient();
 
@@ -96,9 +97,8 @@ function AuthCallbackHandler() {
   return (
     <div className="min-h-screen gradient-hero star-bg flex flex-col items-center justify-center gap-5 p-6 text-center"
       style={{ background: "hsl(220 20% 8%)" }}>
-      <div className="w-24 h-24 rounded-full flex items-center justify-center gold-glow"
-        style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}>
-        <span className="text-5xl">⚔️</span>
+      <div className="gold-glow rounded-3xl">
+        <LogoIcon size={96} />
       </div>
 
       {status === "loading" && (
@@ -140,8 +140,8 @@ function AuthCallbackHandler() {
 function LoadingScreen() {
   return (
     <div className="min-h-screen gradient-hero flex flex-col items-center justify-center gap-4">
-      <div className="w-20 h-20 rounded-full gradient-gold flex items-center justify-center gold-glow">
-        <span className="text-4xl">⚔️</span>
+      <div className="gold-glow rounded-3xl">
+        <LogoIcon size={80} />
       </div>
       <div className="flex gap-1.5">
         {[0, 1, 2].map(i => (
