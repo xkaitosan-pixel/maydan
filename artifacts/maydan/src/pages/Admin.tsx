@@ -5,8 +5,9 @@ import { supabase } from "@/lib/supabase";
 import { CATEGORIES } from "@/lib/questions";
 import type { Question } from "@/lib/questions";
 
-const ADMIN_EMAIL = "xkaito.san@gmail.com";
+const SUPER_ADMIN = "xkaito.san@gmail.com";
 
+type AdminRecord = { id: string; email: string; name: string; is_super: boolean; created_at: string };
 type EditableQ = Question & { _new?: boolean };
 
 function badge(d: string) {
@@ -251,6 +252,121 @@ function QuestionModal({
   );
 }
 
+// ─── Admins Manager Section ───────────────────────────────────────────────────
+function AdminsManager() {
+  const [admins, setAdmins] = useState<AdminRecord[]>([]);
+  const [loadingA, setLoadingA] = useState(true);
+  const [newEmail, setNewEmail] = useState("");
+  const [newName, setNewName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => { fetchAdmins(); }, []);
+
+  async function fetchAdmins() {
+    setLoadingA(true);
+    const { data } = await supabase.from("admins").select("*").order("created_at");
+    setAdmins(data ?? []);
+    setLoadingA(false);
+  }
+
+  async function addAdmin() {
+    setErr("");
+    const email = newEmail.trim().toLowerCase();
+    const name = newName.trim();
+    if (!email || !name) { setErr("أدخل الإيميل والاسم"); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setErr("إيميل غير صحيح"); return; }
+    setSaving(true);
+    const { error } = await supabase.from("admins").insert({ email, name, is_super: false });
+    if (error) { setErr(error.message.includes("unique") ? "هذا الإيميل مضاف مسبقاً" : error.message); setSaving(false); return; }
+    setNewEmail(""); setNewName("");
+    await fetchAdmins();
+    setSaving(false);
+  }
+
+  async function removeAdmin(id: string, email: string) {
+    if (email === SUPER_ADMIN) return;
+    if (!confirm(`هل أنت متأكد من إزالة ${email}؟`)) return;
+    await supabase.from("admins").delete().eq("id", id);
+    await fetchAdmins();
+  }
+
+  return (
+    <div className="rounded-2xl border border-purple-500/30 overflow-hidden" style={{ background: "hsl(270 30% 10%)" }}>
+      <div className="px-5 py-4 border-b border-purple-500/20 flex items-center gap-3" style={{ background: "hsl(270 30% 12%)" }}>
+        <span className="text-xl">👑</span>
+        <h2 className="text-white font-bold">إدارة المشرفين</h2>
+        <span className="mr-auto text-xs px-2 py-0.5 rounded-full bg-purple-900/50 text-purple-300">{admins.length} مشرف</span>
+      </div>
+
+      <div className="p-5 space-y-5">
+        {/* Add new admin */}
+        <div>
+          <p className="text-xs text-white/50 mb-3">إضافة مشرف جديد</p>
+          <div className="flex gap-2 flex-wrap">
+            <input
+              value={newEmail}
+              onChange={e => setNewEmail(e.target.value)}
+              placeholder="البريد الإلكتروني"
+              dir="ltr"
+              className="flex-1 min-w-[180px] px-4 py-2.5 rounded-xl text-sm text-white border border-white/10"
+              style={{ background: "hsl(220 20% 14%)" }}
+            />
+            <input
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              placeholder="الاسم"
+              className="w-36 px-4 py-2.5 rounded-xl text-sm text-white border border-white/10"
+              style={{ background: "hsl(220 20% 14%)" }}
+            />
+            <button
+              onClick={addAdmin}
+              disabled={saving}
+              className="px-4 py-2.5 rounded-xl font-bold text-sm text-white disabled:opacity-50"
+              style={{ background: "hsl(270 60% 45%)" }}
+            >
+              {saving ? "..." : "➕ إضافة"}
+            </button>
+          </div>
+          {err && <p className="text-red-400 text-xs mt-2">{err}</p>}
+        </div>
+
+        {/* Admin list */}
+        <div className="space-y-2">
+          {loadingA ? (
+            <p className="text-white/30 text-sm text-center py-4">جاري التحميل...</p>
+          ) : admins.length === 0 ? (
+            <p className="text-white/30 text-sm text-center py-4">لا يوجد مشرفون</p>
+          ) : admins.map(a => (
+            <div key={a.id} className="flex items-center gap-3 px-4 py-3 rounded-xl border border-white/5" style={{ background: "hsl(220 20% 14%)" }}>
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0"
+                style={{ background: a.is_super ? "linear-gradient(135deg,#d97706,#f59e0b)" : "hsl(270 60% 30%)" }}>
+                {a.is_super ? "👑" : "🛡️"}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-sm font-medium leading-none">{a.name}</p>
+                <p className="text-white/40 text-xs mt-0.5 font-mono truncate" dir="ltr">{a.email}</p>
+              </div>
+              {a.is_super && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-900/40 text-yellow-400 flex-shrink-0">سوبر أدمن</span>
+              )}
+              {!a.is_super && (
+                <button
+                  onClick={() => removeAdmin(a.id, a.email)}
+                  className="w-8 h-8 rounded-lg flex items-center justify-center text-red-400 border border-red-500/20 hover:border-red-500/50 flex-shrink-0 transition-colors"
+                  title="إزالة"
+                >
+                  🗑️
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Admin Page ─────────────────────────────────────────────────────────
 export default function Admin() {
   const { session, isLoading } = useAuth();
@@ -264,6 +380,10 @@ export default function Admin() {
   const [status, setStatus] = useState<string>("");
   const [loading, setLoading] = useState(false);
 
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [adminChecked, setAdminChecked] = useState(false);
+
   // Modal state: null = closed, "add" = new question, EditableQ = editing existing
   const [modalMode, setModalMode] = useState<"add" | "edit" | null>(null);
   const [modalInitial, setModalInitial] = useState<Partial<EditableQ>>({});
@@ -271,12 +391,26 @@ export default function Admin() {
   const userEmail = session?.user?.email ?? "";
 
   useEffect(() => {
-    if (!isLoading && userEmail !== ADMIN_EMAIL) navigate("/");
-  }, [isLoading, userEmail, navigate]);
+    if (isLoading) return;
+    if (!userEmail) { navigate("/"); return; }
+    checkAdminAccess(userEmail);
+  }, [isLoading, userEmail]);
 
-  useEffect(() => {
-    if (userEmail === ADMIN_EMAIL) loadQuestions();
-  }, [userEmail]);
+  async function checkAdminAccess(email: string) {
+    if (email === SUPER_ADMIN) {
+      setIsAdmin(true);
+      setIsSuperAdmin(true);
+      setAdminChecked(true);
+      loadQuestions();
+      return;
+    }
+    const { data } = await supabase.from("admins").select("id").eq("email", email).maybeSingle();
+    if (!data) { navigate("/"); return; }
+    setIsAdmin(true);
+    setIsSuperAdmin(false);
+    setAdminChecked(true);
+    loadQuestions();
+  }
 
   async function loadQuestions() {
     setLoading(true);
@@ -384,17 +518,17 @@ export default function Admin() {
     });
   }, [questions, filterCat, filterDiff, search]);
 
-  if (isLoading)
+  if (isLoading || !adminChecked)
     return (
       <div
         className="min-h-screen flex items-center justify-center"
         style={{ background: "hsl(220 20% 8%)" }}
       >
-        <div className="text-white">جاري التحقق...</div>
+        <div className="text-white">جاري التحقق من الصلاحيات...</div>
       </div>
     );
 
-  if (userEmail !== ADMIN_EMAIL) return null;
+  if (!isAdmin) return null;
 
   return (
     <div
@@ -428,6 +562,9 @@ export default function Admin() {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            {isSuperAdmin && (
+              <span className="text-xs px-2 py-1 rounded-full bg-yellow-900/50 text-yellow-300">👑 سوبر أدمن</span>
+            )}
             <span className="text-xs px-2 py-1 rounded-full bg-green-900/50 text-green-300">
               {userEmail}
             </span>
@@ -667,6 +804,9 @@ export default function Admin() {
             </table>
           </div>
         </div>
+
+        {/* ── Admins Manager (super admin only) ── */}
+        {isSuperAdmin && <AdminsManager />}
 
         <div className="h-10" />
       </div>
