@@ -234,9 +234,9 @@ export default function Leaderboard() {
                     </div>
                     <div className="text-right shrink-0">
                       <p className={`text-lg font-black ${i === 0 ? "text-yellow-400" : i === 1 ? "text-slate-300" : i === 2 ? "text-orange-500" : "text-primary"}`}>
-                        {e.score}/{e.total}
+                        {e.score}
                       </p>
-                      <p className="text-xs text-muted-foreground">{Math.round((e.score / e.total) * 100)}%</p>
+                      <p className="text-xs text-muted-foreground">نقطة</p>
                     </div>
                   </div>
                 );
