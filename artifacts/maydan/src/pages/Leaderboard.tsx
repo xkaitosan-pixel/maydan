@@ -44,6 +44,7 @@ export default function Leaderboard() {
   const [entries, setEntries] = useState<ScoreEntry[]>([]);
   const [dailyEntries, setDailyEntries] = useState<DailyEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dailyError, setDailyError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const today = new Date().toISOString().slice(0, 10);
@@ -51,16 +52,21 @@ export default function Leaderboard() {
   useEffect(() => {
     setLoading(true);
     if (tab === "daily") {
+      setDailyError(null);
       (async () => {
         try {
-          const { data } = await supabase.from("daily_scores")
+          const { data, error } = await supabase.from("daily_scores")
             .select("user_id, display_name, country, score, total, completed_at")
             .eq("date", today)
             .order("score", { ascending: false })
             .limit(50);
-          setDailyEntries((data ?? []) as DailyEntry[]);
-        } catch {
-          // ignore fetch errors
+          if (error) {
+            setDailyError(error.message);
+          } else {
+            setDailyEntries((data ?? []) as DailyEntry[]);
+          }
+        } catch (e) {
+          setDailyError(e instanceof Error ? e.message : "خطأ في التحميل");
         } finally {
           setLoading(false);
         }
@@ -168,6 +174,16 @@ export default function Leaderboard() {
               <div className="flex flex-col items-center justify-center py-16 gap-3">
                 <div className="w-8 h-8 border-2 border-primary/40 border-t-primary rounded-full animate-spin" />
                 <p className="text-muted-foreground text-sm">جاري التحميل...</p>
+              </div>
+            ) : dailyError ? (
+              <div className="text-center py-14">
+                <p className="text-4xl mb-4">⚠️</p>
+                <p className="text-foreground font-bold">تعذّر تحميل نتائج اليوم</p>
+                <p className="text-xs text-muted-foreground mt-1 px-6 break-all">{dailyError}</p>
+                <button onClick={() => setRefreshKey(k => k + 1)}
+                  className="mt-4 px-5 py-2 rounded-xl border border-border text-sm text-muted-foreground hover:text-foreground">
+                  🔄 إعادة المحاولة
+                </button>
               </div>
             ) : dailyEntries.length === 0 ? (
               <div className="text-center py-14">
