@@ -5,9 +5,14 @@
   "type": "module",
   "scripts": {
     "hello": "tsx ./src/hello.ts",
+    "migrate-supabase": "tsx ./src/supabase-migrate.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "pg": "^8.11.0"
+  },
   "devDependencies": {
+    "@types/pg": "^8.11.0",
     "@types/node": "catalog:",
     "tsx": "catalog:"
   }
