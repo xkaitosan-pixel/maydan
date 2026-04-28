@@ -33,7 +33,7 @@ export default function Profile() {
   const currentLevel = LEVELS[Math.min(dbUser?.level ?? 1, LEVELS.length) - 1];
   const nextLevel = LEVELS[Math.min(dbUser?.level ?? 1, LEVELS.length)];
   const xpProgress = currentLevel && nextLevel
-    ? Math.min(100, Math.round(((dbUser?.xp ?? 0) - currentLevel.minXP) / (nextLevel.minXP - currentLevel.minXP) * 100))
+    ? Math.min(100, Math.round(((dbUser?.xp ?? 0) - currentLevel.xp) / (nextLevel.xp - currentLevel.xp) * 100))
     : 100;
 
   async function handleSave() {
@@ -146,8 +146,8 @@ export default function Profile() {
                 style={{ width: `${xpProgress}%`, background: "linear-gradient(90deg,#7c3aed,#d97706)" }} />
             </div>
             <div className="flex justify-between text-xs text-muted-foreground">
-              <span>{currentLevel?.title}</span>
-              {nextLevel && <span>{nextLevel.title} ←</span>}
+              <span>{currentLevel?.name}</span>
+              {nextLevel && <span>{nextLevel.name} ←</span>}
             </div>
           </div>
         )}
@@ -204,11 +204,11 @@ export default function Profile() {
             </div>
             <div className="flex gap-3 flex-wrap">
               {unlockedAchs.map(a => (
-                <div key={a.id} title={a.name} className="flex flex-col items-center gap-1 w-14 text-center">
+                <div key={a.id} title={a.title} className="flex flex-col items-center gap-1 w-14 text-center">
                   <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl bg-primary/10 border border-primary/20">
                     {a.icon}
                   </div>
-                  <span className="text-[10px] text-muted-foreground leading-tight">{a.name}</span>
+                  <span className="text-[10px] text-muted-foreground leading-tight">{a.title}</span>
                 </div>
               ))}
             </div>

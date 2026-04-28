@@ -51,15 +51,20 @@ export default function Leaderboard() {
   useEffect(() => {
     setLoading(true);
     if (tab === "daily") {
-      supabase.from("daily_scores")
-        .select("user_id, display_name, country, score, total, completed_at")
-        .eq("date", today)
-        .order("score", { ascending: false })
-        .limit(50)
-        .then(({ data }) => {
+      (async () => {
+        try {
+          const { data } = await supabase.from("daily_scores")
+            .select("user_id, display_name, country, score, total, completed_at")
+            .eq("date", today)
+            .order("score", { ascending: false })
+            .limit(50);
           setDailyEntries((data ?? []) as DailyEntry[]);
+        } catch {
+          // ignore fetch errors
+        } finally {
           setLoading(false);
-        }).catch(() => setLoading(false));
+        }
+      })();
     } else {
       const fn = tab === "weekly" ? getWeeklyLeaderboard : getAllTimeLeaderboard;
       fn(category).then(data => {
