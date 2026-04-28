@@ -425,6 +425,20 @@ export default function Home() {
                   </div>
                 </div>
 
+                {/* Daily Challenge Widget */}
+                <button
+                  onClick={() => navigate("/daily")}
+                  className="w-full h-14 md:h-16 rounded-2xl font-black text-base md:text-lg flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.98] transition-all relative overflow-hidden"
+                  style={{ background: "linear-gradient(135deg,#0c4a6e,#0369a1)", border: "2px solid rgba(14,165,233,0.5)" }}
+                >
+                  <span className="text-2xl md:text-3xl">📅</span>
+                  <div className="text-right">
+                    <p className="text-white font-black text-sm md:text-base leading-tight">تحدي اليوم</p>
+                    <p className="text-sky-300 text-xs md:text-sm font-normal">5 أسئلة يومية — نفس التحدي للجميع</p>
+                  </div>
+                  <span className="mr-auto bg-sky-500/20 border border-sky-500/40 text-sky-300 text-xs px-2 py-0.5 rounded-full font-bold">يومي 📅</span>
+                </button>
+
                 {/* Party Mode */}
                 <button
                   onClick={() => navigate("/party")}

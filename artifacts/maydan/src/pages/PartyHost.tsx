@@ -5,6 +5,7 @@ import { CATEGORIES, Question } from "@/lib/questions";
 import { fetchSeededQuestions } from "@/lib/questionService";
 import QuestionImage from "@/components/QuestionImage";
 import { playSound } from "@/lib/sound";
+import { QRCodeSVG } from "qrcode.react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type HostPhase = "setup" | "lobby" | "question" | "reveal" | "leaderboard" | "finished";
@@ -104,6 +105,9 @@ export default function PartyHost() {
   const [error, setError] = useState("");
   const [questionStartTime, setQuestionStartTime] = useState(0);
   const [allAnsweredAlert, setAllAnsweredAlert] = useState(false);
+  const [autoAdvanceSecs, setAutoAdvanceSecs] = useState(0);
+  const [autoAdvanceCountdown, setAutoAdvanceCountdown] = useState(0);
+  const autoAdvanceRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isLandscape, setIsLandscape] = useState(() => window.innerWidth > window.innerHeight);
 
   // Refs to avoid stale closures
@@ -129,6 +133,7 @@ export default function PartyHost() {
       if (channelRef.current) supabase.removeChannel(channelRef.current);
       if (pollRef.current) clearInterval(pollRef.current);
       if (answerPollRef.current) clearInterval(answerPollRef.current);
+      if (autoAdvanceRef.current) clearInterval(autoAdvanceRef.current);
       if (codeRef.current) {
         supabase.from("party_rooms").update({ status: "finished" }).eq("code", codeRef.current);
       }
@@ -162,6 +167,27 @@ export default function PartyHost() {
       unlockBody();
     };
   }, []);
+
+  // ── Auto-advance countdown when leaderboard shows ────────────────────────
+  useEffect(() => {
+    if (phase !== "leaderboard" || autoAdvanceSecs === 0) {
+      if (autoAdvanceRef.current) clearInterval(autoAdvanceRef.current);
+      setAutoAdvanceCountdown(0);
+      return;
+    }
+    setAutoAdvanceCountdown(autoAdvanceSecs);
+    let remaining = autoAdvanceSecs;
+    if (autoAdvanceRef.current) clearInterval(autoAdvanceRef.current);
+    autoAdvanceRef.current = setInterval(() => {
+      remaining -= 1;
+      setAutoAdvanceCountdown(remaining);
+      if (remaining <= 0) {
+        clearInterval(autoAdvanceRef.current!);
+        goNext();
+      }
+    }, 1000);
+    return () => { if (autoAdvanceRef.current) clearInterval(autoAdvanceRef.current); };
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Fetch players ────────────────────────────────────────────────────────
   const fetchPlayers = useCallback(async (code: string) => {
@@ -203,6 +229,7 @@ export default function PartyHost() {
       answer_time: answerTime,
       show_question_on_phone: showQuestionOnPhone,
       scoring_type: scoringType,
+      auto_advance_seconds: autoAdvanceSecs,
     });
     if (err) { setError("خطأ في إنشاء الغرفة: " + err.message); setCreating(false); return; }
 
@@ -505,6 +532,27 @@ export default function PartyHost() {
             </div>
           </div>
 
+          {/* Auto-advance */}
+          <div className="bg-card border border-border rounded-2xl p-4">
+            <p className="text-xs text-muted-foreground font-bold mb-3">⏩ انتقال تلقائي بعد النتائج</p>
+            <div className="flex gap-2 flex-wrap">
+              {[
+                { label: "يدوي", value: 0 },
+                { label: "3ث", value: 3 },
+                { label: "5ث", value: 5 },
+                { label: "10ث", value: 10 },
+              ].map(opt => (
+                <button key={opt.value} onClick={() => setAutoAdvanceSecs(opt.value)}
+                  className={`flex-1 h-11 rounded-xl font-bold text-sm border transition-all ${autoAdvanceSecs === opt.value ? "bg-primary text-background border-primary" : "bg-background border-border text-foreground"}`}>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground mt-2 text-center">
+              {autoAdvanceSecs === 0 ? "المضيف يضغط يدوياً للمتابعة" : `ينتقل تلقائياً بعد ${autoAdvanceSecs} ثانية من الترتيب`}
+            </p>
+          </div>
+
           {error && <p className="text-destructive text-sm text-center">{error}</p>}
 
           <button onClick={createRoom} disabled={creating}
@@ -535,6 +583,18 @@ export default function PartyHost() {
             className="mt-3 px-4 py-1.5 rounded-xl text-xs font-bold bg-primary/10 text-primary border border-primary/30">
             📋 نسخ الرمز
           </button>
+
+          {/* QR Code */}
+          <div className="mt-4 flex flex-col items-center gap-2">
+            <div className="bg-white p-3 rounded-2xl shadow-lg">
+              <QRCodeSVG
+                value={`${window.location.origin}/party/guest?code=${roomCode}`}
+                size={140}
+                level="M"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">امسح الكود للانضمام 📱</p>
+          </div>
         </div>
 
         {/* Settings summary */}
@@ -870,11 +930,20 @@ export default function PartyHost() {
           )}
         </div>
 
-        <button onClick={goNext}
-          className="w-full h-14 rounded-2xl text-white font-black text-lg"
-          style={{ background: isLastQuestion ? "linear-gradient(135deg,#d97706,#f59e0b)" : "linear-gradient(135deg,#7c3aed,#8b5cf6)" }}>
-          {isLastQuestion ? "🏁 إنهاء اللعبة" : "▶ السؤال التالي"}
-        </button>
+        {autoAdvanceSecs > 0 ? (
+          <div className="flex flex-col items-center gap-2">
+            <div className="w-16 h-16 rounded-full border-4 border-primary flex items-center justify-center">
+              <span className="text-3xl font-black text-primary tabular-nums">{autoAdvanceCountdown}</span>
+            </div>
+            <p className="text-xs text-muted-foreground">انتقال تلقائي...</p>
+          </div>
+        ) : (
+          <button onClick={goNext}
+            className="w-full h-14 rounded-2xl text-white font-black text-lg"
+            style={{ background: isLastQuestion ? "linear-gradient(135deg,#d97706,#f59e0b)" : "linear-gradient(135deg,#7c3aed,#8b5cf6)" }}>
+            {isLastQuestion ? "🏁 إنهاء اللعبة" : "▶ السؤال التالي"}
+          </button>
+        )}
       </div>
     );
   }

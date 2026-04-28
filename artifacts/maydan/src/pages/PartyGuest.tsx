@@ -68,7 +68,10 @@ export default function PartyGuest() {
   const [, navigate] = useLocation();
 
   const [phase, setPhase] = useState<GuestPhase>("enter_code");
-  const [codeInput, setCodeInput] = useState("");
+  const [codeInput, setCodeInput] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("code") ?? "";
+  });
   const [nickname, setNickname] = useState("");
   const [room, setRoom] = useState<RoomData | null>(null);
   const [myId, setMyId] = useState("");
@@ -80,6 +83,8 @@ export default function PartyGuest() {
   const [timeLeft, setTimeLeft] = useState(DEFAULT_QUESTION_TIME);
   const [allPlayers, setAllPlayers] = useState<PlayerRow[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
+  const [consecutiveCorrect, setConsecutiveCorrect] = useState(0);
+  const [showStreakBanner, setShowStreakBanner] = useState(false);
 
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -88,6 +93,7 @@ export default function PartyGuest() {
   const phaseRef = useRef<GuestPhase>("enter_code");
   const questionStartRef = useRef(0);
   const currentQIdxRef = useRef(-1);
+  const consecutiveRef = useRef(0);
   // Track last seen DB state to avoid re-triggering transitions on every poll tick
   const lastSeenRef = useRef({ status: "", qIdx: -1 });
 
@@ -243,6 +249,27 @@ export default function PartyGuest() {
       setPhase("reveal");
       fetchPlayers(updatedRoom.code);
 
+      // Play sound now that reveal is public — won't leak the correct answer
+      const qIdx = updatedRoom.current_question;
+      const revealQ = partyQs[qIdx];
+      if (revealQ && selected !== null) {
+        const wasCorrect = selected === revealQ.correct;
+        if (wasCorrect) {
+          playSound("correct");
+          const newStreak = consecutiveRef.current + 1;
+          consecutiveRef.current = newStreak;
+          setConsecutiveCorrect(newStreak);
+          if (newStreak >= 2) {
+            setShowStreakBanner(true);
+            setTimeout(() => setShowStreakBanner(false), 3000);
+          }
+        } else {
+          playSound("wrong");
+          consecutiveRef.current = 0;
+          setConsecutiveCorrect(0);
+        }
+      }
+
     } else if (newStatus === "leaderboard") {
       if (timerRef.current) clearInterval(timerRef.current);
       if (phaseRef.current === "leaderboard") return;
@@ -293,8 +320,7 @@ export default function PartyGuest() {
     phaseRef.current = "answered";
     setPhase("answered");
 
-    if (isCorrect) playSound("correct");
-    else playSound("wrong");
+    // sounds deferred to reveal phase so correct answer isn't leaked
 
     // Update DB: record answer and new cumulative score
     await supabase.from("party_players")
@@ -508,8 +534,17 @@ export default function PartyGuest() {
   if (phase === "reveal" && currentQ) {
     const wasCorrect = selected !== null && selected === currentQ.correct;
     const didAnswer = selected !== null;
+    const streakMsg = consecutiveCorrect >= 5 ? "👑 أسطورة!" : consecutiveCorrect >= 3 ? "⚡ لا يُوقف!" : consecutiveCorrect >= 2 ? "🔥 متقد!" : "";
     return (
       <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-6 gap-6 text-center">
+        {showStreakBanner && streakMsg && (
+          <div className="fixed inset-x-0 top-6 z-50 flex justify-center px-4 pointer-events-none">
+            <div className="px-6 py-3 rounded-2xl font-black text-xl text-white shadow-2xl animate-bounce"
+              style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}>
+              {streakMsg} {consecutiveCorrect} صح متتالية!
+            </div>
+          </div>
+        )}
         <div className="fade-in-up w-full max-w-sm space-y-4">
           {/* Result indicator */}
           <div className={`rounded-3xl p-6 border-2 ${

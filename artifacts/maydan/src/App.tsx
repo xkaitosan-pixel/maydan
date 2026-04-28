@@ -28,6 +28,7 @@ import PartyGuest from "@/pages/PartyGuest";
 import RankedMode from "@/pages/RankedMode";
 import Achievements from "@/pages/Achievements";
 import Store from "@/pages/Store";
+import DailyChallenge from "@/pages/DailyChallenge";
 import NotFound from "@/pages/not-found";
 import LogoIcon from "@/components/LogoIcon";
 
@@ -217,6 +218,7 @@ function AppRoutes() {
         <Route path="/ranked" component={RankedMode} />
         <Route path="/achievements" component={Achievements} />
         <Route path="/store" component={Store} />
+        <Route path="/daily" component={DailyChallenge} />
         <Route component={NotFound} />
       </Switch>
     </OnboardingGuard>

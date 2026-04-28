@@ -21,6 +21,9 @@ export interface DbUser {
   rank_title: string | null;
   achievements: unknown;
   season_points: number;
+  display_name: string | null;
+  country: string | null;
+  bio: string | null;
 }
 
 interface AuthContextType {

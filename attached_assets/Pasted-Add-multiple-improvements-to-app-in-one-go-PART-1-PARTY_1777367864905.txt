@@ -1,0 +1,102 @@
+Add multiple improvements to ميدان app in one go.
+
+═══════════════════════════════
+PART 1 - PARTY MODE FIXES:
+═══════════════════════════════
+
+1. QR Code for room joining:
+- In PartyHost lobby screen, show QR code below the room code
+- QR code encodes: "https://maydanapp.com/party/guest?code=XXXX"
+- Use qrcode library: import QRCode from 'qrcode'
+- Show QR code as canvas or img
+- Label: "امسح الكود للانضمام 📱"
+
+2. Hide correct/wrong sounds in party mode:
+- In PartyGuest.tsx: disable all sound effects
+- No sound when answering (don't reveal correct/wrong)
+- Only play sound AFTER reveal phase starts
+
+3. Auto-advance option:
+- In host settings: add toggle "انتقال تلقائي بعد النتائج"
+- If ON: after leaderboard screen, auto-advance to next 
+  question after X seconds (host sets: 3/5/10 seconds)
+- Show countdown timer on leaderboard screen
+- Save setting to party_rooms table:
+  ALTER TABLE party_rooms ADD COLUMN IF NOT EXISTS 
+  auto_advance_seconds INT DEFAULT 0;
+
+4. Streak encouragement in party mode:
+- Track consecutive correct answers per player
+- After 2 correct in a row: show "🔥 متقد!" on guest screen
+- After 3: "⚡ لا يُوقف!"
+- After 5: "👑 أسطورة!"
+- Reset on wrong answer
+
+5. Timer accuracy:
+- Use server timestamp for question start time
+- Guest calculates time based on: Date.now() - question_start_time
+- This ensures fair timing for all players regardless of 
+  network conditions
+
+═══════════════════════════════
+PART 2 - PROFILE PAGE IMPROVEMENTS:
+═══════════════════════════════
+
+1. Enhanced profile page (/profile):
+- Display name (editable): separate from Google name
+- Username (editable): unique @username
+- Profile picture: use Google avatar OR upload custom
+- Country flag selector: dropdown with Arab/Gulf countries:
+  🇶🇦 Qatar, 🇸🇦 Saudi, 🇦🇪 UAE, 🇰🇼 Kuwait,
+  🇧🇭 Bahrain, 🇴🇲 Oman, 🇪🇬 Egypt, 🇯🇴 Jordan,
+  🇱🇧 Lebanon, 🇮🇶 Iraq, 🇾🇪 Yemen, 🇸🇾 Syria,
+  🇲🇦 Morocco, 🇩🇿 Algeria, 🇹🇳 Tunisia, 🇱🇾 Libya,
+  🇸🇩 Sudan, 🇵🇸 Palestine, and others
+- Bio (optional): short text 50 chars max
+- Stats section: games played, wins, losses, win rate,
+  best streak, favorite category
+- Achievements preview: last 5 unlocked
+- Current rank and XP progress bar
+- Save button → updates Supabase users table
+
+2. Show country flag everywhere:
+- Next to username in leaderboard
+- In party mode player list
+- In ranked match
+- In home screen welcome
+
+═══════════════════════════════
+PART 3 - DAILY CHALLENGE:
+═══════════════════════════════
+
+1. Daily Challenge page (/daily):
+- 5 questions, same for ALL players today
+- Questions selected randomly each day (seeded by date)
+- Timer: 15 seconds per question
+- No retries — one chance per day
+- After completing: show score and rank among all players today
+
+2. Daily leaderboard:
+- Show today's top 10 players
+- Filter by: العالم / الخليج / دولتي
+- Show country flag next to each player
+- Your rank highlighted
+- Resets every midnight
+
+3. Home screen widget:
+- "تحدي اليوم 📅" button
+- Shows if completed or not
+- Shows how many players completed today
+- Countdown to next day's challenge
+
+═══════════════════════════════
+PART 4 - RANKED LEADERBOARD:
+═══════════════════════════════
+
+1. Update /leaderboard page:
+- Tab 1: تحدي اليوم (daily scores)
+- Tab 2: الموسم (ranked season points)
+- Tab 3: كل الوقت (all time wins)
+
+2. Each row shows:
+- Rank number
