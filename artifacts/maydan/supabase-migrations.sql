@@ -1,21 +1,39 @@
 -- =====================================================================
--- Maydan — Pending Migrations
+-- Maydan — Database Migrations
 -- Run in: Supabase Dashboard → SQL Editor
--- Safe to run multiple times (all use ADD COLUMN IF NOT EXISTS)
+-- All statements are idempotent (safe to run multiple times)
 -- =====================================================================
 
--- 1. party_rooms: auto-advance setting
+-- 1. party_rooms: auto-advance + server-side question timing
 ALTER TABLE party_rooms ADD COLUMN IF NOT EXISTS auto_advance_seconds int DEFAULT 0;
+ALTER TABLE party_rooms ADD COLUMN IF NOT EXISTS question_start_time bigint DEFAULT 0;
 
--- 2. users: profile fields
+-- 2. users: profile fields (display name, country, bio)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name text;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS country text DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS bio text DEFAULT '';
 
--- 3. daily_scores: additional columns (table exists but is missing these)
+-- 3. daily_scores table (create if not exists)
+CREATE TABLE IF NOT EXISTS daily_scores (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id text NOT NULL,
+  display_name text NOT NULL DEFAULT '',
+  country text DEFAULT '',
+  score int NOT NULL DEFAULT 0,
+  total int NOT NULL DEFAULT 5,
+  date text NOT NULL DEFAULT '',
+  completed_at timestamptz DEFAULT now()
+);
+
+-- 4. daily_scores: add any columns that may be missing if table already existed
 ALTER TABLE daily_scores ADD COLUMN IF NOT EXISTS display_name text NOT NULL DEFAULT '';
+ALTER TABLE daily_scores ADD COLUMN IF NOT EXISTS country text DEFAULT '';
+ALTER TABLE daily_scores ADD COLUMN IF NOT EXISTS score int NOT NULL DEFAULT 0;
 ALTER TABLE daily_scores ADD COLUMN IF NOT EXISTS total int NOT NULL DEFAULT 5;
 ALTER TABLE daily_scores ADD COLUMN IF NOT EXISTS date text NOT NULL DEFAULT '';
+ALTER TABLE daily_scores ADD COLUMN IF NOT EXISTS completed_at timestamptz DEFAULT now();
 
--- 4. Unique constraint on daily_scores (one attempt per user per day)
+-- 5. Unique constraint: one attempt per user per day
 DO $$
 BEGIN
   IF NOT EXISTS (
