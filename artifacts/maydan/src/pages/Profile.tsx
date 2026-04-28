@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { parseAchievementsData, ACHIEVEMENTS, LEVELS } from "@/lib/gamification";
-import { Crown, Trophy, Target, Zap, Star, Edit2, Check, X } from "lucide-react";
+import { Crown, Trophy, Target, Zap, Star, Edit2, Check, X, Camera, Link } from "lucide-react";
 
 import { COUNTRIES, getCountryFlag } from "@/lib/countryUtils";
 
@@ -17,6 +17,11 @@ export default function Profile() {
   const [editingName, setEditingName] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [editingAvatar, setEditingAvatar] = useState(false);
+  const [avatarUrlInput, setAvatarUrlInput] = useState("");
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarError, setAvatarError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setDisplayName(dbUser?.display_name ?? dbUser?.username ?? "");
@@ -57,6 +62,43 @@ export default function Profile() {
     navigate("/");
   }
 
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !dbUser) return;
+    setUploadingAvatar(true);
+    setAvatarError("");
+    try {
+      const ext = file.name.split(".").pop() ?? "jpg";
+      const path = `${dbUser.id}/avatar.${ext}`;
+      const { error: uploadErr } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+      if (uploadErr) throw new Error(uploadErr.message);
+      const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
+      const newUrl = urlData.publicUrl + "?t=" + Date.now();
+      await saveAvatarUrl(newUrl);
+    } catch (err: unknown) {
+      setAvatarError("فشل رفع الصورة. استخدم رابط URL بدلاً من ذلك.");
+    }
+    setUploadingAvatar(false);
+  }
+
+  async function handleSaveAvatarUrl() {
+    const url = avatarUrlInput.trim();
+    if (!url) return;
+    setUploadingAvatar(true);
+    setAvatarError("");
+    await saveAvatarUrl(url);
+    setUploadingAvatar(false);
+  }
+
+  async function saveAvatarUrl(url: string) {
+    if (!dbUser) return;
+    const { error } = await supabase.from("users").update({ avatar_url: url }).eq("id", dbUser.id);
+    if (error) { setAvatarError("فشل الحفظ."); return; }
+    await refreshUser();
+    setEditingAvatar(false);
+    setAvatarUrlInput("");
+  }
+
   const flagInfo = COUNTRIES.find(c => c.code === country);
 
   return (
@@ -81,14 +123,21 @@ export default function Profile() {
         {/* Avatar + name */}
         <div className="rounded-2xl border border-border/40 bg-card p-6 flex flex-col items-center gap-3 text-center">
           <div className="relative">
-            {dbUser?.avatar_url ? (
-              <img src={dbUser.avatar_url} alt={displayName}
-                className="w-20 h-20 rounded-full border-2 border-yellow-500 object-cover" />
-            ) : (
-              <div className="w-20 h-20 rounded-full border-2 border-yellow-500 bg-muted flex items-center justify-center text-3xl font-black">
-                {(displayName || googleDisplayName || "م").charAt(0)}
-              </div>
-            )}
+            <div className="relative group cursor-pointer" onClick={() => !isGuest && setEditingAvatar(v => !v)}>
+              {dbUser?.avatar_url ? (
+                <img src={dbUser.avatar_url} alt={displayName}
+                  className="w-20 h-20 rounded-full border-2 border-yellow-500 object-cover" />
+              ) : (
+                <div className="w-20 h-20 rounded-full border-2 border-yellow-500 bg-muted flex items-center justify-center text-3xl font-black">
+                  {(displayName || googleDisplayName || "م").charAt(0)}
+                </div>
+              )}
+              {!isGuest && (
+                <div className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Camera className="w-5 h-5 text-white" />
+                </div>
+              )}
+            </div>
             {dbUser?.is_premium && (
               <span className="absolute -top-1 -left-1 bg-yellow-500 rounded-full p-0.5">
                 <Crown className="w-3.5 h-3.5 text-black" />
@@ -98,6 +147,47 @@ export default function Profile() {
               <span className="absolute -bottom-1 -right-1 text-xl">{flagInfo.flag}</span>
             )}
           </div>
+
+          {/* Avatar editor */}
+          {editingAvatar && !isGuest && (
+            <div className="w-full bg-background border border-border rounded-xl p-3 space-y-3 text-right">
+              <p className="text-xs font-bold text-muted-foreground">تغيير الصورة الشخصية</p>
+              {/* File upload */}
+              <div>
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingAvatar}
+                  className="w-full h-10 rounded-xl border border-border text-sm font-bold flex items-center justify-center gap-2 hover:bg-primary/5 transition-colors disabled:opacity-50"
+                >
+                  <Camera className="w-4 h-4" />
+                  {uploadingAvatar ? "جاري الرفع..." : "رفع صورة من الجهاز"}
+                </button>
+              </div>
+              {/* URL input */}
+              <div className="flex gap-2">
+                <input
+                  value={avatarUrlInput}
+                  onChange={e => setAvatarUrlInput(e.target.value)}
+                  placeholder="أو أدخل رابط الصورة..."
+                  className="flex-1 h-10 bg-card border border-border rounded-xl px-3 text-sm text-foreground outline-none focus:border-primary"
+                  dir="ltr"
+                />
+                <button
+                  onClick={handleSaveAvatarUrl}
+                  disabled={!avatarUrlInput.trim() || uploadingAvatar}
+                  className="h-10 px-3 rounded-xl text-sm font-bold text-background disabled:opacity-40 flex items-center gap-1"
+                  style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}
+                >
+                  <Link className="w-3.5 h-3.5" />
+                  حفظ
+                </button>
+              </div>
+              {avatarError && <p className="text-destructive text-xs">{avatarError}</p>}
+              <button onClick={() => { setEditingAvatar(false); setAvatarError(""); }}
+                className="text-xs text-muted-foreground hover:text-foreground">إلغاء</button>
+            </div>
+          )}
 
           {/* Editable display name */}
           {!isGuest && (

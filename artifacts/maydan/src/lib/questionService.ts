@@ -82,6 +82,18 @@ export async function fetchQuestionsByIds(ids: number[]): Promise<Question[]> {
   return ids.map(id => qs.find(q => q.id === id)).filter(Boolean) as Question[];
 }
 
+export async function fetchMixedDifficultyDailyQuestions(seed: string): Promise<Question[]> {
+  const [easyRes, medRes, hardRes] = await Promise.all([
+    supabase.from("questions").select("*").eq("difficulty", "easy").neq("category", "legends"),
+    supabase.from("questions").select("*").eq("difficulty", "medium").neq("category", "legends"),
+    supabase.from("questions").select("*").eq("difficulty", "hard").neq("category", "legends"),
+  ]);
+  const easy   = seededShuffleQuestions((easyRes.data ?? []) as Question[], seed + "easy").slice(0, 4);
+  const medium = seededShuffleQuestions((medRes.data ?? []) as Question[], seed + "med").slice(0, 4);
+  const hard   = seededShuffleQuestions((hardRes.data ?? []) as Question[], seed + "hard").slice(0, 2);
+  return seededShuffleQuestions([...easy, ...medium, ...hard], seed);
+}
+
 export function clearQuestionCache() {
   cache.clear();
 }

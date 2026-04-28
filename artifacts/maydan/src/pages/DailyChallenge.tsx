@@ -2,16 +2,23 @@ import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
-import { fetchSeededQuestions } from "@/lib/questionService";
+import { fetchMixedDifficultyDailyQuestions } from "@/lib/questionService";
 import { Question } from "@/lib/questions";
 import { playSound } from "@/lib/sound";
 import { getCountryFlag } from "@/lib/countryUtils";
 
-const DAILY_Q_COUNT = 5;
+const DAILY_Q_COUNT = 10;
 const QUESTION_TIME = 15;
+const BASE_POINTS = 100;
+const MAX_SPEED_BONUS = 50;
 
 function getTodayDate(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function calcPoints(elapsedSec: number): number {
+  const bonus = Math.round(MAX_SPEED_BONUS * Math.max(0, (QUESTION_TIME - elapsedSec) / (QUESTION_TIME - 1)));
+  return BASE_POINTS + bonus;
 }
 
 interface DailyEntry {
@@ -32,6 +39,7 @@ export default function DailyChallenge() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [qIdx, setQIdx] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
+  const [wasCorrect, setWasCorrect] = useState<boolean | null>(null);
   const [score, setScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(QUESTION_TIME);
   const [leaderboard, setLeaderboard] = useState<DailyEntry[]>([]);
@@ -40,6 +48,8 @@ export default function DailyChallenge() {
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const answeredRef = useRef(false);
+  const questionStartRef = useRef(0);
+  const scoreRef = useRef(0);
 
   const today = getTodayDate();
   const userId = dbUser?.id ?? (isGuest ? "guest_" + (localStorage.getItem("maydan_guest_id") ?? Math.random().toString(36).slice(2)) : null);
@@ -52,10 +62,9 @@ export default function DailyChallenge() {
   }, [userId]);
 
   async function loadState() {
-    const qs = await fetchSeededQuestions("mix", "daily_" + today, DAILY_Q_COUNT);
+    const qs = await fetchMixedDifficultyDailyQuestions("daily_" + today);
     setQuestions(qs);
 
-    // Check if already completed
     const { data: existing } = await supabase
       .from("daily_scores")
       .select("*")
@@ -66,6 +75,7 @@ export default function DailyChallenge() {
     if (existing) {
       setMyEntry(existing);
       setScore(existing.score);
+      scoreRef.current = existing.score;
       await loadLeaderboard();
       setPhase("already_done");
     } else {
@@ -88,15 +98,19 @@ export default function DailyChallenge() {
   }
 
   function startChallenge() {
+    scoreRef.current = 0;
+    setScore(0);
     setPhase("question");
     setQIdx(0);
-    setScore(0);
     answeredRef.current = false;
+    setSelected(null);
+    setWasCorrect(null);
     startTimer();
   }
 
   function startTimer() {
     setTimeLeft(QUESTION_TIME);
+    questionStartRef.current = Date.now();
     if (timerRef.current) clearInterval(timerRef.current);
     const start = Date.now();
     timerRef.current = setInterval(() => {
@@ -118,26 +132,32 @@ export default function DailyChallenge() {
 
     const q = questions[qIdx];
     const correct = q && idx === q.correct;
-    setSelected(idx);
+    const elapsedSec = (Date.now() - questionStartRef.current) / 1000;
 
     if (correct) {
       playSound("correct");
-      setScore(s => s + 1);
+      const pts = calcPoints(elapsedSec);
+      scoreRef.current += pts;
+      setScore(scoreRef.current);
     } else {
       playSound("wrong");
     }
 
+    setSelected(idx);
+    setWasCorrect(correct);
+
     setTimeout(() => {
       const nextIdx = qIdx + 1;
       if (nextIdx >= DAILY_Q_COUNT) {
-        finishChallenge(score + (correct ? 1 : 0));
+        finishChallenge(scoreRef.current);
       } else {
         setQIdx(nextIdx);
         setSelected(null);
+        setWasCorrect(null);
         answeredRef.current = false;
         startTimer();
       }
-    }, 1200);
+    }, 900);
   }
 
   async function finishChallenge(finalScore: number) {
@@ -148,7 +168,7 @@ export default function DailyChallenge() {
       user_id: userId,
       date: today,
       display_name: displayName,
-      country: country,
+      country,
       score: finalScore,
       total: DAILY_Q_COUNT,
       completed_at: new Date().toISOString(),
@@ -182,7 +202,7 @@ export default function DailyChallenge() {
     );
   }
 
-  if (phase === "intro" || phase === "already_done") {
+  if (phase === "already_done") {
     const myRank = myEntry ? leaderboard.findIndex(e => e.user_id === userId) + 1 : null;
     const secondsUntilMidnight = () => {
       const now = new Date();
@@ -193,7 +213,6 @@ export default function DailyChallenge() {
       const m = Math.floor((diff % 3600) / 60);
       return `${h}س ${m}د`;
     };
-
     return (
       <div className="min-h-screen gradient-hero flex flex-col" dir="rtl">
         <header className="p-4 flex items-center gap-3 border-b border-border/30">
@@ -201,69 +220,51 @@ export default function DailyChallenge() {
           <h1 className="text-lg font-bold">📅 تحدي اليوم</h1>
           <span className="mr-auto text-xs text-muted-foreground">{today}</span>
         </header>
-
         <div className="flex-1 overflow-y-auto p-4 space-y-4 max-w-md mx-auto w-full">
-          {phase === "already_done" ? (
-            <div className="bg-green-500/10 border border-green-500/30 rounded-2xl p-6 text-center">
-              <p className="text-5xl mb-2">✅</p>
-              <h2 className="text-xl font-black text-green-400">أنهيت تحدي اليوم!</h2>
-              <p className="text-foreground font-black text-3xl mt-2">{myEntry?.score} / {DAILY_Q_COUNT}</p>
-              {myRank && myRank > 0 && (
-                <p className="text-muted-foreground text-sm mt-1">مركزك اليوم: <span className="font-black text-foreground">#{myRank}</span> من {totalPlayers}</p>
-              )}
-              <p className="text-xs text-muted-foreground mt-3">التحدي القادم في: {secondsUntilMidnight()}</p>
-            </div>
-          ) : (
-            <div className="bg-card border border-border rounded-2xl p-6 text-center">
-              <p className="text-5xl mb-3">📅</p>
-              <h2 className="text-2xl font-black text-primary">تحدي اليوم</h2>
-              <p className="text-muted-foreground text-sm mt-2">{DAILY_Q_COUNT} أسئلة · {QUESTION_TIME} ثانية لكل سؤال</p>
-              <p className="text-xs text-muted-foreground mt-1">فرصة واحدة يومياً · نفس الأسئلة لجميع اللاعبين</p>
-              <p className="text-xs text-muted-foreground mt-1">أتمّ اليوم: {totalPlayers} لاعب</p>
-              <button onClick={startChallenge}
-                className="mt-5 w-full h-14 rounded-2xl text-background font-black text-lg"
-                style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}>
-                🚀 ابدأ التحدي
-              </button>
-            </div>
-          )}
-
-          {/* Daily Leaderboard */}
-          <div className="rounded-2xl border border-border/40 bg-card overflow-hidden">
-            <div className="px-4 py-3 border-b border-border/30 flex items-center justify-between">
-              <h3 className="font-bold text-sm">🏆 أفضل اليوم</h3>
-              <span className="text-xs text-muted-foreground">{today}</span>
-            </div>
-            {leaderboard.length === 0 ? (
-              <p className="text-center text-muted-foreground text-sm py-8">لا يوجد نتائج بعد — كن الأول!</p>
-            ) : (
-              <div className="divide-y divide-border/20">
-                {leaderboard.map((e, i) => {
-                  const isMe = e.user_id === userId;
-                  return (
-                    <div key={e.user_id} className={`flex items-center gap-3 px-4 py-3 ${isMe ? "bg-primary/5" : ""}`}>
-                      <span className="w-7 text-center font-black text-sm text-muted-foreground">
-                        {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`}
-                      </span>
-                      <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-sm font-black flex-shrink-0">
-                        {(e.display_name || "م").charAt(0)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-sm font-bold truncate ${isMe ? "text-primary" : ""}`}>
-                          {e.display_name || "لاعب"} {isMe && "(أنت)"}
-                        </p>
-                        {e.country && <span className="text-xs">{getCountryFlag(e.country)}</span>}
-                      </div>
-                      <div className="text-right">
-                        <p className="font-black text-primary">{e.score}/{e.total}</p>
-                        <p className="text-xs text-muted-foreground">{Math.round((e.score / e.total) * 100)}%</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+          <div className="bg-green-500/10 border border-green-500/30 rounded-2xl p-6 text-center">
+            <p className="text-5xl mb-2">✅</p>
+            <h2 className="text-xl font-black text-green-400">أنهيت تحدي اليوم!</h2>
+            <p className="text-foreground font-black text-3xl mt-2">{myEntry?.score} <span className="text-lg font-bold text-muted-foreground">نقطة</span></p>
+            {myRank && myRank > 0 && (
+              <p className="text-muted-foreground text-sm mt-1">مركزك اليوم: <span className="font-black text-foreground">#{myRank}</span> من {totalPlayers}</p>
             )}
+            <p className="text-xs text-muted-foreground mt-3">التحدي القادم في: {secondsUntilMidnight()}</p>
           </div>
+          <LeaderboardCard leaderboard={leaderboard} userId={userId} />
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "intro") {
+    return (
+      <div className="min-h-screen gradient-hero flex flex-col" dir="rtl">
+        <header className="p-4 flex items-center gap-3 border-b border-border/30">
+          <button onClick={() => navigate("/")} className="text-muted-foreground text-xl">←</button>
+          <h1 className="text-lg font-bold">📅 تحدي اليوم</h1>
+          <span className="mr-auto text-xs text-muted-foreground">{today}</span>
+        </header>
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 max-w-md mx-auto w-full">
+          <div className="bg-card border border-border rounded-2xl p-6 text-center">
+            <p className="text-5xl mb-3">📅</p>
+            <h2 className="text-2xl font-black text-primary">تحدي اليوم</h2>
+            <p className="text-muted-foreground text-sm mt-2">{DAILY_Q_COUNT} أسئلة · {QUESTION_TIME} ثانية لكل سؤال</p>
+            <div className="flex justify-center gap-4 mt-2 text-xs text-muted-foreground">
+              <span>4 سهل · 4 متوسط · 2 صعب</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">فرصة واحدة يومياً · نفس الأسئلة لجميع اللاعبين</p>
+            <p className="text-xs text-muted-foreground mt-1">أتمّ اليوم: {totalPlayers} لاعب</p>
+            <div className="mt-4 bg-primary/5 border border-primary/20 rounded-xl p-3 text-xs">
+              <p className="font-bold text-primary">نظام النقاط ⚡</p>
+              <p className="text-muted-foreground mt-1">إجابة صحيحة: 100 نقطة + مكافأة السرعة حتى 50 نقطة</p>
+            </div>
+            <button onClick={startChallenge}
+              className="mt-5 w-full h-14 rounded-2xl text-background font-black text-lg"
+              style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}>
+              🚀 ابدأ التحدي
+            </button>
+          </div>
+          <LeaderboardCard leaderboard={leaderboard} userId={userId} />
         </div>
       </div>
     );
@@ -272,12 +273,11 @@ export default function DailyChallenge() {
   if (phase === "question" && currentQ) {
     return (
       <div className="min-h-screen gradient-hero flex flex-col" dir="rtl">
-        {/* Header */}
         <header className="p-4 border-b border-border/30">
           <div className="flex justify-between items-center mb-2">
             <span className="text-sm font-bold text-muted-foreground">{qIdx + 1} / {DAILY_Q_COUNT}</span>
             <span className={`text-4xl font-black tabular-nums ${isDanger ? "text-red-400" : "text-primary"}`}>{timeLeft}</span>
-            <span className="text-sm font-black text-primary">{score} ✓</span>
+            <span className="text-sm font-black text-primary">{score} نقطة</span>
           </div>
           <div className="h-3 bg-muted rounded-full overflow-hidden">
             <div className="h-full rounded-full transition-all"
@@ -288,32 +288,38 @@ export default function DailyChallenge() {
           </div>
         </header>
 
-        {/* Question */}
         <div className="flex-1 flex flex-col p-4 gap-4">
           <div className="flex-1 bg-card border border-border/40 rounded-2xl p-5 flex items-center justify-center">
             <p className="text-lg font-black text-center leading-relaxed">{currentQ.question}</p>
           </div>
 
-          {/* Options */}
           <div className="grid grid-cols-2 gap-3">
             {currentQ.options.map((opt, idx) => {
               const color = ANSWER_COLORS[idx];
               const isSelected = selected === idx;
-              const isCorrect = selected !== null && idx === currentQ.correct;
-              const isWrong = isSelected && idx !== currentQ.correct;
+              const hasAnswered = selected !== null;
+              let bg = color.bg;
+              let opacity = 1;
+
+              if (hasAnswered) {
+                if (isSelected && wasCorrect) {
+                  bg = "#22c55e";
+                } else if (isSelected && !wasCorrect) {
+                  bg = "#ef4444";
+                } else {
+                  opacity = 0.35;
+                }
+              }
+
               return (
                 <button
                   key={idx}
                   onClick={() => handleAnswer(idx)}
-                  disabled={selected !== null}
+                  disabled={hasAnswered}
                   className="rounded-2xl p-4 flex flex-col items-center gap-2 text-white font-bold transition-all active:scale-95 disabled:cursor-default"
-                  style={{
-                    background: isCorrect ? "#22c55e" : isWrong ? "#ef4444" : color.bg,
-                    opacity: selected !== null && !isSelected && idx !== currentQ.correct ? 0.5 : 1,
-                    minHeight: "90px",
-                  }}
+                  style={{ background: bg, opacity, minHeight: "90px" }}
                 >
-                  <span className="text-2xl">{color.emoji}</span>
+                  <span className="text-2xl">{isSelected ? (wasCorrect ? "✅" : "❌") : color.emoji}</span>
                   <span className="text-sm text-center leading-tight">{opt}</span>
                 </button>
               );
@@ -326,32 +332,22 @@ export default function DailyChallenge() {
 
   if (phase === "finished") {
     const myRank = leaderboard.findIndex(e => e.user_id === userId) + 1;
-    const pct = Math.round((score / DAILY_Q_COUNT) * 100);
+    const maxPossible = DAILY_Q_COUNT * (BASE_POINTS + MAX_SPEED_BONUS);
+    const pct = Math.round((score / maxPossible) * 100);
     return (
       <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-5 gap-6 text-center" dir="rtl">
         <div className="fade-in-up">
-          <p className="text-7xl mb-3">{score === DAILY_Q_COUNT ? "🏆" : score >= 3 ? "🎉" : "💪"}</p>
+          <p className="text-7xl mb-3">{score >= 1200 ? "🏆" : score >= 700 ? "🎉" : "💪"}</p>
           <h1 className="text-3xl font-black text-primary">انتهى تحدي اليوم!</h1>
-          <p className="text-2xl font-black mt-2">{score} / {DAILY_Q_COUNT}</p>
-          <p className="text-muted-foreground text-sm mt-1">{pct}% صحيح</p>
+          <p className="text-4xl font-black mt-2 text-primary">{score}</p>
+          <p className="text-sm text-muted-foreground">نقطة · {pct}% من الأقصى</p>
           {myRank > 0 && (
             <p className="text-primary font-bold mt-2">مركزك اليوم: #{myRank} من {leaderboard.length}</p>
           )}
         </div>
 
-        {/* Top 5 */}
-        <div className="w-full max-w-sm space-y-2">
-          {leaderboard.slice(0, 5).map((e, i) => {
-            const isMe = e.user_id === userId;
-            return (
-              <div key={e.user_id} className={`flex items-center gap-3 rounded-xl px-4 py-3 border ${isMe ? "border-primary bg-primary/10" : "bg-card border-border"}`}>
-                <span className="text-lg">{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`}</span>
-                <span className="flex-1 font-bold text-sm text-right">{e.display_name}{isMe && " (أنت)"}</span>
-                {e.country && <span>{getCountryFlag(e.country)}</span>}
-                <span className="font-black text-primary">{e.score}/{e.total}</span>
-              </div>
-            );
-          })}
+        <div className="w-full max-w-sm">
+          <LeaderboardCard leaderboard={leaderboard} userId={userId} />
         </div>
 
         <button onClick={() => navigate("/")}
@@ -364,4 +360,42 @@ export default function DailyChallenge() {
   }
 
   return null;
+}
+
+function LeaderboardCard({ leaderboard, userId }: { leaderboard: DailyEntry[]; userId: string | null }) {
+  return (
+    <div className="rounded-2xl border border-border/40 bg-card overflow-hidden">
+      <div className="px-4 py-3 border-b border-border/30 flex items-center justify-between">
+        <h3 className="font-bold text-sm">🏆 أفضل اليوم</h3>
+      </div>
+      {leaderboard.length === 0 ? (
+        <p className="text-center text-muted-foreground text-sm py-8">لا يوجد نتائج بعد — كن الأول!</p>
+      ) : (
+        <div className="divide-y divide-border/20">
+          {leaderboard.map((e, i) => {
+            const isMe = e.user_id === userId;
+            return (
+              <div key={e.user_id} className={`flex items-center gap-3 px-4 py-3 ${isMe ? "bg-primary/5" : ""}`}>
+                <span className="w-7 text-center font-black text-sm text-muted-foreground">
+                  {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`}
+                </span>
+                <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-sm font-black flex-shrink-0">
+                  {(e.display_name || "م").charAt(0)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-bold truncate ${isMe ? "text-primary" : ""}`}>
+                    {e.display_name || "لاعب"} {isMe && "(أنت)"}
+                  </p>
+                  {e.country && <span className="text-xs">{getCountryFlag(e.country)}</span>}
+                </div>
+                <div className="text-right">
+                  <p className="font-black text-primary text-sm">{e.score} <span className="text-xs text-muted-foreground font-normal">نقطة</span></p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }

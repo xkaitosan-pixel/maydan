@@ -18,6 +18,7 @@ import {
   parseAchievementsData, ACHIEVEMENTS, getSeasonTier, getDaysUntilSunday,
   getCurrentSeasonWeek, checkSeasonReset,
 } from "@/lib/gamification";
+import { getCountryFlag } from "@/lib/countryUtils";
 
 const STREAK_POPUP_KEY = "maydan_streak_popup_v1";
 function wasStreakShownToday(milestone: number): boolean {
@@ -186,11 +187,12 @@ export default function Home() {
           {!isGuest && dbUser?.avatar_url ? (
             <img src={dbUser.avatar_url} alt={displayName}
               className="w-9 h-9 rounded-full border-2 border-primary object-cover cursor-pointer hover:opacity-80 transition-opacity"
-              onClick={() => navigate("/stats")} />
+              onClick={() => navigate("/profile")} />
           ) : showContent && (
-            <button onClick={() => navigate("/stats")}
+            <button onClick={() => navigate("/profile")}
               className="w-9 h-9 rounded-full bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
-            >📊</button>
+              title="الملف الشخصي"
+            >👤</button>
           )}
           {showContent && (
             <button onClick={signOut}
@@ -267,13 +269,14 @@ export default function Home() {
                   {/* Welcome */}
                   {!isGuest && dbUser?.avatar_url ? (
                     <div className="text-center">
-                      <div className="relative w-16 h-16 md:w-20 md:h-20 mx-auto mb-2 cursor-pointer" onClick={() => navigate("/stats")}>
+                      <div className="relative w-16 h-16 md:w-20 md:h-20 mx-auto mb-2 cursor-pointer" onClick={() => navigate("/profile")}>
                         <img src={dbUser.avatar_url} alt={displayName}
                           className="w-full h-full rounded-full border-3 border-primary object-cover gold-glow"
                           style={{ border: "3px solid hsl(var(--primary))" }} />
                         {isPremium && <span className="absolute -bottom-1 -right-1 text-base">👑</span>}
                       </div>
-                      <h2 className="text-xl md:text-2xl font-black text-foreground">
+                      <h2 className="text-xl md:text-2xl font-black text-foreground flex items-center justify-center gap-2 cursor-pointer" onClick={() => navigate("/profile")}>
+                        {dbUser?.country && <span>{getCountryFlag(dbUser.country)}</span>}
                         أهلاً {googleDisplayName || displayName}! {isPremium ? "👑" : "⚔️"}
                       </h2>
                       <p className="text-xs text-muted-foreground mt-0.5">
@@ -283,9 +286,10 @@ export default function Home() {
                     </div>
                   ) : (
                     <div className="text-center">
-                      <div className="flex items-center justify-center gap-2">
+                      <div className="flex items-center justify-center gap-2 cursor-pointer" onClick={() => !isGuest && navigate("/profile")}>
                         <p className="text-muted-foreground text-sm">
                           مرحباً، <span className="text-foreground font-bold">{displayName}</span>
+                          {!isGuest && dbUser?.country && <span className="mr-1">{getCountryFlag(dbUser.country)}</span>}
                           {isPremium && <span className="text-yellow-400 mr-1 text-xs">👑 برو</span>}
                           {isGuest && <span className="text-muted-foreground text-xs mr-1">(ضيف)</span>}
                         </p>

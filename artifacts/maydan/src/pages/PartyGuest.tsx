@@ -97,6 +97,16 @@ export default function PartyGuest() {
   // Track last seen DB state to avoid re-triggering transitions on every poll tick
   const lastSeenRef = useRef({ status: "", qIdx: -1 });
 
+  // Auto-proceed when code arrives via QR scan URL (?code=XXXX)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlCode = params.get("code")?.replace(/\D/g, "");
+    if (urlCode && urlCode.length === 4) {
+      lookupRoomByCode(urlCode);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Cleanup
   useEffect(() => {
     return () => {
@@ -149,9 +159,8 @@ export default function PartyGuest() {
   }
 
   // ── Step 1: look up room by code ─────────────────────────────────────────
-  async function lookupRoom() {
+  async function lookupRoomByCode(code: string) {
     setErrorMsg("");
-    const code = codeInput.trim();
     if (code.length !== 4) { setErrorMsg("أدخل رمزاً مكوناً من 4 أرقام."); return; }
     const { data, error } = await supabase
       .from("party_rooms").select("*").eq("code", code).single();
@@ -159,6 +168,10 @@ export default function PartyGuest() {
     if (data.status === "finished") { setErrorMsg("انتهت هذه اللعبة بالفعل."); return; }
     setRoom(data as RoomData);
     setPhase("enter_name");
+  }
+
+  async function lookupRoom() {
+    await lookupRoomByCode(codeInput.trim());
   }
 
   // ── Step 2: join room with nickname ──────────────────────────────────────
