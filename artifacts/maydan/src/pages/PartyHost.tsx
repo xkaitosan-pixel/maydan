@@ -597,7 +597,13 @@ export default function PartyHost() {
                       text: `انضم إلى غرفة التحدي برمز: ${roomCode}`,
                       url: joinUrl,
                     });
-                  } catch {}
+                  } catch (err) {
+                    if (!(err instanceof Error && err.name === "AbortError")) {
+                      await navigator.clipboard?.writeText(joinUrl);
+                      setShareFeedback("copied");
+                      setTimeout(() => setShareFeedback(null), 2000);
+                    }
+                  }
                 } else {
                   await navigator.clipboard?.writeText(joinUrl);
                   setShareFeedback("copied");
