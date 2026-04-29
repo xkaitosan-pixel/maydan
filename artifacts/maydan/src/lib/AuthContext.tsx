@@ -75,8 +75,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const avatarUrl: string = authUser.user_metadata?.avatar_url ?? "";
+      const providerAvatar: string = authUser.user_metadata?.avatar_url ?? "";
       const existingUsername: string = authUser.user_metadata?.username ?? "";
+      const nameForAvatar = fullName || existingUsername || "م";
+      const encodedName = encodeURIComponent(nameForAvatar);
+      const generatedAvatar = `https://ui-avatars.com/api/?name=${encodedName}&background=9333ea&color=fff&size=128&bold=true&font-size=0.5`;
+      const avatarUrl = providerAvatar || generatedAvatar;
       const { data: newUser, error: insertError } = await supabase
         .from("users")
         .insert({ auth_id: authUser.id, avatar_url: avatarUrl, username: existingUsername || null })
@@ -167,10 +171,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     if (data.user) {
+      const encodedName = encodeURIComponent(trimmedUsername);
+      const avatarUrl = `https://ui-avatars.com/api/?name=${encodedName}&background=9333ea&color=fff&size=128&bold=true&font-size=0.5`;
       await supabase.from("users").insert({
         auth_id: data.user.id,
         username: trimmedUsername,
-        avatar_url: null,
+        avatar_url: avatarUrl,
       });
     }
 

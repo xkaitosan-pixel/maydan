@@ -7,6 +7,7 @@ const SUPABASE_URL = "https://hnoqkcrzualzxkzmuwvp.supabase.co";
 router.post("/avatar", async (req, res) => {
   const serviceKey = process.env["SUPABASE_SERVICE_ROLE_KEY"];
   if (!serviceKey) {
+    console.error("[upload/avatar] SUPABASE_SERVICE_ROLE_KEY is not set");
     res.status(503).json({ error: "Storage service not configured" });
     return;
   }
@@ -22,6 +23,8 @@ router.post("/avatar", async (req, res) => {
     headers: { apikey: serviceKey, Authorization: `Bearer ${userToken}` },
   });
   if (!authResp.ok) {
+    const authBody = await authResp.text();
+    console.error("[upload/avatar] Auth verification failed:", authResp.status, authBody);
     res.status(401).json({ error: "Invalid session" });
     return;
   }
@@ -36,9 +39,16 @@ router.post("/avatar", async (req, res) => {
     `${SUPABASE_URL}/rest/v1/users?auth_id=eq.${authId}&select=id`,
     { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } },
   );
+  if (!dbUserResp.ok) {
+    const body = await dbUserResp.text();
+    console.error("[upload/avatar] DB user lookup failed:", dbUserResp.status, body);
+    res.status(500).json({ error: "DB lookup failed" });
+    return;
+  }
   const dbUsers = (await dbUserResp.json()) as Array<{ id: string }>;
   const dbUserId = dbUsers[0]?.id;
   if (!dbUserId) {
+    console.error("[upload/avatar] User not found in DB for authId:", authId);
     res.status(404).json({ error: "User not found" });
     return;
   }
@@ -60,6 +70,8 @@ router.post("/avatar", async (req, res) => {
   const path = `${dbUserId}/avatar.${ext}`;
   const buffer = Buffer.from(data, "base64");
 
+  console.log(`[upload/avatar] Uploading to avatars/${path} (${buffer.length} bytes, ${ct})`);
+
   for (const method of ["POST", "PUT"] as const) {
     const r = await fetch(`${SUPABASE_URL}/storage/v1/object/avatars/${path}`, {
       method,
@@ -71,15 +83,19 @@ router.post("/avatar", async (req, res) => {
       body: buffer,
     });
 
+    const responseText = await r.text();
+    console.log(`[upload/avatar] ${method} -> ${r.status}:`, responseText.slice(0, 500));
+
     if (r.ok) {
       const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/avatars/${path}?t=${Date.now()}`;
+      console.log("[upload/avatar] Success:", publicUrl);
       res.json({ url: publicUrl });
       return;
     }
 
     if (method === "PUT") {
-      const errBody = await r.text();
-      res.status(500).json({ error: errBody.slice(0, 300) });
+      console.error("[upload/avatar] Both POST and PUT failed. Last error:", responseText);
+      res.status(500).json({ error: responseText.slice(0, 300) });
       return;
     }
   }

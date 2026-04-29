@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
@@ -6,6 +6,20 @@ import { parseAchievementsData, ACHIEVEMENTS, LEVELS } from "@/lib/gamification"
 import { Crown, Trophy, Target, Zap, Star, Edit2, Check, X, Camera, Link } from "lucide-react";
 
 import { COUNTRIES, getCountryFlag } from "@/lib/countryUtils";
+
+const PRESET_COLORS = [
+  { bg: "9333ea", label: "بنفسجي" },
+  { bg: "f59e0b", label: "ذهبي" },
+  { bg: "10b981", label: "أخضر" },
+  { bg: "3b82f6", label: "أزرق" },
+  { bg: "ef4444", label: "أحمر" },
+  { bg: "6366f1", label: "نيلي" },
+];
+
+function buildAvatarUrl(name: string, bg: string) {
+  const encoded = encodeURIComponent(name || "م");
+  return `https://ui-avatars.com/api/?name=${encoded}&background=${bg}&color=fff&size=128&bold=true&font-size=0.5`;
+}
 
 export default function Profile() {
   const [, navigate] = useLocation();
@@ -19,9 +33,8 @@ export default function Profile() {
   const [saved, setSaved] = useState(false);
   const [editingAvatar, setEditingAvatar] = useState(false);
   const [avatarUrlInput, setAvatarUrlInput] = useState("");
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [savingAvatar, setSavingAvatar] = useState(false);
   const [avatarError, setAvatarError] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setDisplayName(dbUser?.display_name ?? dbUser?.username ?? "");
@@ -40,6 +53,8 @@ export default function Profile() {
   const xpProgress = currentLevel && nextLevel
     ? Math.min(100, Math.round(((dbUser?.xp ?? 0) - currentLevel.xp) / (nextLevel.xp - currentLevel.xp) * 100))
     : 100;
+
+  const avatarName = displayName || dbUser?.username || googleDisplayName || "م";
 
   async function handleSave() {
     if (!dbUser) return;
@@ -62,59 +77,24 @@ export default function Profile() {
     navigate("/");
   }
 
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !dbUser) return;
-    if (file.size > 5 * 1024 * 1024) {
-      setAvatarError("حجم الصورة كبير جداً (الحد الأقصى 5 ميجابايت).");
+  async function saveAvatarUrl(url: string) {
+    if (!dbUser || !url.trim()) return;
+    setSavingAvatar(true);
+    setAvatarError("");
+    const { error } = await supabase.from("users").update({ avatar_url: url.trim() }).eq("id", dbUser.id);
+    setSavingAvatar(false);
+    if (error) {
+      setAvatarError("فشل الحفظ. تحقق من الرابط وحاول مرة أخرى.");
       return;
     }
-    setUploadingAvatar(true);
-    setAvatarError("");
-    try {
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve((reader.result as string).split(",")[1]);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-      if (!token) throw new Error("يجب تسجيل الدخول أولاً");
-      const resp = await fetch("/api/upload/avatar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ contentType: file.type || "image/jpeg", data: base64 }),
-      });
-      if (!resp.ok) {
-        const errJson = await resp.json().catch(() => ({ error: "فشل الرفع" }));
-        throw new Error(errJson.error || "فشل الرفع");
-      }
-      const { url } = await resp.json();
-      await saveAvatarUrl(url);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "";
-      setAvatarError(msg || "فشل رفع الصورة. جرب لصق رابط URL مباشرة بدلاً من ذلك.");
-    }
-    setUploadingAvatar(false);
-  }
-
-  async function handleSaveAvatarUrl() {
-    const url = avatarUrlInput.trim();
-    if (!url) return;
-    setUploadingAvatar(true);
-    setAvatarError("");
-    await saveAvatarUrl(url);
-    setUploadingAvatar(false);
-  }
-
-  async function saveAvatarUrl(url: string) {
-    if (!dbUser) return;
-    const { error } = await supabase.from("users").update({ avatar_url: url }).eq("id", dbUser.id);
-    if (error) { setAvatarError("فشل الحفظ."); return; }
     await refreshUser();
     setEditingAvatar(false);
     setAvatarUrlInput("");
+  }
+
+  async function handleSaveAvatarUrl() {
+    if (!avatarUrlInput.trim()) return;
+    await saveAvatarUrl(avatarUrlInput.trim());
   }
 
   const flagInfo = COUNTRIES.find(c => c.code === country);
@@ -143,11 +123,11 @@ export default function Profile() {
           <div className="relative">
             <div className="relative group cursor-pointer" onClick={() => !isGuest && setEditingAvatar(v => !v)}>
               {dbUser?.avatar_url ? (
-                <img src={dbUser.avatar_url} alt={displayName}
+                <img src={dbUser.avatar_url} alt={avatarName}
                   className="w-20 h-20 rounded-full border-2 border-yellow-500 object-cover" />
               ) : (
                 <div className="w-20 h-20 rounded-full border-2 border-yellow-500 bg-muted flex items-center justify-center text-3xl font-black">
-                  {(displayName || googleDisplayName || "م").charAt(0)}
+                  {avatarName.charAt(0)}
                 </div>
               )}
               {!isGuest && (
@@ -168,12 +148,33 @@ export default function Profile() {
 
           {/* Avatar editor */}
           {editingAvatar && !isGuest && (
-            <div className="w-full bg-background border border-border rounded-xl p-3 space-y-3 text-right">
+            <div className="w-full bg-background border border-border rounded-xl p-3 space-y-4 text-right">
               <p className="text-xs font-bold text-muted-foreground">تغيير الصورة الشخصية</p>
 
-              {/* PRIMARY: URL input */}
+              {/* Preset avatars */}
               <div>
-                <p className="text-xs text-muted-foreground mb-1.5">الصق رابط صورة (الأفضل)</p>
+                <p className="text-xs text-muted-foreground mb-2">اختر صورة جاهزة</p>
+                <div className="grid grid-cols-6 gap-2">
+                  {PRESET_COLORS.map(({ bg, label }) => {
+                    const url = buildAvatarUrl(avatarName, bg);
+                    return (
+                      <button
+                        key={bg}
+                        onClick={() => saveAvatarUrl(url)}
+                        disabled={savingAvatar}
+                        title={label}
+                        className="rounded-full overflow-hidden border-2 border-transparent hover:border-primary transition-all disabled:opacity-50 focus:outline-none focus:border-primary"
+                      >
+                        <img src={url} alt={label} className="w-full h-auto aspect-square" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* URL input */}
+              <div>
+                <p className="text-xs text-muted-foreground mb-1.5">أو الصق رابط صورة مباشرة</p>
                 <div className="flex gap-2">
                   <input
                     value={avatarUrlInput}
@@ -184,33 +185,19 @@ export default function Profile() {
                   />
                   <button
                     onClick={handleSaveAvatarUrl}
-                    disabled={!avatarUrlInput.trim() || uploadingAvatar}
+                    disabled={!avatarUrlInput.trim() || savingAvatar}
                     className="h-10 px-3 rounded-xl text-sm font-bold text-background disabled:opacity-40 flex items-center gap-1"
                     style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}
                   >
                     <Link className="w-3.5 h-3.5" />
-                    حفظ
+                    {savingAvatar ? "..." : "حفظ"}
                   </button>
                 </div>
               </div>
 
-              {/* SECONDARY: File upload */}
-              <div>
-                <p className="text-xs text-muted-foreground mb-1.5">أو رفع صورة من الجهاز</p>
-                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploadingAvatar}
-                  className="w-full h-10 rounded-xl border border-border text-sm font-medium flex items-center justify-center gap-2 hover:bg-primary/5 transition-colors disabled:opacity-50"
-                >
-                  <Camera className="w-4 h-4" />
-                  {uploadingAvatar ? "جاري الرفع..." : "اختر صورة..."}
-                </button>
-              </div>
-
               {avatarError && <p className="text-destructive text-xs">{avatarError}</p>}
               <button
-                onClick={() => { setEditingAvatar(false); setAvatarError(""); }}
+                onClick={() => { setEditingAvatar(false); setAvatarError(""); setAvatarUrlInput(""); }}
                 className="text-xs text-muted-foreground hover:text-foreground"
               >
                 إلغاء
