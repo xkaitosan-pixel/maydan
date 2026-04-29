@@ -109,6 +109,7 @@ export default function PartyHost() {
   const [autoAdvanceCountdown, setAutoAdvanceCountdown] = useState(0);
   const autoAdvanceRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isLandscape, setIsLandscape] = useState(() => window.innerWidth > window.innerHeight);
+  const [shareFeedback, setShareFeedback] = useState<"copied" | null>(null);
 
   // Refs to avoid stale closures
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -579,10 +580,36 @@ export default function PartyHost() {
           <p className="text-xs text-muted-foreground uppercase tracking-widest mb-1">رمز الغرفة</p>
           <p className="text-7xl font-black text-primary tracking-widest tabular-nums" dir="ltr">{roomCode}</p>
           <p className="text-xs text-muted-foreground mt-3">وضع التجمعات ← انضم للغرفة</p>
-          <button onClick={() => navigator.clipboard?.writeText(roomCode)}
-            className="mt-3 px-4 py-1.5 rounded-xl text-xs font-bold bg-primary/10 text-primary border border-primary/30">
-            📋 نسخ الرمز
-          </button>
+          <div className="mt-3 flex gap-2 justify-center">
+            <button
+              onClick={() => navigator.clipboard?.writeText(roomCode)}
+              className="px-4 py-1.5 rounded-xl text-xs font-bold bg-primary/10 text-primary border border-primary/30 hover:bg-primary/20 transition-colors"
+            >
+              📋 نسخ الرمز
+            </button>
+            <button
+              onClick={async () => {
+                const joinUrl = `${window.location.origin}/party/guest?code=${roomCode}`;
+                if (navigator.share) {
+                  try {
+                    await navigator.share({
+                      title: "انضم إلى ميدان!",
+                      text: `انضم إلى غرفة التحدي برمز: ${roomCode}`,
+                      url: joinUrl,
+                    });
+                  } catch {}
+                } else {
+                  await navigator.clipboard?.writeText(joinUrl);
+                  setShareFeedback("copied");
+                  setTimeout(() => setShareFeedback(null), 2000);
+                }
+              }}
+              className="px-4 py-1.5 rounded-xl text-xs font-bold border transition-colors"
+              style={{ background: "linear-gradient(135deg,#7c3aed22,#d97706aa)", borderColor: "#d97706aa", color: "#f59e0b" }}
+            >
+              {shareFeedback === "copied" ? "✅ تم النسخ!" : "🔗 مشاركة الرابط"}
+            </button>
+          </div>
 
           {/* QR Code */}
           <div className="mt-4 flex flex-col items-center gap-2">
