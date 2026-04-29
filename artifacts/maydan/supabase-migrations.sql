@@ -79,3 +79,37 @@ BEGIN
     CREATE POLICY daily_scores_update ON daily_scores FOR UPDATE USING (true);
   END IF;
 END $$;
+
+-- =====================================================================
+-- 7. Supabase Storage: 'avatars' bucket
+-- =====================================================================
+-- The bucket has already been created programmatically (public: true,
+-- allowed_mime_types: jpeg/png/webp/gif, file_size_limit: 5MB).
+-- The SQL below adds RLS policies on storage.objects for completeness.
+-- If the bucket was not auto-created, create it manually in:
+--   Supabase Dashboard → Storage → New Bucket
+--   name: avatars, Public bucket: ON
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'avatars_public_read'
+  ) THEN
+    CREATE POLICY avatars_public_read ON storage.objects FOR SELECT USING (bucket_id = 'avatars');
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'avatars_insert'
+  ) THEN
+    CREATE POLICY avatars_insert ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'avatars');
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'avatars_update'
+  ) THEN
+    CREATE POLICY avatars_update ON storage.objects FOR UPDATE USING (bucket_id = 'avatars');
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'avatars_delete'
+  ) THEN
+    CREATE POLICY avatars_delete ON storage.objects FOR DELETE USING (bucket_id = 'avatars');
+  END IF;
+END $$;
