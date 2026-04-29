@@ -38,6 +38,11 @@ const queryClient = new QueryClient();
 function detectAuthCallback(): boolean {
   const hash = window.location.hash;
   const search = window.location.search;
+  const path = window.location.pathname;
+
+  // Party routes use ?code= for 4-digit room codes — never treat as an OAuth callback
+  if (path.startsWith("/party")) return false;
+
   return (
     hash.includes("access_token=") ||
     hash.includes("error_description=") ||

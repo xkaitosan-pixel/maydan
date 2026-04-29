@@ -65,18 +65,33 @@ export default function Profile() {
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !dbUser) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarError("حجم الصورة كبير جداً (الحد الأقصى 5 ميجابايت).");
+      return;
+    }
     setUploadingAvatar(true);
     setAvatarError("");
     try {
-      const ext = file.name.split(".").pop() ?? "jpg";
-      const path = `${dbUser.id}/avatar.${ext}`;
-      const { error: uploadErr } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
-      if (uploadErr) throw new Error(uploadErr.message);
-      const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
-      const newUrl = urlData.publicUrl + "?t=" + Date.now();
-      await saveAvatarUrl(newUrl);
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const resp = await fetch("/api/upload/avatar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: dbUser.id, contentType: file.type || "image/jpeg", data: base64 }),
+      });
+      if (!resp.ok) {
+        const errJson = await resp.json().catch(() => ({ error: "فشل الرفع" }));
+        throw new Error(errJson.error || "فشل الرفع");
+      }
+      const { url } = await resp.json();
+      await saveAvatarUrl(url);
     } catch (err: unknown) {
-      setAvatarError("فشل رفع الصورة. استخدم رابط URL بدلاً من ذلك.");
+      const msg = err instanceof Error ? err.message : "";
+      setAvatarError(msg || "فشل رفع الصورة. جرب لصق رابط URL مباشرة بدلاً من ذلك.");
     }
     setUploadingAvatar(false);
   }
@@ -152,40 +167,51 @@ export default function Profile() {
           {editingAvatar && !isGuest && (
             <div className="w-full bg-background border border-border rounded-xl p-3 space-y-3 text-right">
               <p className="text-xs font-bold text-muted-foreground">تغيير الصورة الشخصية</p>
-              {/* File upload */}
+
+              {/* PRIMARY: URL input */}
               <div>
+                <p className="text-xs text-muted-foreground mb-1.5">الصق رابط صورة (الأفضل)</p>
+                <div className="flex gap-2">
+                  <input
+                    value={avatarUrlInput}
+                    onChange={e => setAvatarUrlInput(e.target.value)}
+                    placeholder="https://example.com/photo.jpg"
+                    className="flex-1 h-10 bg-card border border-border rounded-xl px-3 text-sm text-foreground outline-none focus:border-primary"
+                    dir="ltr"
+                  />
+                  <button
+                    onClick={handleSaveAvatarUrl}
+                    disabled={!avatarUrlInput.trim() || uploadingAvatar}
+                    className="h-10 px-3 rounded-xl text-sm font-bold text-background disabled:opacity-40 flex items-center gap-1"
+                    style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}
+                  >
+                    <Link className="w-3.5 h-3.5" />
+                    حفظ
+                  </button>
+                </div>
+              </div>
+
+              {/* SECONDARY: File upload */}
+              <div>
+                <p className="text-xs text-muted-foreground mb-1.5">أو رفع صورة من الجهاز</p>
                 <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploadingAvatar}
-                  className="w-full h-10 rounded-xl border border-border text-sm font-bold flex items-center justify-center gap-2 hover:bg-primary/5 transition-colors disabled:opacity-50"
+                  className="w-full h-10 rounded-xl border border-border text-sm font-medium flex items-center justify-center gap-2 hover:bg-primary/5 transition-colors disabled:opacity-50"
                 >
                   <Camera className="w-4 h-4" />
-                  {uploadingAvatar ? "جاري الرفع..." : "رفع صورة من الجهاز"}
+                  {uploadingAvatar ? "جاري الرفع..." : "اختر صورة..."}
                 </button>
               </div>
-              {/* URL input */}
-              <div className="flex gap-2">
-                <input
-                  value={avatarUrlInput}
-                  onChange={e => setAvatarUrlInput(e.target.value)}
-                  placeholder="أو أدخل رابط الصورة..."
-                  className="flex-1 h-10 bg-card border border-border rounded-xl px-3 text-sm text-foreground outline-none focus:border-primary"
-                  dir="ltr"
-                />
-                <button
-                  onClick={handleSaveAvatarUrl}
-                  disabled={!avatarUrlInput.trim() || uploadingAvatar}
-                  className="h-10 px-3 rounded-xl text-sm font-bold text-background disabled:opacity-40 flex items-center gap-1"
-                  style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}
-                >
-                  <Link className="w-3.5 h-3.5" />
-                  حفظ
-                </button>
-              </div>
+
               {avatarError && <p className="text-destructive text-xs">{avatarError}</p>}
-              <button onClick={() => { setEditingAvatar(false); setAvatarError(""); }}
-                className="text-xs text-muted-foreground hover:text-foreground">إلغاء</button>
+              <button
+                onClick={() => { setEditingAvatar(false); setAvatarError(""); }}
+                className="text-xs text-muted-foreground hover:text-foreground"
+              >
+                إلغاء
+              </button>
             </div>
           )}
 
