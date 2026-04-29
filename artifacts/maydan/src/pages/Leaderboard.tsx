@@ -55,19 +55,11 @@ export default function Leaderboard() {
       setDailyError(null);
       (async () => {
         try {
-          // Try with country column; fall back gracefully if not yet migrated
-          let result = await supabase.from("daily_scores")
+          const result = await supabase.from("daily_scores")
             .select("user_id, display_name, country, score, total, completed_at")
             .eq("date", today)
             .order("score", { ascending: false })
             .limit(50);
-          if (result.error?.code === "42703") {
-            result = await supabase.from("daily_scores")
-              .select("user_id, display_name, score, total, completed_at")
-              .eq("date", today)
-              .order("score", { ascending: false })
-              .limit(50);
-          }
           if (result.error) {
             setDailyError(result.error.message);
           } else {

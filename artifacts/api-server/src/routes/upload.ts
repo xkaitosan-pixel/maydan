@@ -11,14 +11,41 @@ router.post("/avatar", async (req, res) => {
     return;
   }
 
-  const { userId, contentType, data } = req.body as {
-    userId?: string;
-    contentType?: string;
-    data?: string;
-  };
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  const userToken = authHeader.slice(7);
 
-  if (!userId || !data) {
-    res.status(400).json({ error: "userId and data are required" });
+  const authResp = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    headers: { apikey: serviceKey, Authorization: `Bearer ${userToken}` },
+  });
+  if (!authResp.ok) {
+    res.status(401).json({ error: "Invalid session" });
+    return;
+  }
+  const authUser = (await authResp.json()) as { id?: string };
+  const authId = authUser.id;
+  if (!authId) {
+    res.status(401).json({ error: "Invalid session" });
+    return;
+  }
+
+  const dbUserResp = await fetch(
+    `${SUPABASE_URL}/rest/v1/users?auth_id=eq.${authId}&select=id`,
+    { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } },
+  );
+  const dbUsers = (await dbUserResp.json()) as Array<{ id: string }>;
+  const dbUserId = dbUsers[0]?.id;
+  if (!dbUserId) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  const { contentType, data } = req.body as { contentType?: string; data?: string };
+  if (!data) {
+    res.status(400).json({ error: "data is required" });
     return;
   }
 
@@ -30,7 +57,7 @@ router.post("/avatar", async (req, res) => {
       : ct.includes("gif")
         ? "gif"
         : "jpg";
-  const path = `${userId}/avatar.${ext}`;
+  const path = `${dbUserId}/avatar.${ext}`;
   const buffer = Buffer.from(data, "base64");
 
   for (const method of ["POST", "PUT"] as const) {

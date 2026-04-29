@@ -78,10 +78,13 @@ export default function Profile() {
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("يجب تسجيل الدخول أولاً");
       const resp = await fetch("/api/upload/avatar", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: dbUser.id, contentType: file.type || "image/jpeg", data: base64 }),
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ contentType: file.type || "image/jpeg", data: base64 }),
       });
       if (!resp.ok) {
         const errJson = await resp.json().catch(() => ({ error: "فشل الرفع" }));
