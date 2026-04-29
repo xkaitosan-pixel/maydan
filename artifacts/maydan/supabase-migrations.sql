@@ -83,33 +83,77 @@ END $$;
 -- =====================================================================
 -- 7. Supabase Storage: 'avatars' bucket
 -- =====================================================================
--- The bucket has already been created programmatically (public: true,
+-- The bucket has been created programmatically (public: true,
 -- allowed_mime_types: jpeg/png/webp/gif, file_size_limit: 5MB).
--- The SQL below adds RLS policies on storage.objects for completeness.
--- If the bucket was not auto-created, create it manually in:
---   Supabase Dashboard → Storage → New Bucket
---   name: avatars, Public bucket: ON
+--
+-- If the bucket does not exist yet, create it via Supabase dashboard:
+--   Storage → New Bucket → name: avatars, Public bucket: ON
+-- Or run the INSERT below (idempotent):
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'avatars',
+  'avatars',
+  true,
+  5242880,
+  ARRAY['image/jpeg','image/png','image/webp','image/gif']
+)
+ON CONFLICT (id) DO UPDATE SET
+  public = true,
+  file_size_limit = 5242880,
+  allowed_mime_types = ARRAY['image/jpeg','image/png','image/webp','image/gif'];
+
+-- RLS policies: owner-scoped (each user can only write to their own folder)
+-- Profile.tsx uploads to path: `{user_id}/avatar.{ext}`
+-- So the first path segment (split_part(name,'/',1)) must equal auth.uid()
 
 DO $$
 BEGIN
+  -- Anyone can read public avatars (bucket is public, but policy is belt-and-suspenders)
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'avatars_public_read'
   ) THEN
-    CREATE POLICY avatars_public_read ON storage.objects FOR SELECT USING (bucket_id = 'avatars');
+    CREATE POLICY avatars_public_read ON storage.objects
+      FOR SELECT USING (bucket_id = 'avatars');
   END IF;
+
+  -- Only authenticated users can upload, and only to their own folder
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'avatars_insert'
   ) THEN
-    CREATE POLICY avatars_insert ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'avatars');
+    CREATE POLICY avatars_insert ON storage.objects
+      FOR INSERT TO authenticated
+      WITH CHECK (
+        bucket_id = 'avatars'
+        AND split_part(name, '/', 1) = auth.uid()::text
+      );
   END IF;
+
+  -- Only the owner can update their own avatar
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'avatars_update'
   ) THEN
-    CREATE POLICY avatars_update ON storage.objects FOR UPDATE USING (bucket_id = 'avatars');
+    CREATE POLICY avatars_update ON storage.objects
+      FOR UPDATE TO authenticated
+      USING (
+        bucket_id = 'avatars'
+        AND split_part(name, '/', 1) = auth.uid()::text
+      )
+      WITH CHECK (
+        bucket_id = 'avatars'
+        AND split_part(name, '/', 1) = auth.uid()::text
+      );
   END IF;
+
+  -- Only the owner can delete their own avatar
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'avatars_delete'
   ) THEN
-    CREATE POLICY avatars_delete ON storage.objects FOR DELETE USING (bucket_id = 'avatars');
+    CREATE POLICY avatars_delete ON storage.objects
+      FOR DELETE TO authenticated
+      USING (
+        bucket_id = 'avatars'
+        AND split_part(name, '/', 1) = auth.uid()::text
+      );
   END IF;
 END $$;
