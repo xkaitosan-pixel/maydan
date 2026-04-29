@@ -55,15 +55,23 @@ export default function Leaderboard() {
       setDailyError(null);
       (async () => {
         try {
-          const { data, error } = await supabase.from("daily_scores")
+          // Try with country column; fall back gracefully if not yet migrated
+          let result = await supabase.from("daily_scores")
             .select("user_id, display_name, country, score, total, completed_at")
             .eq("date", today)
             .order("score", { ascending: false })
             .limit(50);
-          if (error) {
-            setDailyError(error.message);
+          if (result.error?.code === "42703") {
+            result = await supabase.from("daily_scores")
+              .select("user_id, display_name, score, total, completed_at")
+              .eq("date", today)
+              .order("score", { ascending: false })
+              .limit(50);
+          }
+          if (result.error) {
+            setDailyError(result.error.message);
           } else {
-            setDailyEntries((data ?? []) as DailyEntry[]);
+            setDailyEntries((result.data ?? []) as DailyEntry[]);
           }
         } catch (e) {
           setDailyError(e instanceof Error ? e.message : "خطأ في التحميل");

@@ -85,15 +85,24 @@ export default function DailyChallenge() {
   }
 
   async function loadLeaderboard() {
-    const { data } = await supabase
+    // Try with country column first; fall back gracefully if column not yet migrated
+    let result = await supabase
       .from("daily_scores")
       .select("user_id, display_name, country, score, total, completed_at")
       .eq("date", today)
       .order("score", { ascending: false })
       .limit(10);
-    if (data) {
-      setLeaderboard(data as DailyEntry[]);
-      setTotalPlayers(data.length);
+    if (result.error?.code === "42703") {
+      result = await supabase
+        .from("daily_scores")
+        .select("user_id, display_name, score, total, completed_at")
+        .eq("date", today)
+        .order("score", { ascending: false })
+        .limit(10);
+    }
+    if (result.data) {
+      setLeaderboard(result.data as DailyEntry[]);
+      setTotalPlayers(result.data.length);
     }
   }
 
@@ -174,7 +183,14 @@ export default function DailyChallenge() {
       completed_at: new Date().toISOString(),
     };
 
-    await supabase.from("daily_scores").upsert(entry, { onConflict: "user_id,date" }).select();
+    // Try upsert with country; fall back if column not yet migrated
+    const { error: upsertErr } = await supabase
+      .from("daily_scores")
+      .upsert(entry, { onConflict: "user_id,date" });
+    if (upsertErr?.code === "42703") {
+      const { country: _c, ...entryNoCountry } = entry;
+      await supabase.from("daily_scores").upsert(entryNoCountry as DailyEntry, { onConflict: "user_id,date" });
+    }
     setMyEntry(entry);
     await loadLeaderboard();
   }

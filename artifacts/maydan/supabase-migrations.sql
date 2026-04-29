@@ -3,6 +3,15 @@
 -- Run in: Supabase Dashboard → SQL Editor
 -- All statements are idempotent (safe to run multiple times)
 -- =====================================================================
+-- STATUS (last verified 2026-04-29):
+--   ✅ party_rooms.auto_advance_seconds      — EXISTS
+--   ✅ party_rooms.question_start_time       — EXISTS
+--   ✅ users.display_name                    — EXISTS
+--   ✅ users.country                         — EXISTS
+--   ✅ users.bio                             — EXISTS
+--   ✅ daily_scores table                    — EXISTS (all core columns)
+--   ❌ daily_scores.country                  — MISSING (run this file to add)
+-- =====================================================================
 
 -- 1. party_rooms: auto-advance + server-side question timing
 ALTER TABLE party_rooms ADD COLUMN IF NOT EXISTS auto_advance_seconds int DEFAULT 0;
@@ -20,18 +29,20 @@ CREATE TABLE IF NOT EXISTS daily_scores (
   display_name text NOT NULL DEFAULT '',
   country text DEFAULT '',
   score int NOT NULL DEFAULT 0,
-  total int NOT NULL DEFAULT 5,
+  total int NOT NULL DEFAULT 10,
   date text NOT NULL DEFAULT '',
   completed_at timestamptz DEFAULT now()
 );
 
 -- 4. daily_scores: add any columns that may be missing if table already existed
 ALTER TABLE daily_scores ADD COLUMN IF NOT EXISTS display_name text NOT NULL DEFAULT '';
-ALTER TABLE daily_scores ADD COLUMN IF NOT EXISTS country text DEFAULT '';
 ALTER TABLE daily_scores ADD COLUMN IF NOT EXISTS score int NOT NULL DEFAULT 0;
-ALTER TABLE daily_scores ADD COLUMN IF NOT EXISTS total int NOT NULL DEFAULT 5;
+ALTER TABLE daily_scores ADD COLUMN IF NOT EXISTS total int NOT NULL DEFAULT 10;
 ALTER TABLE daily_scores ADD COLUMN IF NOT EXISTS date text NOT NULL DEFAULT '';
 ALTER TABLE daily_scores ADD COLUMN IF NOT EXISTS completed_at timestamptz DEFAULT now();
+
+-- *** THIS IS THE ONLY CURRENTLY MISSING COLUMN ***
+ALTER TABLE daily_scores ADD COLUMN IF NOT EXISTS country text DEFAULT '';
 
 -- 5. Unique constraint: one attempt per user per day
 DO $$
@@ -43,5 +54,28 @@ BEGIN
   ) THEN
     ALTER TABLE daily_scores
       ADD CONSTRAINT daily_scores_user_id_date_key UNIQUE (user_id, date);
+  END IF;
+END $$;
+
+-- 6. Row Level Security for daily_scores
+--    Allow anyone to read leaderboard; allow inserts from all users (incl. guests)
+ALTER TABLE daily_scores ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'daily_scores' AND policyname = 'daily_scores_read'
+  ) THEN
+    CREATE POLICY daily_scores_read ON daily_scores FOR SELECT USING (true);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'daily_scores' AND policyname = 'daily_scores_insert'
+  ) THEN
+    CREATE POLICY daily_scores_insert ON daily_scores FOR INSERT WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'daily_scores' AND policyname = 'daily_scores_update'
+  ) THEN
+    CREATE POLICY daily_scores_update ON daily_scores FOR UPDATE USING (true);
   END IF;
 END $$;
