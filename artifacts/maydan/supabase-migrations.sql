@@ -107,6 +107,9 @@ ON CONFLICT (id) DO UPDATE SET
 -- Profile.tsx uploads to path: `{user_id}/avatar.{ext}`
 -- So the first path segment (split_part(name,'/',1)) must equal auth.uid()
 
+-- Ensure RLS is enabled on storage.objects (default in Supabase; guard for non-standard setups)
+ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+
 DO $$
 BEGIN
   -- Anyone can read public avatars (bucket is public, but policy is belt-and-suspenders)
