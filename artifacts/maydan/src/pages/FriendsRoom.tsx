@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { CATEGORIES, getCategoryById, Question } from "@/lib/questions";
 import { fetchGameQuestions, fetchQuestionsByIds } from "@/lib/questionService";
@@ -82,11 +82,12 @@ export default function FriendsRoom() {
     setPhase("turn_intro");
   }
 
-  // Guarantee clean visual state on every question change
-  useEffect(() => {
+  // Guarantee clean visual state on every question change (sync, before paint)
+  useLayoutEffect(() => {
+    console.log('[FriendsRoom] Question changed, resetting selection', { currentQIdx, currentPlayerIdx });
     setSelected(null);
     setShowResult(false);
-  }, [currentQIdx]);
+  }, [currentQIdx, currentPlayerIdx]);
 
   useEffect(() => {
     if (phase !== "turn_intro") return;
@@ -424,10 +425,17 @@ export default function FriendsRoom() {
           </div>
           <div key={`answers-${currentPlayerIdx}-${currentQIdx}-${currentQ.id}`} className="grid grid-cols-1 gap-3">
             {currentQ.options.map((opt, idx) => {
-              let cls = "option-btn w-full p-4 rounded-xl text-right font-medium text-sm bg-card";
-              if (showResult) {
-                if (idx === currentQ.correct) cls += " correct";
-                else if (idx === selected) cls += " wrong";
+              const baseCls = "option-btn w-full p-4 rounded-xl text-right font-medium text-sm bg-card";
+              let cls = baseCls;
+              if (selected !== null) {
+                if (showResult) {
+                  if (idx === currentQ.correct) cls = baseCls + " correct";
+                  else if (idx === selected) cls = baseCls + " wrong";
+                } else if (idx === selected) {
+                  cls = baseCls + " selected";
+                }
+              } else if (showResult && idx === currentQ.correct) {
+                cls = baseCls + " correct";
               }
               return (
                 <button key={`${currentQ.id}-${idx}`} onClick={() => handleAnswer(idx)} disabled={showResult} className={cls}>

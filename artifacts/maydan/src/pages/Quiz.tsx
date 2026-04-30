@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import { useLocation, useParams } from "wouter";
 import { getCategoryById, Question } from "@/lib/questions";
 import { fetchQuestionsByIds } from "@/lib/questionService";
@@ -53,8 +53,9 @@ export default function Quiz() {
     fetchQuestionsByIds(challenge.questions).then(setLoadedQs);
   }, [challengeId, role]);
 
-  // Guarantee clean visual state on every question change
-  useEffect(() => {
+  // Guarantee clean visual state on every question change (sync, before paint)
+  useLayoutEffect(() => {
+    console.log('[Quiz] Question changed, resetting selection', { currentIndex });
     setSelectedOption(null);
     setShowResult(false);
   }, [currentIndex]);
@@ -285,10 +286,17 @@ export default function Quiz() {
 
           <div key={`answers-${currentIndex}-${currentQuestion.id}`} className="grid grid-cols-1 gap-3 mb-4">
             {currentQuestion.options.map((option, idx) => {
-              let cls = "option-btn w-full p-4 rounded-xl text-right font-medium text-sm bg-card";
-              if (showResult) {
-                if (idx === currentQuestion.correct) cls += " correct";
-                else if (idx === selectedOption) cls += " wrong";
+              const baseCls = "option-btn w-full p-4 rounded-xl text-right font-medium text-sm bg-card";
+              let cls = baseCls;
+              if (selectedOption !== null) {
+                if (showResult) {
+                  if (idx === currentQuestion.correct) cls = baseCls + " correct";
+                  else if (idx === selectedOption) cls = baseCls + " wrong";
+                } else if (idx === selectedOption) {
+                  cls = baseCls + " selected";
+                }
+              } else if (showResult && idx === currentQuestion.correct) {
+                cls = baseCls + " correct";
               }
               return (
                 <button key={`${currentQuestion.id}-${idx}`} onClick={() => handleAnswer(idx)} disabled={showResult || isTransitioning} className={cls}>

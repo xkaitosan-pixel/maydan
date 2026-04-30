@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { CATEGORIES, getCategoryById, Question } from "@/lib/questions";
 import { fetchGameQuestions } from "@/lib/questionService";
@@ -61,8 +61,9 @@ export default function Survival() {
     setTimeAvail(cards.time === Infinity ? 99 : cards.time);
   }
 
-  // Guarantee clean visual state on every question change
-  useEffect(() => {
+  // Guarantee clean visual state on every question change (sync, before paint)
+  useLayoutEffect(() => {
+    console.log('[Survival] Question changed, resetting selection', { qid: currentQ?.id });
     setSelectedOption(null);
     setShowResult(false);
   }, [currentQ?.id]);
@@ -487,10 +488,17 @@ export default function Survival() {
           {/* Options */}
           <div key={`answers-${currentQ.id}`} className="grid grid-cols-1 gap-3 mb-4">
             {currentQ.options.map((option, idx) => {
-              let cls = "option-btn w-full p-4 rounded-xl text-right font-medium text-sm bg-card";
-              if (showResult) {
-                if (idx === currentQ.correct) cls += " correct";
-                else if (idx === selectedOption) cls += " wrong";
+              const baseCls = "option-btn w-full p-4 rounded-xl text-right font-medium text-sm bg-card";
+              let cls = baseCls;
+              if (selectedOption !== null) {
+                if (showResult) {
+                  if (idx === currentQ.correct) cls = baseCls + " correct";
+                  else if (idx === selectedOption) cls = baseCls + " wrong";
+                } else if (idx === selectedOption) {
+                  cls = baseCls + " selected";
+                }
+              } else if (showResult && idx === currentQ.correct) {
+                cls = baseCls + " correct";
               }
               return (
                 <button key={`${currentQ.id}-${idx}`} onClick={() => handleAnswer(idx)} disabled={showResult} className={cls}>
