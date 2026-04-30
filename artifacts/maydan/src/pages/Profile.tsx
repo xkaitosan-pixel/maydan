@@ -3,22 +3,21 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { parseAchievementsData, ACHIEVEMENTS, LEVELS } from "@/lib/gamification";
-import { Crown, Trophy, Target, Zap, Star, Edit2, Check, X, Camera, Link } from "lucide-react";
+import { Crown, Trophy, Target, Zap, Star, Edit2, Check, X, Camera } from "lucide-react";
 
-import { COUNTRIES, getCountryFlag } from "@/lib/countryUtils";
+import { COUNTRIES } from "@/lib/countryUtils";
 
-const PRESET_COLORS = [
-  { bg: "9333ea", label: "بنفسجي" },
-  { bg: "f59e0b", label: "ذهبي" },
-  { bg: "10b981", label: "أخضر" },
-  { bg: "3b82f6", label: "أزرق" },
-  { bg: "ef4444", label: "أحمر" },
-  { bg: "6366f1", label: "نيلي" },
-];
+const AVATAR_STYLES = [
+  { id: "adventurer", label: "مغامرين" },
+  { id: "bottts", label: "روبوتات" },
+  { id: "pixel-art", label: "بكسل" },
+  { id: "fun-emoji", label: "إيموجي" },
+] as const;
 
-function buildAvatarUrl(name: string, bg: string) {
-  const encoded = encodeURIComponent(name || "م");
-  return `https://ui-avatars.com/api/?name=${encoded}&background=${bg}&color=fff&size=128&bold=true&font-size=0.5`;
+type StyleId = (typeof AVATAR_STYLES)[number]["id"];
+
+function buildDicebearUrl(style: string, seed: string | number) {
+  return `https://api.dicebear.com/7.x/${style}/svg?seed=${encodeURIComponent(String(seed))}`;
 }
 
 export default function Profile() {
@@ -31,9 +30,12 @@ export default function Profile() {
   const [editingName, setEditingName] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
   const [editingAvatar, setEditingAvatar] = useState(false);
-  const [avatarUrlInput, setAvatarUrlInput] = useState("");
+  const [activeStyle, setActiveStyle] = useState<StyleId>("adventurer");
+  const [selectedAvatar, setSelectedAvatar] = useState<string>("");
   const [savingAvatar, setSavingAvatar] = useState(false);
+  const [avatarSaved, setAvatarSaved] = useState(false);
   const [avatarError, setAvatarError] = useState("");
 
   useEffect(() => {
@@ -53,8 +55,6 @@ export default function Profile() {
   const xpProgress = currentLevel && nextLevel
     ? Math.min(100, Math.round(((dbUser?.xp ?? 0) - currentLevel.xp) / (nextLevel.xp - currentLevel.xp) * 100))
     : 100;
-
-  const avatarName = displayName || dbUser?.username || googleDisplayName || "م";
 
   async function handleSave() {
     if (!dbUser) return;
@@ -77,24 +77,26 @@ export default function Profile() {
     navigate("/");
   }
 
-  async function saveAvatarUrl(url: string) {
-    if (!dbUser || !url.trim()) return;
+  async function handleSaveAvatar() {
+    if (!dbUser || !selectedAvatar) return;
     setSavingAvatar(true);
     setAvatarError("");
-    const { error } = await supabase.from("users").update({ avatar_url: url.trim() }).eq("id", dbUser.id);
+    const { error } = await supabase
+      .from("users")
+      .update({ avatar_url: selectedAvatar })
+      .eq("id", dbUser.id);
     setSavingAvatar(false);
     if (error) {
-      setAvatarError("فشل الحفظ. تحقق من الرابط وحاول مرة أخرى.");
+      setAvatarError("فشل الحفظ. حاول مرة أخرى.");
       return;
     }
+    setAvatarSaved(true);
     await refreshUser();
-    setEditingAvatar(false);
-    setAvatarUrlInput("");
-  }
-
-  async function handleSaveAvatarUrl() {
-    if (!avatarUrlInput.trim()) return;
-    await saveAvatarUrl(avatarUrlInput.trim());
+    setTimeout(() => {
+      setAvatarSaved(false);
+      setEditingAvatar(false);
+      setSelectedAvatar("");
+    }, 1200);
   }
 
   const flagInfo = COUNTRIES.find(c => c.code === country);
@@ -121,13 +123,24 @@ export default function Profile() {
         {/* Avatar + name */}
         <div className="rounded-2xl border border-border/40 bg-card p-6 flex flex-col items-center gap-3 text-center">
           <div className="relative">
-            <div className="relative group cursor-pointer" onClick={() => !isGuest && setEditingAvatar(v => !v)}>
+            <div
+              className="relative group cursor-pointer"
+              onClick={() => {
+                if (isGuest) return;
+                setEditingAvatar(v => !v);
+                setSelectedAvatar("");
+                setAvatarError("");
+              }}
+            >
               {dbUser?.avatar_url ? (
-                <img src={dbUser.avatar_url} alt={avatarName}
-                  className="w-20 h-20 rounded-full border-2 border-yellow-500 object-cover" />
+                <img
+                  src={dbUser.avatar_url}
+                  alt={displayName}
+                  className="w-20 h-20 rounded-full border-2 border-yellow-500 object-cover bg-white"
+                />
               ) : (
                 <div className="w-20 h-20 rounded-full border-2 border-yellow-500 bg-muted flex items-center justify-center text-3xl font-black">
-                  {avatarName.charAt(0)}
+                  {(displayName || googleDisplayName || "م").charAt(0)}
                 </div>
               )}
               {!isGuest && (
@@ -148,60 +161,66 @@ export default function Profile() {
 
           {/* Avatar editor */}
           {editingAvatar && !isGuest && (
-            <div className="w-full bg-background border border-border rounded-xl p-3 space-y-4 text-right">
-              <p className="text-xs font-bold text-muted-foreground">تغيير الصورة الشخصية</p>
+            <div className="w-full bg-background border border-border rounded-xl p-3 space-y-3 text-right">
+              <p className="text-xs font-bold text-muted-foreground">تغيير الصورة</p>
 
-              {/* Preset avatars */}
-              <div>
-                <p className="text-xs text-muted-foreground mb-2">اختر صورة جاهزة</p>
-                <div className="grid grid-cols-6 gap-2">
-                  {PRESET_COLORS.map(({ bg, label }) => {
-                    const url = buildAvatarUrl(avatarName, bg);
-                    return (
-                      <button
-                        key={bg}
-                        onClick={() => saveAvatarUrl(url)}
-                        disabled={savingAvatar}
-                        title={label}
-                        className="rounded-full overflow-hidden border-2 border-transparent hover:border-primary transition-all disabled:opacity-50 focus:outline-none focus:border-primary"
-                      >
-                        <img src={url} alt={label} className="w-full h-auto aspect-square" />
-                      </button>
-                    );
-                  })}
-                </div>
+              {/* Style tabs */}
+              <div className="flex gap-1.5 overflow-x-auto pb-1">
+                {AVATAR_STYLES.map(s => (
+                  <button
+                    key={s.id}
+                    onClick={() => { setActiveStyle(s.id); setSelectedAvatar(""); }}
+                    className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                      activeStyle === s.id
+                        ? "text-background"
+                        : "bg-card border border-border text-muted-foreground hover:text-foreground"
+                    }`}
+                    style={activeStyle === s.id ? { background: "linear-gradient(135deg,#d97706,#f59e0b)" } : {}}
+                  >
+                    {s.label}
+                  </button>
+                ))}
               </div>
 
-              {/* URL input */}
-              <div>
-                <p className="text-xs text-muted-foreground mb-1.5">أو الصق رابط صورة مباشرة</p>
-                <div className="flex gap-2">
-                  <input
-                    value={avatarUrlInput}
-                    onChange={e => setAvatarUrlInput(e.target.value)}
-                    placeholder="https://example.com/photo.jpg"
-                    className="flex-1 h-10 bg-card border border-border rounded-xl px-3 text-sm text-foreground outline-none focus:border-primary"
-                    dir="ltr"
-                  />
-                  <button
-                    onClick={handleSaveAvatarUrl}
-                    disabled={!avatarUrlInput.trim() || savingAvatar}
-                    className="h-10 px-3 rounded-xl text-sm font-bold text-background disabled:opacity-40 flex items-center gap-1"
-                    style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}
-                  >
-                    <Link className="w-3.5 h-3.5" />
-                    {savingAvatar ? "..." : "حفظ"}
-                  </button>
-                </div>
+              {/* 12 avatars grid */}
+              <div className="grid grid-cols-4 gap-2">
+                {Array.from({ length: 12 }, (_, i) => i + 1).map(seed => {
+                  const url = buildDicebearUrl(activeStyle, seed);
+                  const isSelected = selectedAvatar === url;
+                  return (
+                    <button
+                      key={seed}
+                      onClick={() => setSelectedAvatar(url)}
+                      className={`rounded-full overflow-hidden border-2 transition-all bg-white ${
+                        isSelected
+                          ? "border-yellow-500 scale-105 shadow-lg shadow-yellow-500/30"
+                          : "border-transparent hover:border-border"
+                      }`}
+                    >
+                      <img src={url} alt={`Avatar ${seed}`} className="w-full h-auto aspect-square" loading="lazy" />
+                    </button>
+                  );
+                })}
               </div>
 
               {avatarError && <p className="text-destructive text-xs">{avatarError}</p>}
-              <button
-                onClick={() => { setEditingAvatar(false); setAvatarError(""); setAvatarUrlInput(""); }}
-                className="text-xs text-muted-foreground hover:text-foreground"
-              >
-                إلغاء
-              </button>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={handleSaveAvatar}
+                  disabled={!selectedAvatar || savingAvatar}
+                  className="flex-1 h-10 rounded-xl text-sm font-bold text-background disabled:opacity-40 flex items-center justify-center gap-1.5"
+                  style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}
+                >
+                  {avatarSaved ? <><Check className="w-4 h-4" /> تم الحفظ</> : savingAvatar ? "جاري..." : "حفظ"}
+                </button>
+                <button
+                  onClick={() => { setEditingAvatar(false); setSelectedAvatar(""); setAvatarError(""); }}
+                  className="h-10 px-4 rounded-xl border border-border text-sm text-muted-foreground hover:text-foreground"
+                >
+                  إلغاء
+                </button>
+              </div>
             </div>
           )}
 

@@ -77,9 +77,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const providerAvatar: string = authUser.user_metadata?.avatar_url ?? "";
       const existingUsername: string = authUser.user_metadata?.username ?? "";
-      const nameForAvatar = fullName || existingUsername || "م";
-      const encodedName = encodeURIComponent(nameForAvatar);
-      const generatedAvatar = `https://ui-avatars.com/api/?name=${encodedName}&background=9333ea&color=fff&size=128&bold=true&font-size=0.5`;
+      const nameForAvatar = fullName || existingUsername || authUser.id;
+      const encodedSeed = encodeURIComponent(nameForAvatar);
+      const generatedAvatar = `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodedSeed}&backgroundColor=9333ea`;
       const avatarUrl = providerAvatar || generatedAvatar;
       const { data: newUser, error: insertError } = await supabase
         .from("users")
@@ -171,8 +171,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     if (data.user) {
-      const encodedName = encodeURIComponent(trimmedUsername);
-      const avatarUrl = `https://ui-avatars.com/api/?name=${encodedName}&background=9333ea&color=fff&size=128&bold=true&font-size=0.5`;
+      const encodedSeed = encodeURIComponent(trimmedUsername);
+      const avatarUrl = `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodedSeed}&backgroundColor=9333ea`;
       await supabase.from("users").insert({
         auth_id: data.user.id,
         username: trimmedUsername,
