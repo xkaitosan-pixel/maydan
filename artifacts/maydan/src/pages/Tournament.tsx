@@ -413,7 +413,7 @@ export default function Tournament() {
           <div className="bg-card border border-border rounded-2xl p-5 mb-4 text-center slide-in">
             <p className="text-lg font-bold leading-relaxed">{currentQ.question}</p>
           </div>
-          <div className="grid grid-cols-1 gap-3">
+          <div key={`answers-${currentRound}-${currentMatch}-${playingFor}-${currentQIdx}-${currentQ.id}`} className="grid grid-cols-1 gap-3">
             {currentQ.options.map((opt, idx) => {
               let cls = "option-btn w-full p-4 rounded-xl text-right font-medium text-sm bg-card";
               if (showResult) {

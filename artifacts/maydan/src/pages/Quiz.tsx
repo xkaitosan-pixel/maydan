@@ -283,7 +283,7 @@ export default function Quiz() {
             <p className="text-lg font-bold leading-relaxed">{currentQuestion.question}</p>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 mb-4">
+          <div key={`answers-${currentIndex}-${currentQuestion.id}`} className="grid grid-cols-1 gap-3 mb-4">
             {currentQuestion.options.map((option, idx) => {
               let cls = "option-btn w-full p-4 rounded-xl text-right font-medium text-sm bg-card";
               if (showResult) {

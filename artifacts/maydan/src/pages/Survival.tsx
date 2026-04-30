@@ -88,12 +88,6 @@ export default function Survival() {
     setPhase("playing");
   }
 
-  // Guarantee clean visual state whenever question changes (safety net against stale CSS)
-  useEffect(() => {
-    setSelectedOption(null);
-    setShowResult(false);
-  }, [currentQ?.id]);
-
   // Timer effect
   useEffect(() => {
     if (phase !== "playing" || showResult || !currentQ) return;
@@ -491,7 +485,7 @@ export default function Survival() {
           </div>
 
           {/* Options */}
-          <div className="grid grid-cols-1 gap-3 mb-4">
+          <div key={`answers-${currentQ.id}`} className="grid grid-cols-1 gap-3 mb-4">
             {currentQ.options.map((option, idx) => {
               let cls = "option-btn w-full p-4 rounded-xl text-right font-medium text-sm bg-card";
               if (showResult) {
