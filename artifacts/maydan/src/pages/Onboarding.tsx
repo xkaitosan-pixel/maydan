@@ -18,8 +18,33 @@ export default function Onboarding() {
     Array.isArray(dbUser?.favorite_categories) ? dbUser!.favorite_categories! : [],
   );
   const [tutSlide, setTutSlide] = useState(0);
-  const [saving, setSaving] = useState(false);
   const [confettiOn, setConfettiOn] = useState(false);
+
+  // Fire-and-forget save with hard timeout. Never blocks UI.
+  function backgroundSave(label: string, payload: Record<string, unknown>) {
+    if (!dbUser?.id || isGuest) return;
+    const id = dbUser.id;
+    console.log(`[onboarding] saving ${label}`, payload);
+    const update = supabase.from("users").update(payload).eq("id", id);
+    const timeout = new Promise<{ error: Error }>((resolve) =>
+      setTimeout(
+        () => resolve({ error: new Error("save timeout (3s)") }),
+        3000,
+      ),
+    );
+    Promise.race([update, timeout])
+      .then((res) => {
+        const err = (res as { error?: unknown }).error;
+        if (err) console.warn(`[onboarding] ${label} save failed:`, err);
+        else {
+          console.log(`[onboarding] ${label} saved`);
+          refreshUser().catch((e) =>
+            console.warn(`[onboarding] refresh after ${label} failed`, e),
+          );
+        }
+      })
+      .catch((e) => console.warn(`[onboarding] ${label} threw`, e));
+  }
 
   // Step 5: trigger confetti when reached
   useEffect(() => {
@@ -36,57 +61,22 @@ export default function Onboarding() {
     setStep((s) => Math.max(0, s - 1));
   }
 
-  async function saveCountryAndNext() {
+  function saveCountryAndNext() {
     if (!country) return;
-    if (dbUser?.id && !isGuest) {
-      setSaving(true);
-      try {
-        await supabase.from("users").update({ country }).eq("id", dbUser.id);
-        await refreshUser();
-      } catch (e) {
-        console.error("[onboarding] save country failed", e);
-      } finally {
-        setSaving(false);
-      }
-    }
+    backgroundSave("country", { country });
     next();
   }
 
-  async function saveFavoritesAndNext() {
+  function saveFavoritesAndNext() {
     if (favorites.length !== 3) return;
-    if (dbUser?.id && !isGuest) {
-      setSaving(true);
-      try {
-        await supabase
-          .from("users")
-          .update({ favorite_categories: favorites })
-          .eq("id", dbUser.id);
-        await refreshUser();
-      } catch (e) {
-        console.error("[onboarding] save favorites failed", e);
-      } finally {
-        setSaving(false);
-      }
-    }
+    backgroundSave("favorite_categories", { favorite_categories: favorites });
     next();
   }
 
-  async function finish() {
+  function finish() {
+    // Always set local guard first so navigating home never re-triggers onboarding
     markOnboardingComplete();
-    if (dbUser?.id && !isGuest) {
-      setSaving(true);
-      try {
-        await supabase
-          .from("users")
-          .update({ onboarding_completed: true })
-          .eq("id", dbUser.id);
-        await refreshUser();
-      } catch (e) {
-        console.error("[onboarding] mark complete failed", e);
-      } finally {
-        setSaving(false);
-      }
-    }
+    backgroundSave("onboarding_completed", { onboarding_completed: true });
     navigate("/");
   }
 
@@ -147,7 +137,6 @@ export default function Onboarding() {
             selected={country}
             onSelect={setCountry}
             onNext={saveCountryAndNext}
-            saving={saving}
           />
         )}
         {step === 2 && (
@@ -161,7 +150,6 @@ export default function Onboarding() {
               });
             }}
             onNext={saveFavoritesAndNext}
-            saving={saving}
           />
         )}
         {step === 3 && (
@@ -178,7 +166,6 @@ export default function Onboarding() {
             flag={playerFlag}
             confetti={confettiOn}
             onEnter={finish}
-            saving={saving}
           />
         )}
       </div>
@@ -314,12 +301,10 @@ function StepCountry({
   selected,
   onSelect,
   onNext,
-  saving,
 }: {
   selected: string;
   onSelect: (c: string) => void;
   onNext: () => void;
-  saving: boolean;
 }) {
   return (
     <div className="flex-1 flex flex-col px-5 pb-6">
@@ -364,7 +349,7 @@ function StepCountry({
 
       <button
         onClick={onNext}
-        disabled={!selected || saving}
+        disabled={!selected}
         className="w-full h-14 rounded-2xl text-white font-black text-lg active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         style={{
           background: selected
@@ -373,7 +358,7 @@ function StepCountry({
           boxShadow: selected ? "0 10px 30px rgba(124,58,237,0.35)" : "none",
         }}
       >
-        {saving ? "جارٍ الحفظ..." : "التالي ←"}
+        التالي ←
       </button>
     </div>
   );
@@ -384,12 +369,10 @@ function StepCategories({
   selected,
   onToggle,
   onNext,
-  saving,
 }: {
   selected: string[];
   onToggle: (id: string) => void;
   onNext: () => void;
-  saving: boolean;
 }) {
   const ready = selected.length === 3;
   return (
@@ -451,7 +434,7 @@ function StepCategories({
 
       <button
         onClick={onNext}
-        disabled={!ready || saving}
+        disabled={!ready}
         className="w-full h-14 rounded-2xl text-white font-black text-lg active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         style={{
           background: ready
@@ -460,7 +443,7 @@ function StepCategories({
           boxShadow: ready ? "0 10px 30px rgba(124,58,237,0.35)" : "none",
         }}
       >
-        {saving ? "جارٍ الحفظ..." : "التالي ←"}
+        التالي ←
       </button>
     </div>
   );
@@ -619,14 +602,12 @@ function StepReady({
   flag,
   confetti,
   onEnter,
-  saving,
 }: {
   playerName: string;
   avatarUrl: string;
   flag: string;
   confetti: boolean;
   onEnter: () => void;
-  saving: boolean;
 }) {
   const confettiPieces = useMemo(
     () =>
@@ -711,15 +692,14 @@ function StepReady({
 
       <button
         onClick={onEnter}
-        disabled={saving}
-        className="w-full max-w-sm h-16 rounded-2xl text-white font-black text-xl active:scale-[0.98] transition-all disabled:opacity-50"
+        className="w-full max-w-sm h-16 rounded-2xl text-white font-black text-xl active:scale-[0.98] transition-all"
         style={{
           background: "linear-gradient(135deg,#d97706 0%,#7c3aed 100%)",
           boxShadow:
             "0 14px 40px rgba(124,58,237,0.5), 0 0 0 1px rgba(255,255,255,0.1) inset",
         }}
       >
-        {saving ? "..." : "ادخل الميدان ⚔️"}
+        ادخل الميدان ⚔️
       </button>
     </div>
   );
