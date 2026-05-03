@@ -160,11 +160,19 @@ function LoadingScreen() {
 
 function OnboardingGuard({ children }: { children: React.ReactNode }) {
   const [location, navigate] = useLocation();
+  const { dbUser, isGuest } = useAuth();
   useEffect(() => {
-    if (!hasCompletedOnboarding() && location === "/") {
+    if (location !== "/") return;
+    // Logged-in users: trust DB flag (server-side truth)
+    if (dbUser) {
+      if (!dbUser.onboarding_completed) navigate("/onboarding");
+      return;
+    }
+    // Guests: localStorage only
+    if (isGuest && !hasCompletedOnboarding()) {
       navigate("/onboarding");
     }
-  }, [location]);
+  }, [location, dbUser, isGuest, navigate]);
   return <>{children}</>;
 }
 

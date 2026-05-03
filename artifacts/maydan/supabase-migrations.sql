@@ -17,10 +17,12 @@
 ALTER TABLE party_rooms ADD COLUMN IF NOT EXISTS auto_advance_seconds int DEFAULT 0;
 ALTER TABLE party_rooms ADD COLUMN IF NOT EXISTS question_start_time bigint DEFAULT 0;
 
--- 2. users: profile fields (display name, country, bio)
+-- 2. users: profile fields (display name, country, bio, onboarding)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name text;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS country text DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS bio text DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed boolean NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS favorite_categories text[] DEFAULT '{}'::text[];
 
 -- 3. daily_scores table (create if not exists)
 CREATE TABLE IF NOT EXISTS daily_scores (
