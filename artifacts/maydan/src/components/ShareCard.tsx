@@ -65,44 +65,82 @@ export default function ShareCard({
     );
   }
 
+  async function captureCanvas(): Promise<HTMLCanvasElement> {
+    const opts = {
+      backgroundColor: "#0D0D1A",
+      scale: 2,
+      useCORS: true,
+      allowTaint: false,
+      foreignObjectRendering: false,
+      logging: false,
+      imageTimeout: 4000,
+    } as const;
+    const canvas = await html2canvas(cardRef.current!, opts);
+    // Probe taint: if reading pixels throws, redo with avatars hidden
+    try {
+      canvas.getContext("2d")!.getImageData(0, 0, 1, 1);
+      return canvas;
+    } catch {
+      const imgs = cardRef.current!.querySelectorAll("img");
+      imgs.forEach((img) => (img.style.visibility = "hidden"));
+      try {
+        return await html2canvas(cardRef.current!, opts);
+      } finally {
+        imgs.forEach((img) => (img.style.visibility = ""));
+      }
+    }
+  }
+
+  function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error("blob conversion failed"))),
+        "image/png",
+      );
+    });
+  }
+
   async function shareImage() {
     if (!cardRef.current || isCapturing) return;
     setIsCapturing(true);
     try {
-      const canvas = await html2canvas(cardRef.current, {
-        backgroundColor: "#0b0b14",
-        scale: 2,
-        useCORS: true,
-        allowTaint: false,
-        foreignObjectRendering: false,
-        logging: false,
-        imageTimeout: 4000,
-      });
-      let dataUrl: string;
-      try {
-        dataUrl = canvas.toDataURL("image/png");
-      } catch (taintErr) {
-        // Cross-origin avatar tainted the canvas — retry without it
-        console.warn("[ShareCard] canvas tainted, retrying without avatar", taintErr);
-        const imgs = cardRef.current.querySelectorAll("img");
-        imgs.forEach((img) => (img.style.visibility = "hidden"));
-        const retryCanvas = await html2canvas(cardRef.current, {
-          backgroundColor: "#0b0b14",
-          scale: 2,
-          useCORS: true,
-          allowTaint: false,
-          foreignObjectRendering: false,
-          logging: false,
-        });
-        imgs.forEach((img) => (img.style.visibility = ""));
-        dataUrl = retryCanvas.toDataURL("image/png");
+      const canvas = await captureCanvas();
+      const blob = await canvasToBlob(canvas);
+      const fileName = `maydan-${gameMode}-${score}-${Date.now()}.png`;
+      const file = new File([blob], fileName, { type: "image/png" });
+
+      // Try Web Share API first (mobile)
+      const nav = navigator as Navigator & {
+        canShare?: (data: ShareData) => boolean;
+      };
+      if (
+        typeof nav.share === "function" &&
+        typeof nav.canShare === "function" &&
+        nav.canShare({ files: [file] })
+      ) {
+        try {
+          await nav.share({
+            files: [file],
+            title: "ميدان — نتيجتي",
+            text: waMessage,
+          });
+          return;
+        } catch (shareErr) {
+          // User cancelled or share failed — fall through to download
+          if ((shareErr as Error)?.name === "AbortError") return;
+          console.warn("[ShareCard] Web Share failed, falling back to download", shareErr);
+        }
       }
+
+      // Desktop / unsupported: download
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.download = `maydan-${gameMode}-${score}-${Date.now()}.png`;
-      link.href = dataUrl;
+      link.download = fileName;
+      link.href = url;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) {
       console.error("[ShareCard] capture failed", err);
       alert("تعذّر حفظ الصورة. حاول مرة أخرى.");
@@ -123,7 +161,7 @@ export default function ShareCard({
           maxWidth: "100%",
           minHeight: 300,
           background:
-            "linear-gradient(135deg, #1a0b2e 0%, #0b0b14 50%, #2a1810 100%)",
+            "linear-gradient(135deg, #1a0b2e 0%, #0D0D1A 50%, #2a1810 100%)",
           borderColor: "rgba(217,119,6,0.45)",
           boxShadow:
             "0 10px 40px rgba(124,58,237,0.25), 0 0 0 1px rgba(217,119,6,0.15) inset",
@@ -331,7 +369,7 @@ export default function ShareCard({
           style={{ backgroundColor: "#25D366" }}
         >
           {WA_ICON}
-          شارك على واتساب
+          شارك على واتساب 💬
         </button>
         <button
           onClick={shareImage}
