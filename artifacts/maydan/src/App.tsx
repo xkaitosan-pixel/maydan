@@ -29,6 +29,7 @@ import Store from "@/pages/Store";
 import DailyChallenge from "@/pages/DailyChallenge";
 import NotFound from "@/pages/not-found";
 import LogoIcon from "@/components/LogoIcon";
+import NotificationSystem from "@/components/NotificationSystem";
 
 const queryClient = new QueryClient();
 
@@ -260,6 +261,7 @@ function App() {
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
               <div className="min-h-screen w-full">
                 <AppRoutes />
+                <NotificationSystem />
               </div>
             </WouterRouter>
           </AuthProvider>

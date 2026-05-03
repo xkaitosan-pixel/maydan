@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ACHIEVEMENTS } from "@/lib/gamification";
+import { pushAchievement } from "@/lib/notifications";
 
 interface AchievementPopupProps {
   unlockedIds: string[];
@@ -13,6 +14,14 @@ export default function AchievementPopup({ unlockedIds, onDone }: AchievementPop
   const achievements = unlockedIds
     .map(id => ACHIEVEMENTS.find(a => a.id === id))
     .filter(Boolean) as typeof ACHIEVEMENTS;
+
+  // Fire toast notifications once per unlock batch
+  const notifiedRef = useRef(false);
+  useEffect(() => {
+    if (notifiedRef.current || achievements.length === 0) return;
+    notifiedRef.current = true;
+    achievements.forEach(a => pushAchievement(a.title));
+  }, [achievements]);
 
   useEffect(() => {
     if (achievements.length === 0) { onDone(); return; }
