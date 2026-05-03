@@ -259,7 +259,7 @@ export default function Leaderboard() {
               <p className="text-xs text-muted-foreground mt-1 px-6">
                 {isGuest
                   ? "سجّل دخولك وانتهِ من لعبة لتظهر هنا"
-                  : "انتهِ من لعبة بوضع البقاء أو البطولة وستظهر نتيجتك هنا"}
+                  : "انتهِ من لعبة بوضع البقاء أو الوضع المصنّف وستظهر نتيجتك هنا"}
               </p>
               <div className="flex flex-col gap-2 items-center mt-5">
                 <button

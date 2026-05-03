@@ -10,7 +10,7 @@ export default function CreateChallenge() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [questionCount, setQuestionCount] = useState(10);
   const [search, setSearch] = useState("");
-  const [step, setStep] = useState<"category" | "config">("category");
+  const [step, setStep] = useState<"mode" | "category" | "config">("mode");
 
   const user = getOrCreateUser();
   const remaining = getRemainingChallenges();
@@ -58,6 +58,60 @@ export default function CreateChallenge() {
   }
 
   const selectedCat = CATEGORIES.find((c) => c.id === selectedCategory);
+
+  if (step === "mode") {
+    return (
+      <div className="min-h-screen gradient-hero flex flex-col">
+        <header className="p-4 flex items-center gap-3 border-b border-border/30">
+          <button onClick={() => navigate("/")} className="text-muted-foreground hover:text-foreground transition-colors text-xl">←</button>
+          <h1 className="text-lg font-bold">تحدي ثنائي</h1>
+        </header>
+
+        <div className="flex-1 flex flex-col items-center justify-center p-6">
+          <div className="w-full max-w-sm space-y-4 fade-in-up">
+            <div className="text-center mb-2">
+              <span className="text-5xl">⚔️</span>
+              <p className="text-muted-foreground text-sm mt-2">اختر نوع التحدي</p>
+            </div>
+
+            <button
+              onClick={() => setStep("category")}
+              className="w-full rounded-2xl p-5 text-right hover:opacity-90 active:scale-[0.98] transition-all"
+              style={{ background: "linear-gradient(135deg, #d97706, #f59e0b)", border: "1px solid rgba(255,255,255,0.08)" }}
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">👥</span>
+                <div className="flex-1">
+                  <p className="text-white font-black text-base">تحدي صديق</p>
+                  <p className="text-white/75 text-xs mt-0.5">أرسل رابط التحدي عبر واتساب</p>
+                </div>
+                <span className="text-white/60 text-2xl">←</span>
+              </div>
+            </button>
+
+            <button
+              onClick={() => navigate("/ranked")}
+              className="w-full rounded-2xl p-5 text-right hover:opacity-90 active:scale-[0.98] transition-all"
+              style={{ background: "linear-gradient(135deg, #7c2d12, #c2410c)", border: "1px solid rgba(255,255,255,0.08)" }}
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">🎯</span>
+                <div className="flex-1">
+                  <p className="text-white font-black text-base">تحدي عشوائي</p>
+                  <p className="text-white/75 text-xs mt-0.5">جد خصمًا عبر الإنترنت — مصنّف ⚡</p>
+                </div>
+                <span className="text-white/60 text-2xl">←</span>
+              </div>
+            </button>
+
+            <p className="text-xs text-muted-foreground text-center pt-2">
+              التحديات المتبقية اليوم: <span className="text-primary font-bold">{remaining === Infinity ? "∞" : remaining}</span>
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (step === "config" && selectedCat) {
     return (
@@ -142,7 +196,7 @@ export default function CreateChallenge() {
       {/* Header */}
       <header className="p-4 border-b border-border/30">
         <div className="flex items-center gap-3 mb-3">
-          <button onClick={() => navigate("/")} className="text-muted-foreground hover:text-foreground transition-colors text-xl">
+          <button onClick={() => setStep("mode")} className="text-muted-foreground hover:text-foreground transition-colors text-xl">
             ←
           </button>
           <h1 className="text-lg font-bold">اختر فئة التحدي</h1>

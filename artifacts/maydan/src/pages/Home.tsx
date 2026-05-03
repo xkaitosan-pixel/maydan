@@ -120,25 +120,30 @@ export default function Home() {
 
   const modes = [
     {
-      id: "survival", icon: "🏃", label: "وضع البقاء", sub: "كم تصمد؟",
-      gradient: "linear-gradient(135deg, #dc2626, #ef4444)",
-      onClick: () => navigate("/survival"),
-    },
-    {
-      id: "challenge", icon: "⚔️", label: "تحدي ثنائي", sub: "١ ضد ١",
+      id: "challenge", icon: "⚔️", label: "تحدي", sub: "تحدي صديق أو غريب",
       gradient: "linear-gradient(135deg, #d97706, #f59e0b)",
       onClick: () => canCreate ? navigate("/create") : undefined,
       disabled: !canCreate,
     },
     {
-      id: "room", icon: "👥", label: "غرفة أصدقاء", sub: "2-8 لاعبين",
-      gradient: "linear-gradient(135deg, #7c3aed, #8b5cf6)",
-      onClick: () => navigate("/room"),
+      id: "survival", icon: "🏃", label: "وضع البقاء", sub: "كم تصمد؟",
+      gradient: "linear-gradient(135deg, #dc2626, #ef4444)",
+      onClick: () => navigate("/survival"),
     },
     {
-      id: "tournament", icon: "🏆", label: "بطولة", sub: "إقصاء مباشر",
+      id: "party", icon: "📺", label: "وضع التجمعات", sub: "العب مع الجماعة",
+      gradient: "linear-gradient(135deg, #7c3aed, #8b5cf6)",
+      onClick: () => navigate("/party"),
+    },
+    {
+      id: "daily", icon: "📅", label: "تحدي اليوم", sub: "5 أسئلة يومية",
+      gradient: "linear-gradient(135deg, #0c4a6e, #0369a1)",
+      onClick: () => navigate("/daily"),
+    },
+    {
+      id: "ranked", icon: "🏆", label: "المتصدرون", sub: "تنافس أونلاين",
       gradient: "linear-gradient(135deg, #d97706, #ca8a04)",
-      onClick: () => navigate("/tournament"),
+      onClick: () => navigate("/ranked"),
     },
   ];
 
@@ -412,7 +417,7 @@ export default function Home() {
 
                 <div>
                   <p className="text-xs text-muted-foreground font-semibold mb-3 text-center tracking-wider">اختر وضع اللعب</p>
-                  <div className="grid grid-cols-2 gap-3 md:gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
                     {modes.map((mode) => (
                       <button
                         key={mode.id}
@@ -428,48 +433,6 @@ export default function Home() {
                     ))}
                   </div>
                 </div>
-
-                {/* Daily Challenge Widget */}
-                <button
-                  onClick={() => navigate("/daily")}
-                  className="w-full h-14 md:h-16 rounded-2xl font-black text-base md:text-lg flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.98] transition-all relative overflow-hidden"
-                  style={{ background: "linear-gradient(135deg,#0c4a6e,#0369a1)", border: "2px solid rgba(14,165,233,0.5)" }}
-                >
-                  <span className="text-2xl md:text-3xl">📅</span>
-                  <div className="text-right">
-                    <p className="text-white font-black text-sm md:text-base leading-tight">تحدي اليوم</p>
-                    <p className="text-sky-300 text-xs md:text-sm font-normal">5 أسئلة يومية — نفس التحدي للجميع</p>
-                  </div>
-                  <span className="mr-auto bg-sky-500/20 border border-sky-500/40 text-sky-300 text-xs px-2 py-0.5 rounded-full font-bold">يومي 📅</span>
-                </button>
-
-                {/* Party Mode */}
-                <button
-                  onClick={() => navigate("/party")}
-                  className="w-full h-14 md:h-16 rounded-2xl font-black text-base md:text-lg flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.98] transition-all relative overflow-hidden"
-                  style={{ background: "linear-gradient(135deg,#1e1b4b,#312e81)", border: "2px solid rgba(139,92,246,0.5)" }}
-                >
-                  <span className="text-2xl md:text-3xl">📺</span>
-                  <div className="text-right">
-                    <p className="text-white font-black text-sm md:text-base leading-tight">وضع التجمعات</p>
-                    <p className="text-purple-300 text-xs md:text-sm font-normal">العب مع الأصدقاء على شاشة كبيرة</p>
-                  </div>
-                  {!isPremium && <span className="mr-auto bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 text-xs px-2 py-0.5 rounded-full font-bold">جديد ✨</span>}
-                </button>
-
-                {/* Ranked Mode */}
-                <button
-                  onClick={() => navigate("/ranked")}
-                  className="w-full h-14 md:h-16 rounded-2xl font-black text-base md:text-lg flex items-center justify-center gap-3 hover:opacity-90 active:scale-[0.98] transition-all relative overflow-hidden"
-                  style={{ background: "linear-gradient(135deg,#7c2d12,#c2410c)", border: "2px solid rgba(249,115,22,0.5)" }}
-                >
-                  <span className="text-2xl md:text-3xl">⚡</span>
-                  <div className="text-right">
-                    <p className="text-white font-black text-sm md:text-base leading-tight">تحدي المتصدرين</p>
-                    <p className="text-orange-300 text-xs md:text-sm font-normal">1v1 مصنّف — تسابق لتصعيد رتبتك</p>
-                  </div>
-                  <span className="mr-auto bg-orange-500/20 border border-orange-500/40 text-orange-300 text-xs px-2 py-0.5 rounded-full font-bold">مصنّف ⚡</span>
-                </button>
 
                 {/* Mobile-only feature pills */}
                 <div className="flex md:hidden flex-wrap justify-center gap-2">

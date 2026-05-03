@@ -15,8 +15,6 @@ import Results from "@/pages/Results";
 import AcceptChallenge from "@/pages/AcceptChallenge";
 import Survival from "@/pages/Survival";
 import Stats from "@/pages/Stats";
-import FriendsRoom from "@/pages/FriendsRoom";
-import Tournament from "@/pages/Tournament";
 import Premium from "@/pages/Premium";
 import Onboarding from "@/pages/Onboarding";
 import Leaderboard from "@/pages/Leaderboard";
@@ -170,6 +168,12 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function RedirectHome() {
+  const [, navigate] = useLocation();
+  useEffect(() => { navigate("/", { replace: true }); }, []);
+  return <LoadingScreen />;
+}
+
 function AppRoutes() {
   const [location] = useLocation();
   const { session, isGuest, isLoading, needsUsername } = useAuth();
@@ -214,8 +218,8 @@ function AppRoutes() {
         <Route path="/challenge/:id" component={AcceptChallenge} />
         <Route path="/survival" component={Survival} />
         <Route path="/stats" component={Stats} />
-        <Route path="/room" component={FriendsRoom} />
-        <Route path="/tournament" component={Tournament} />
+        <Route path="/room" component={RedirectHome} />
+        <Route path="/tournament" component={RedirectHome} />
         <Route path="/premium" component={Premium} />
         <Route path="/leaderboard" component={Leaderboard} />
         <Route path="/profile" component={Profile} />
