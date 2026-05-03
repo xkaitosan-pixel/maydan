@@ -1,0 +1,54 @@
+Fix these critical bugs in ميدان app:
+
+FIX 1 - "مجهول" showing in challenge instead of username:
+In CreateChallenge.tsx when creating a challenge link,
+make sure the creator's display_name or username is saved.
+In Results.tsx when showing challenge results,
+fetch the creator name from the challenge record.
+Never show "مجهول" - always use the actual username.
+
+FIX 2 - Onboarding repeating twice:
+The onboarding shows country/categories selection twice.
+Fix: check onboarding_completed flag BEFORE showing onboarding.
+If user already completed onboarding → go directly to home.
+Also fix: after onboarding completes, immediately set 
+onboarding_completed = true in Supabase AND localStorage.
+Never show onboarding again for existing users.
+
+FIX 3 - Light mode colors unreadable:
+Answer buttons show white text on white/light background.
+Fix ALL text colors in light mode:
+- Answer buttons: dark text (#1a1a2e) on light background
+- Question text: dark (#1a1a2e) not white
+- All text must be readable in both light and dark mode
+- Use CSS variables properly:
+  Dark: --text: #ffffff, --bg: #0d0d1a
+  Light: --text: #1a1a2e, --bg: #f5f5f5
+- Fix specifically: .option-btn, .question-card, 
+  .game-container in light mode
+
+FIX 4 - Logout icon showing empty box:
+The logout button shows □ instead of icon.
+Replace with text "تسجيل الخروج" or use a simple SVG:
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+  <polyline points="16,17 21,12 16,7"/>
+  <line x1="21" y1="12" x2="9" y2="12"/>
+</svg>
+
+FIX 5 - Remove question/category count from login screen:
+Remove "225 سؤال" and "15 فئة" static text from login page.
+Either delete them completely or fetch real counts:
+const { count } = await supabase
+  .from('questions')
+  .select('*', { count: 'exact', head: true })
+Show real count or remove entirely.
+
+FIX 6 - Delete reward box (صندوق المكافآت):
+Remove the reward box completely:
+- Remove from Home.tsx
+- Remove RewardBox component
+- Remove reward box logic from gamification.ts
+- Replace with simple: first game of day = +15 قرش automatically
+
+Push to GitHub.

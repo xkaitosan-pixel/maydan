@@ -296,12 +296,25 @@ html.light-mode .gradient-gold {
 
 .option-btn {
   background-color: transparent !important;
-  border: 2px solid rgba(255,255,255,0.2) !important;
-  color: white !important;
+  border: 2px solid hsl(var(--foreground) / 0.2) !important;
+  color: hsl(var(--foreground)) !important;
   transition: none !important;
 }
 .option-btn:hover:not(:disabled) {
-  background-color: rgba(255,255,255,0.1) !important;
+  background-color: hsl(var(--foreground) / 0.08) !important;
+}
+/* Light mode: enforce dark, readable answer + question text */
+html.light-mode .option-btn,
+html.light-mode .question-card,
+html.light-mode .game-container {
+  color: #1a1a2e !important;
+}
+html.light-mode .option-btn {
+  background-color: #ffffff !important;
+  border-color: rgba(26,26,46,0.18) !important;
+}
+html.light-mode .option-btn:hover:not(:disabled) {
+  background-color: rgba(26,26,46,0.05) !important;
 }
 .option-btn.selected {
   background-color: rgba(147, 51, 234, 0.4) !important;

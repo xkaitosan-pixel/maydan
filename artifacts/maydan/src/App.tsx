@@ -164,9 +164,12 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
   const { dbUser, isGuest } = useAuth();
   useEffect(() => {
     if (location !== "/") return;
-    // Logged-in users: trust DB flag (server-side truth)
+    // Logged-in users: trust DB flag, but also accept local flag as bridge
+    // (the DB save is fire-and-forget, so we may navigate home before it lands).
     if (dbUser) {
-      if (!dbUser.onboarding_completed) navigate("/onboarding");
+      if (!dbUser.onboarding_completed && !hasCompletedOnboarding()) {
+        navigate("/onboarding");
+      }
       return;
     }
     // Guests: localStorage only

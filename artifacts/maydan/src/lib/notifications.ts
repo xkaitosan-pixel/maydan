@@ -1,10 +1,8 @@
-import { isRewardBoxReady } from "./storage";
 import { supabase } from "./supabase";
 import type { DbUser } from "./AuthContext";
 
 export type NotifType =
   | "streak_danger"
-  | "reward_ready"
   | "daily_challenge"
   | "rank_dropped"
   | "achievement";
@@ -73,18 +71,6 @@ function checkStreakDanger(dbUser: DbUser | null): AppNotif | null {
     type: "streak_danger",
     icon: "🔥",
     title: "ستريكك في خطر! العب الآن قبل منتصف الليل",
-    ctaRoute: "/",
-    autoDismissMs: 6000,
-  };
-}
-
-function checkRewardReady(): AppNotif | null {
-  if (!isRewardBoxReady()) return null;
-  return {
-    id: "reward_ready_" + todayKey(),
-    type: "reward_ready",
-    icon: "🎁",
-    title: "مكافأتك اليومية جاهزة! افتحها الآن",
     ctaRoute: "/",
     autoDismissMs: 6000,
   };
@@ -166,7 +152,6 @@ export async function collectNotifications(
 
   const sync: Array<[NotifType, AppNotif | null]> = [
     ["streak_danger", checkStreakDanger(dbUser)],
-    ["reward_ready", checkRewardReady()],
   ];
   for (const [type, n] of sync) {
     if (n && !sessionSeen(type) && !persistedSeenToday(type)) out.push(n);

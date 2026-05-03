@@ -3,10 +3,12 @@ import { useLocation } from "wouter";
 import { CATEGORIES } from "@/lib/questions";
 import { fetchGameQuestions } from "@/lib/questionService";
 import { saveChallenge, incrementChallengesCount, generateId, getOrCreateUser, canCreateChallenge, getRemainingChallenges } from "@/lib/storage";
+import { useAuth } from "@/lib/AuthContext";
 import CategoryCard from "@/components/CategoryCard";
 
 export default function CreateChallenge() {
   const [, navigate] = useLocation();
+  const { dbUser, googleDisplayName } = useAuth();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [questionCount, setQuestionCount] = useState(10);
   const [search, setSearch] = useState("");
@@ -41,7 +43,12 @@ export default function CreateChallenge() {
     const challenge = {
       id: challengeId,
       creatorId: user.userId,
-      creatorName: user.displayName || "مجهول",
+      creatorName:
+        dbUser?.display_name ||
+        dbUser?.username ||
+        googleDisplayName ||
+        user.displayName ||
+        "لاعب",
       categoryId: selectedCategory,
       questionCount,
       questions: qs.map((q) => q.id),

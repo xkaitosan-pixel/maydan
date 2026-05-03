@@ -8,7 +8,6 @@ import { useAuth } from "@/lib/AuthContext";
 import { syncStreak } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 import StreakMilestone from "@/components/StreakMilestone";
-import RewardBox from "@/components/RewardBox";
 import NotificationBanner from "@/components/NotificationBanner";
 import XPBar from "@/components/XPBar";
 import { toggleTheme, getTheme } from "@/lib/theme";
@@ -201,9 +200,16 @@ export default function Home() {
           )}
           {showContent && (
             <button onClick={signOut}
-              className="w-9 h-9 rounded-full bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors text-sm"
+              className="w-9 h-9 rounded-full bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
               title="تسجيل الخروج"
-            >⬚</button>
+              aria-label="تسجيل الخروج"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                <polyline points="16,17 21,12 16,7"/>
+                <line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+            </button>
           )}
         </div>
       </header>
@@ -413,8 +419,6 @@ export default function Home() {
             {/* ── RIGHT COLUMN: Game modes ──────────────────────────────── */}
             {showContent ? (
               <div className="flex-1 space-y-4 mt-5 md:mt-0 md:pt-6">
-                <RewardBox />
-
                 <div>
                   <p className="text-xs text-muted-foreground font-semibold mb-3 text-center tracking-wider">اختر وضع اللعب</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">

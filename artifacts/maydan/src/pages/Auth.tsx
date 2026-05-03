@@ -326,7 +326,7 @@ export default function Auth() {
 
       {/* Feature pills */}
       <div className="flex flex-wrap justify-center gap-2 mt-7">
-        {["15 فئة ثقافية", "225 سؤال", "تحدي الأصدقاء", "لوحة المتصدرين"].map(f => (
+        {["تحدي الأصدقاء", "لوحة المتصدرين"].map(f => (
           <span key={f} className="bg-card/50 border border-border text-muted-foreground text-xs px-3 py-1.5 rounded-full">{f}</span>
         ))}
       </div>

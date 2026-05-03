@@ -41,7 +41,7 @@ export const COIN_REWARDS = {
   win_1v1:          20,
   daily_challenge:  15,
   win_survival_15:  25,
-  first_game_day:   10,
+  first_game_day:   15,
   win_ranked:       30,
 } as const;
 
@@ -186,8 +186,19 @@ export async function awardGameRewards(input: AwardInput): Promise<AwardResult> 
     progressUpdates = {}, streakCount,
   } = input;
 
+  // First-game-of-day bonus: +15 coins, once per calendar day per device.
+  let firstGameBonusCoins = 0;
+  try {
+    const FIRST_GAME_KEY = 'maydan_first_game_day';
+    const today = new Date().toDateString();
+    if (typeof localStorage !== 'undefined' && localStorage.getItem(FIRST_GAME_KEY) !== today) {
+      localStorage.setItem(FIRST_GAME_KEY, today);
+      firstGameBonusCoins = COIN_REWARDS.first_game_day;
+    }
+  } catch { /* ignore */ }
+
   const newXP    = currentXP    + xp;
-  const newCoins = currentCoins + coins;
+  const newCoins = currentCoins + coins + firstGameBonusCoins;
 
   const calcLevel = (xpVal: number) => {
     let lv = 1;
@@ -255,7 +266,7 @@ export async function awardGameRewards(input: AwardInput): Promise<AwardResult> 
 
   return {
     xpGained:      xp + bonusXP,
-    coinsGained:   coins + bonusCoins,
+    coinsGained:   coins + bonusCoins + firstGameBonusCoins,
     newLevel:      finalLevel,
     leveledUp:     finalLevel > currentLevel,
     newlyUnlocked,
