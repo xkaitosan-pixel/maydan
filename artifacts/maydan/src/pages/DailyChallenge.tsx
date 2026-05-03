@@ -6,6 +6,7 @@ import { fetchMixedDifficultyDailyQuestions } from "@/lib/questionService";
 import { Question } from "@/lib/questions";
 import { playSound } from "@/lib/sound";
 import { getCountryFlag } from "@/lib/countryUtils";
+import ShareCard from "@/components/ShareCard";
 
 const DAILY_Q_COUNT = 10;
 const QUESTION_TIME = 15;
@@ -346,6 +347,22 @@ export default function DailyChallenge() {
           {myRank > 0 && (
             <p className="text-primary font-bold mt-2">مركزك اليوم: #{myRank} من {leaderboard.length}</p>
           )}
+        </div>
+
+        <div className="w-full max-w-sm">
+          <ShareCard
+            playerName={dbUser?.username || "لاعب ميدان"}
+            avatarUrl={dbUser?.avatar_url ?? null}
+            countryCode={dbUser?.country ?? null}
+            score={score}
+            total={maxPossible}
+            xpEarned={0}
+            coinsEarned={0}
+            category="تحدي اليوم"
+            level={score >= 1200 ? "بطل اليوم" : score >= 700 ? "محارب" : "مبتدئ"}
+            levelIcon={score >= 1200 ? "🏆" : score >= 700 ? "🎉" : "💪"}
+            gameMode="daily"
+          />
         </div>
 
         <div className="w-full max-w-sm">

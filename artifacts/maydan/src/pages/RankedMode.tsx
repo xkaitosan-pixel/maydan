@@ -9,6 +9,7 @@ import { playCorrect, playWrong, playTick, playGameOver, playMatchFound } from "
 import { RANKS, getRankInfo } from "@/lib/rank";
 import AchievementPopup from "@/components/AchievementPopup";
 import FloatingReward from "@/components/FloatingReward";
+import ShareCard from "@/components/ShareCard";
 import { awardGameRewards, XP_REWARDS, COIN_REWARDS } from "@/lib/gamification";
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -847,6 +848,22 @@ export default function RankedMode() {
             )}
           </div>
         )}
+
+        <div className="w-full max-w-sm">
+          <ShareCard
+            playerName={dbUser?.username || getOrCreateUser().displayName || "لاعب ميدان"}
+            avatarUrl={dbUser?.avatar_url ?? null}
+            countryCode={dbUser?.country ?? null}
+            score={isP1 ? match!.player1_score : match!.player2_score}
+            total={Math.max((isP1 ? match!.player1_score : match!.player2_score), (isP1 ? match!.player2_score : match!.player1_score), 1)}
+            xpEarned={rewardSummary?.xp ?? 0}
+            coinsEarned={rewardSummary?.coins ?? 0}
+            category="مصنّف"
+            level={myRank.label}
+            levelIcon={myRank.icon}
+            gameMode="ranked"
+          />
+        </div>
 
         <div className="flex gap-3">
           <button onClick={() => { cleanup(); setPhase("select_cats"); setMatch(null); setSelected(null); setQResult(null); setCurrentQIdx(0); }}

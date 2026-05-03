@@ -8,6 +8,8 @@ import { insertScore, updateUserStats } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 import AchievementPopup from "@/components/AchievementPopup";
 import FloatingReward from "@/components/FloatingReward";
+import ShareCard from "@/components/ShareCard";
+import { getSeasonTier } from "@/lib/gamification";
 import { awardGameRewards, XP_REWARDS, COIN_REWARDS } from "@/lib/gamification";
 
 const WA_ICON = (
@@ -311,6 +313,23 @@ export default function Results() {
             </button>
           </div>
         </div>
+
+        {/* ── PROFESSIONAL SHARE CARD (downloadable PNG) ── */}
+        {isCompleted && (
+          <ShareCard
+            playerName={myName || "لاعب ميدان"}
+            avatarUrl={dbUser?.avatar_url ?? null}
+            countryCode={dbUser?.country ?? null}
+            score={myScore}
+            total={total}
+            xpEarned={rewardSummary?.xp ?? 0}
+            coinsEarned={rewardSummary?.coins ?? 0}
+            category={category?.name ?? "تحدي"}
+            level={getSeasonTier(dbUser?.season_points ?? 0).name}
+            levelIcon={getSeasonTier(dbUser?.season_points ?? 0).icon}
+            gameMode="challenge"
+          />
+        )}
 
         {/* My score breakdown */}
         <div className="bg-card border border-border rounded-2xl p-5 fade-in-up">

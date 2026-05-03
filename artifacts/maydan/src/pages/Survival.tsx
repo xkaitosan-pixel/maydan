@@ -10,6 +10,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { playSound } from "@/lib/sound";
 import AchievementPopup from "@/components/AchievementPopup";
 import FloatingReward from "@/components/FloatingReward";
+import ShareCard from "@/components/ShareCard";
 import { awardGameRewards, XP_REWARDS } from "@/lib/gamification";
 
 const XP_PER_CORRECT = XP_REWARDS.correct_answer;
@@ -363,6 +364,21 @@ export default function Survival() {
               </div>
             </div>
           </div>
+
+          {/* Professional Share Card */}
+          <ShareCard
+            playerName={dbUser?.username || user.displayName || "لاعب ميدان"}
+            avatarUrl={dbUser?.avatar_url ?? null}
+            countryCode={dbUser?.country ?? null}
+            score={score}
+            total={Math.max(score, user.stats.survivalBest, 1)}
+            xpEarned={rewardSummary?.xp ?? 0}
+            coinsEarned={rewardSummary?.coins ?? 0}
+            category="وضع البقاء"
+            level={rank.title}
+            levelIcon={rank.icon}
+            gameMode="survival"
+          />
 
           {/* Rank guide */}
           <div className="bg-card border border-border rounded-2xl p-4 text-right text-sm space-y-2">
