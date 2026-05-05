@@ -22,7 +22,7 @@ const WA_ICON = (
 export default function Results() {
   const params = useParams<{ id: string; role: string }>();
   const [, navigate] = useLocation();
-  const { dbUser, isGuest, refreshUser } = useAuth();
+  const { dbUser, isGuest, refreshUser, signOut } = useAuth();
   const challengeId = params.id;
   const role = params.role as "creator" | "challenger";
   const [copied, setCopied] = useState(false);
@@ -35,6 +35,7 @@ export default function Results() {
   const [friendOfferDismissed, setFriendOfferDismissed] = useState(false);
   const [friendAdded, setFriendAdded] = useState(false);
   const [addingFriend, setAddingFriend] = useState(false);
+  const [signupPromptDismissed, setSignupPromptDismissed] = useState(false);
 
   const challenge = getChallenge(challengeId);
   const category = challenge ? getCategoryById(challenge.categoryId) : null;
@@ -177,8 +178,60 @@ export default function Results() {
     setTimeout(() => setCopied(false), 2000);
   }
 
+  const showSignupPrompt =
+    isGuest &&
+    isCompleted &&
+    !signupPromptDismissed &&
+    !showReward &&
+    newAchievements.length === 0;
+
   return (
     <div className="min-h-screen gradient-hero flex flex-col">
+      {showSignupPrompt && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-5"
+          style={{ background: "rgba(8,8,16,0.78)", backdropFilter: "blur(6px)" }}
+          onClick={() => setSignupPromptDismissed(true)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl border border-primary/30 p-6 text-center fade-in-up"
+            style={{ background: "linear-gradient(160deg, hsl(220 22% 11%) 0%, hsl(270 30% 14%) 100%)", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
+          >
+            <div className="text-4xl mb-2">🏆</div>
+            <p className="text-xl font-black text-primary mb-1">أحسنت!</p>
+            <p className="text-sm text-muted-foreground mb-5">
+              نتيجتك: <span className="font-bold text-foreground">{myScore}/{total}</span>
+            </p>
+
+            <p className="text-sm font-bold text-foreground mb-3">سجّل حسابك لـ:</p>
+            <ul className="text-sm text-foreground/90 space-y-2 mb-6 text-right">
+              <li className="flex items-center gap-2"><span className="text-green-400">✅</span><span>حفظ نتائجك وتقدمك</span></li>
+              <li className="flex items-center gap-2"><span className="text-green-400">✅</span><span>تحدّي المزيد من الأصدقاء</span></li>
+              <li className="flex items-center gap-2"><span className="text-green-400">✅</span><span>الظهور في لوحة المتصدرين</span></li>
+            </ul>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => navigate("/")}
+                className="flex-1 h-11 rounded-xl border border-border text-muted-foreground font-bold text-sm bg-card/60 hover:text-foreground transition-colors"
+              >
+                لاحقاً
+              </button>
+              <button
+                onClick={async () => {
+                  // Clear guest flag so the Auth screen renders, then go home.
+                  await signOut();
+                  navigate("/");
+                }}
+                className="flex-1 h-11 rounded-xl gradient-gold text-background font-bold text-sm hover:opacity-90 transition"
+              >
+                تسجيل مجاني
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showReward && (
         <FloatingReward
           xp={showReward.xp}

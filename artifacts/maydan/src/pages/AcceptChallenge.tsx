@@ -1,27 +1,94 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useParams } from "wouter";
-import { getChallenge } from "@/lib/storage";
+import { getChallenge, saveChallenge, type ChallengeData } from "@/lib/storage";
+import { getDbChallenge } from "@/lib/db";
+import { useAuth } from "@/lib/AuthContext";
 
 export default function AcceptChallenge() {
   const params = useParams<{ id: string }>();
   const [, navigate] = useLocation();
+  const { session, isGuest, playAsGuest } = useAuth();
   const challengeId = params.id;
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const challenge = getChallenge(challengeId);
-    if (!challenge) {
-      navigate("/");
-      return;
+    let cancelled = false;
+
+    async function run() {
+      // Step 1 — try local cache first
+      let challenge = getChallenge(challengeId);
+
+      // Step 2 — if not local, hydrate from Supabase so cross-device links work
+      if (!challenge) {
+        const dbCh = await getDbChallenge(challengeId);
+        if (cancelled) return;
+        if (!dbCh) {
+          setError("هذا التحدي غير موجود أو تم حذفه.");
+          return;
+        }
+        try {
+          const questionIds: number[] = JSON.parse(dbCh.question_ids ?? "[]");
+          const creatorAnswers: (number | null)[] = JSON.parse(dbCh.creator_answers ?? "[]");
+          challenge = {
+            id: dbCh.id,
+            creatorId: dbCh.creator_id ?? "",
+            creatorName: dbCh.creator_name,
+            categoryId: dbCh.category,
+            questionCount: dbCh.question_count,
+            questions: questionIds,
+            creatorAnswers,
+            creatorScore: dbCh.creator_score ?? 0,
+            creatorTime: 0,
+            createdAt: dbCh.created_at,
+            status: dbCh.status === "completed" ? "completed" : "waiting",
+          } as ChallengeData;
+          saveChallenge(challenge);
+        } catch (e) {
+          console.error("[AcceptChallenge] failed to hydrate db challenge", e);
+          setError("تعذّر تحميل التحدي. حاول لاحقاً.");
+          return;
+        }
+      }
+
+      if (cancelled) return;
+
+      // Step 3 — make sure we have *some* identity so Quiz/Results can render.
+      // No login required: anyone with the link can play as guest.
+      if (!session && !isGuest) {
+        playAsGuest();
+      }
+
+      // Step 4 — route into the experience
+      if (challenge.status === "completed") {
+        navigate(`/results/${challengeId}/challenger`);
+      } else {
+        navigate(`/quiz/${challengeId}/challenger`);
+      }
     }
 
-    if (challenge.status === 'completed') {
-      // Both played — show results comparison
-      navigate(`/results/${challengeId}/challenger`);
-    } else {
-      // Go play as challenger
-      navigate(`/quiz/${challengeId}/challenger`);
-    }
-  }, [challengeId]);
+    run();
+    return () => { cancelled = true; };
+  }, [challengeId, session, isGuest, playAsGuest, navigate]);
+
+  if (error) {
+    return (
+      <div className="min-h-screen gradient-hero flex items-center justify-center p-6">
+        <div className="text-center fade-in-up max-w-sm">
+          <div className="w-16 h-16 rounded-full bg-card border border-border flex items-center justify-center mx-auto mb-4">
+            <span className="text-3xl">⚠️</span>
+          </div>
+          <p className="text-lg font-bold text-foreground mb-2">تعذّر فتح التحدي</p>
+          <p className="text-sm text-muted-foreground mb-6">{error}</p>
+          <button
+            onClick={() => navigate("/")}
+            className="h-11 px-6 rounded-xl gradient-gold text-background font-bold text-sm"
+          >
+            العودة للرئيسية
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen gradient-hero flex items-center justify-center">

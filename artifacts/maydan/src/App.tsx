@@ -212,6 +212,12 @@ function AppRoutes() {
   // Party + Ranked routes are public — no login required
   const isPartyRoute = location.startsWith("/party");
   const isRankedRoute = location.startsWith("/ranked");
+  // Challenge / quiz / results routes are also public so anyone with a link
+  // can play without an account (we ask for a nickname inside the quiz).
+  const isPublicChallengeRoute =
+    location.startsWith("/challenge/") ||
+    location.startsWith("/quiz/") ||
+    location.startsWith("/results/");
   if (isPartyRoute) {
     return (
       <Suspense fallback={<LoadingScreen />}>
@@ -235,6 +241,21 @@ function AppRoutes() {
   }
 
   if (isLoading) return <LoadingScreen />;
+
+  // Public challenge routes — render without forcing the auth screen.
+  if (isPublicChallengeRoute && !session && !isGuest) {
+    return (
+      <Suspense fallback={<LoadingScreen />}>
+        <PageTransition>
+          <Switch>
+            <Route path="/quiz/:id/:role" component={Quiz} />
+            <Route path="/results/:id/:role" component={Results} />
+            <Route path="/challenge/:id" component={AcceptChallenge} />
+          </Switch>
+        </PageTransition>
+      </Suspense>
+    );
+  }
 
   // Not authenticated and not a guest → show login screen
   if (!session && !isGuest) return <Auth />;

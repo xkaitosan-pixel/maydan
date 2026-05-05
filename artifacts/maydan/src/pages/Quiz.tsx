@@ -216,11 +216,12 @@ export default function Quiz() {
             <span className="text-4xl">{category?.icon || "⚔️"}</span>
           </div>
           <h2 className="text-2xl font-bold mb-1">تحدي {category?.name}!</h2>
-          <p className="text-muted-foreground text-sm mb-6">تحداك <span className="text-primary font-bold">{challenge.creatorName}</span></p>
+          <p className="text-muted-foreground text-sm mb-2">تحداك <span className="text-primary font-bold">{challenge.creatorName}</span></p>
+          <p className="text-foreground font-bold text-base mb-5">أدخل اسمك للمنافسة</p>
           <div className="space-y-3">
             <input
               className="w-full p-3 rounded-xl border border-border bg-card text-foreground text-right placeholder:text-muted-foreground focus:outline-none focus:border-primary"
-              placeholder="أدخل اسمك..."
+              placeholder="اسمك..."
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleNameSubmit()}
