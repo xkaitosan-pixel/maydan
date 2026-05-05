@@ -6,6 +6,8 @@ import { getOrCreateUser } from "@/lib/storage";
 import { CATEGORIES } from "@/lib/questions";
 import { supabase } from "@/lib/supabase";
 import { getCountryFlag } from "@/lib/countryUtils";
+import { SkeletonLeaderboard } from "@/components/Skeleton";
+import { friendlyErrorText } from "@/lib/errors";
 
 interface DailyEntry {
   user_id: string;
@@ -61,12 +63,12 @@ export default function Leaderboard() {
             .order("score", { ascending: false })
             .limit(50);
           if (result.error) {
-            setDailyError(result.error.message);
+            setDailyError(friendlyErrorText(result.error));
           } else {
             setDailyEntries((result.data ?? []) as DailyEntry[]);
           }
         } catch (e) {
-          setDailyError(e instanceof Error ? e.message : "خطأ في التحميل");
+          setDailyError(friendlyErrorText(e));
         } finally {
           setLoading(false);
         }
@@ -190,10 +192,7 @@ export default function Leaderboard() {
               <p className="text-xs text-muted-foreground">تحدي اليوم — {today} — {dailyEntries.length} لاعب</p>
             </div>
             {loading ? (
-              <div className="flex flex-col items-center justify-center py-16 gap-3">
-                <div className="w-8 h-8 border-2 border-primary/40 border-t-primary rounded-full animate-spin" />
-                <p className="text-muted-foreground text-sm">جاري التحميل...</p>
-              </div>
+              <SkeletonLeaderboard rows={6} />
             ) : dailyError ? (
               <div className="text-center py-14">
                 <p className="text-4xl mb-4">⚠️</p>
@@ -267,10 +266,7 @@ export default function Leaderboard() {
         {/* List */}
         {tab !== "daily" && <div className="p-3 space-y-2 flex-1">
           {loading ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-3">
-              <div className="w-8 h-8 border-2 border-primary/40 border-t-primary rounded-full animate-spin" />
-              <p className="text-muted-foreground text-sm">جاري التحميل...</p>
-            </div>
+            <SkeletonLeaderboard rows={8} />
           ) : entries.length === 0 ? (
             <div className="text-center py-14 fade-in-up">
               <p className="text-5xl mb-4">🏆</p>

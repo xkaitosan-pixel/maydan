@@ -104,6 +104,7 @@ export default function Auth() {
       <div className="w-full max-w-xs">
 
         {/* ─── LOGIN VIEW ─────────────────────────────────── */}
+        {/* (legal footer rendered below the form for both views) */}
         {view === "login" && (
           <div className="space-y-3">
             {/* Tab strip */}
@@ -330,6 +331,15 @@ export default function Auth() {
           <span key={f} className="bg-card/50 border border-border text-muted-foreground text-xs px-3 py-1.5 rounded-full">{f}</span>
         ))}
       </div>
+
+      {/* Legal footer */}
+      <p className="mt-6 text-[11px] text-muted-foreground/80 text-center leading-relaxed max-w-xs">
+        بمتابعتك، فأنت توافق على{" "}
+        <a href="/terms" className="text-primary/90 hover:text-primary underline underline-offset-2">شروط الاستخدام</a>
+        {" "}و{" "}
+        <a href="/privacy" className="text-primary/90 hover:text-primary underline underline-offset-2">سياسة الخصوصية</a>
+        .
+      </p>
     </div>
   );
 }

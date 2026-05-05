@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ACHIEVEMENTS } from "@/lib/gamification";
 import { pushAchievement } from "@/lib/notifications";
+import { hapticAchievement } from "@/lib/haptics";
 
 interface AchievementPopupProps {
   unlockedIds: string[];
@@ -20,6 +21,7 @@ export default function AchievementPopup({ unlockedIds, onDone }: AchievementPop
   useEffect(() => {
     if (notifiedRef.current || achievements.length === 0) return;
     notifiedRef.current = true;
+    hapticAchievement();
     achievements.forEach(a => pushAchievement(a.title));
   }, [achievements]);
 

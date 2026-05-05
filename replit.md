@@ -1,5 +1,19 @@
 # Workspace
 
+## Maydan — Pre-Launch Polish (May 2026)
+
+Latest pass added these public files & helpers:
+- Pages: `src/pages/Terms.tsx`, `Privacy.tsx`, `About.tsx`, refreshed `not-found.tsx` (all RTL, public routes wired in `App.tsx`).
+- Skeleton primitive: `src/components/Skeleton.tsx` (+ presets `SkeletonLeaderboard`, `SkeletonProfileHeader`, `SkeletonStatsGrid`, `SkeletonDailyChallenge`). CSS shimmer in `index.css` (`.maydan-skeleton`).
+- Lib helpers:
+  - `src/lib/errors.ts` — `friendlyError(e)` / `friendlyErrorText(e)` map raw errors to short Arabic strings.
+  - `src/lib/haptics.ts` — `hapticCorrect/Wrong/Achievement/Tap`, opt-out via `maydan_haptics` localStorage key.
+  - `src/lib/format.ts` — `formatNumberAr`, `toArabicDigits`, `formatCompactAr` (Arabic-Indic digits).
+  - `src/lib/sanitize.ts` — `sanitizeText`, `sanitizeNickname`, `sanitizeBio` (strip HTML/control chars, length cap).
+- Wiring: Auth screen has legal footer; Settings has "عن التطبيق" section + haptics toggle; Quiz fires haptics on answer; AchievementPopup fires haptic on unlock; Leaderboard uses `SkeletonLeaderboard`; UsernameSetup sanitizes input.
+- PWA/SEO: `public/robots.txt`, `public/sitemap.xml`; `index.html` apple-touch-icon now uses `/icon-192.svg`.
+- Security audit: `storage.ts` confirmed clean of tokens/passwords; Supabase auth manages session natively. No custom 401 interceptor needed (Supabase emits SIGNED_OUT via onAuthStateChange).
+
 ## Overview
 
 pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.

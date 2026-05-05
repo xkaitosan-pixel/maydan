@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /onboarding
+Disallow: /quiz/
+Disallow: /results/
+
+Sitemap: https://maydan.replit.app/sitemap.xml

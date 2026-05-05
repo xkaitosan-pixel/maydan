@@ -39,6 +39,9 @@ const Store = lazy(() => import("@/pages/Store"));
 const DailyChallenge = lazy(() => import("@/pages/DailyChallenge"));
 const Settings = lazy(() => import("@/pages/Settings"));
 const PublicProfile = lazy(() => import("@/pages/PublicProfile"));
+const Terms = lazy(() => import("@/pages/Terms"));
+const Privacy = lazy(() => import("@/pages/Privacy"));
+const About = lazy(() => import("@/pages/About"));
 
 const queryClient = new QueryClient();
 
@@ -218,6 +221,11 @@ function AppRoutes() {
     location.startsWith("/challenge/") ||
     location.startsWith("/quiz/") ||
     location.startsWith("/results/");
+  // Static info pages — accessible to anyone with no auth required
+  const isPublicInfoRoute =
+    location === "/terms" ||
+    location === "/privacy" ||
+    location === "/about";
   if (isPartyRoute) {
     return (
       <Suspense fallback={<LoadingScreen />}>
@@ -241,6 +249,21 @@ function AppRoutes() {
   }
 
   if (isLoading) return <LoadingScreen />;
+
+  // Static info routes — render before auth checks so guests + visitors can read them.
+  if (isPublicInfoRoute) {
+    return (
+      <Suspense fallback={<LoadingScreen />}>
+        <PageTransition>
+          <Switch>
+            <Route path="/terms" component={Terms} />
+            <Route path="/privacy" component={Privacy} />
+            <Route path="/about" component={About} />
+          </Switch>
+        </PageTransition>
+      </Suspense>
+    );
+  }
 
   // Public challenge routes — render without forcing the auth screen.
   if (isPublicChallengeRoute && !session && !isGuest) {
@@ -288,6 +311,9 @@ function AppRoutes() {
             <Route path="/achievements" component={Achievements} />
             <Route path="/store" component={Store} />
             <Route path="/daily" component={DailyChallenge} />
+            <Route path="/terms" component={Terms} />
+            <Route path="/privacy" component={Privacy} />
+            <Route path="/about" component={About} />
             <Route component={NotFound} />
           </Switch>
         </PageTransition>

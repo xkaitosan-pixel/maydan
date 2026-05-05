@@ -4,13 +4,23 @@ import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { isSoundEnabled, toggleSound, playSound } from "@/lib/sound";
 import { NOTIF_TYPES, getNotifPrefs, setNotifPref, type NotifType } from "@/lib/notifications";
-import { ArrowRight, User, Bell, Volume2, VolumeX, LogOut, Trash2, Globe, Moon } from "lucide-react";
+import { ArrowRight, User, Bell, Volume2, VolumeX, LogOut, Trash2, Globe, Moon, Info, FileText, Shield, Smartphone } from "lucide-react";
+import { isHapticsEnabled, setHapticsEnabled, hapticTap } from "@/lib/haptics";
+import { friendlyErrorText } from "@/lib/errors";
 
 export default function Settings() {
   const [, navigate] = useLocation();
   const { dbUser, isGuest, signOut } = useAuth();
 
   const [soundOn, setSoundOn] = useState(() => isSoundEnabled());
+  const [hapticsOn, setHapticsOn] = useState(() => isHapticsEnabled());
+
+  function handleHapticsToggle() {
+    const next = !hapticsOn;
+    setHapticsEnabled(next);
+    setHapticsOn(next);
+    if (next) hapticTap();
+  }
   const [notifPrefs, setNotifPrefsState] = useState<Record<NotifType, boolean>>(() => getNotifPrefs());
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -40,7 +50,7 @@ export default function Settings() {
       await signOut();
       navigate("/");
     } catch (e) {
-      setDeleteError(e instanceof Error ? e.message : "تعذّر حذف الحساب");
+      setDeleteError(friendlyErrorText(e));
       setDeleting(false);
     }
   }
@@ -129,6 +139,14 @@ export default function Settings() {
               <span className="flex-1 text-sm font-bold">الصوت</span>
               <span className="text-xs text-muted-foreground">{soundOn ? "مفعّل" : "موقوف"}</span>
             </button>
+            <button
+              onClick={handleHapticsToggle}
+              className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-border/30 bg-background hover:border-primary/40 transition-colors text-right"
+            >
+              <Smartphone className={`w-4 h-4 ${hapticsOn ? "text-primary" : "text-muted-foreground"}`} />
+              <span className="flex-1 text-sm font-bold">الاهتزاز</span>
+              <span className="text-xs text-muted-foreground">{hapticsOn ? "مفعّل" : "موقوف"}</span>
+            </button>
             <div className="flex items-center gap-3 p-2.5 rounded-xl border border-border/30 bg-background opacity-70">
               <Moon className="w-4 h-4 text-muted-foreground" />
               <span className="flex-1 text-sm font-bold">الوضع الليلي</span>
@@ -139,6 +157,37 @@ export default function Settings() {
               <span className="flex-1 text-sm font-bold">اللغة</span>
               <span className="text-xs text-muted-foreground">العربية</span>
             </div>
+          </div>
+
+          {/* About + Legal */}
+          <div className="rounded-2xl border border-border/40 bg-card p-4 space-y-2">
+            <h3 className="font-bold text-sm flex items-center gap-1.5">
+              <Info className="w-4 h-4 text-primary" /> عن التطبيق
+            </h3>
+            <button
+              onClick={() => navigate("/about")}
+              className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-border/30 bg-background hover:border-primary/40 transition-colors text-right"
+            >
+              <Info className="w-4 h-4 text-muted-foreground" />
+              <span className="flex-1 text-sm font-bold">حول ميدان</span>
+              <ArrowRight className="w-4 h-4 text-muted-foreground rotate-180" />
+            </button>
+            <button
+              onClick={() => navigate("/terms")}
+              className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-border/30 bg-background hover:border-primary/40 transition-colors text-right"
+            >
+              <FileText className="w-4 h-4 text-muted-foreground" />
+              <span className="flex-1 text-sm font-bold">شروط الاستخدام</span>
+              <ArrowRight className="w-4 h-4 text-muted-foreground rotate-180" />
+            </button>
+            <button
+              onClick={() => navigate("/privacy")}
+              className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-border/30 bg-background hover:border-primary/40 transition-colors text-right"
+            >
+              <Shield className="w-4 h-4 text-muted-foreground" />
+              <span className="flex-1 text-sm font-bold">سياسة الخصوصية</span>
+              <ArrowRight className="w-4 h-4 text-muted-foreground rotate-180" />
+            </button>
           </div>
 
           {/* Account actions */}

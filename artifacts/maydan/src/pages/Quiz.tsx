@@ -6,6 +6,8 @@ import QuestionImage from "@/components/QuestionImage";
 import { getChallenge, saveChallenge, getOrCreateUser, recordGamePlayed, recordCategoryAnswers, getAvailablePowerCards, useSkipCard, useTimeCard } from "@/lib/storage";
 import { completeDbChallenge } from "@/lib/db";
 import { playCorrect, playWrong, playTick } from "@/lib/sound";
+import { hapticCorrect, hapticWrong } from "@/lib/haptics";
+import { sanitizeNickname } from "@/lib/sanitize";
 import { XP_REWARDS } from "@/lib/gamification";
 
 const QUESTION_TIME = 30;
@@ -111,10 +113,12 @@ export default function Quiz() {
     setAnswers(newAnswers);
     if (optionIndex === currentQuestion?.correct) {
       playCorrect();
+      hapticCorrect();
       setShowXPPop(true);
       setTimeout(() => setShowXPPop(false), 1100);
     } else {
       playWrong();
+      hapticWrong();
     }
     setTimeout(() => goToNextQuestion(newAnswers), 1200);
   }

@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
+import { sanitizeNickname } from "@/lib/sanitize";
+import { friendlyErrorText } from "@/lib/errors";
 
 const USERNAME_REGEX = /^[\u0600-\u06FF\w]{3,15}$/;
 
@@ -64,7 +66,7 @@ export default function UsernameSetup() {
       .single();
 
     if (err || !data) {
-      setError("حدث خطأ أثناء الحفظ. حاول مرة أخرى.");
+      setError(friendlyErrorText(err));
       setSaving(false);
       return;
     }
@@ -116,7 +118,7 @@ export default function UsernameSetup() {
         <div className="relative">
           <input
             value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            onChange={(e) => setUsername(sanitizeNickname(e.target.value))}
             onKeyDown={(e) => e.key === "Enter" && handleSave()}
             maxLength={15}
             placeholder="اسم المستخدم..."
