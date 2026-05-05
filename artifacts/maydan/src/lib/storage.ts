@@ -324,82 +324,11 @@ export function generateRoomCode(): string {
   return `ميدان-${nums}`;
 }
 
-// ──────────────────────────── REWARD BOX ────────────────────────────
-
-const REWARD_KEY = "maydan_reward_box";
-const REWARD_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
-
-export type RewardType = "power_cards" | "challenges" | "temp_premium" | "temp_legends";
-
-export interface RewardBoxData {
-  lastOpenedAt: number;
-  tempPremiumUntil: number;
-  tempLegendsUntil: number;
-}
-
-function defaultRewardBox(): RewardBoxData {
-  return { lastOpenedAt: 0, tempPremiumUntil: 0, tempLegendsUntil: 0 };
-}
-
-export function getRewardBox(): RewardBoxData {
-  const s = localStorage.getItem(REWARD_KEY);
-  if (!s) return defaultRewardBox();
-  return { ...defaultRewardBox(), ...JSON.parse(s) };
-}
-
-export function isRewardBoxReady(): boolean {
-  const box = getRewardBox();
-  return Date.now() - box.lastOpenedAt >= REWARD_INTERVAL_MS;
-}
-
-export function getRewardBoxCountdown(): number {
-  const box = getRewardBox();
-  return Math.max(0, REWARD_INTERVAL_MS - (Date.now() - box.lastOpenedAt));
-}
-
-export function openRewardBox(): RewardType {
-  const rewards: RewardType[] = ["power_cards", "challenges", "temp_premium", "temp_legends"];
-  const reward = rewards[Math.floor(Math.random() * rewards.length)];
-  const box = getRewardBox();
-  box.lastOpenedAt = Date.now();
-  // Apply effects
-  if (reward === "temp_premium") box.tempPremiumUntil = Date.now() + 24 * 60 * 60 * 1000;
-  if (reward === "temp_legends") box.tempLegendsUntil = Date.now() + 24 * 60 * 60 * 1000;
-  localStorage.setItem(REWARD_KEY, JSON.stringify(box));
-
-  // Apply user-level effects
-  const user = getOrCreateUser();
-  if (reward === "power_cards") {
-    user.powerCards.skipUsed = Math.max(0, user.powerCards.skipUsed - 2);
-    user.powerCards.timeUsed = Math.max(0, user.powerCards.timeUsed - 2);
-    saveUser(user);
-  }
-  if (reward === "challenges") {
-    const today = new Date().toDateString();
-    if (user.lastChallengeDate !== today) {
-      user.challengesCreatedToday = 0;
-      user.lastChallengeDate = today;
-    }
-    user.challengesCreatedToday = Math.max(0, user.challengesCreatedToday - 5);
-    saveUser(user);
-  }
-
-  return reward;
-}
-
-export function hasTempPremium(): boolean {
-  return getRewardBox().tempPremiumUntil > Date.now();
-}
-
-export function hasTempLegends(): boolean {
-  return getRewardBox().tempLegendsUntil > Date.now();
-}
-
 // ──────────────────────────── NOTIFICATIONS ────────────────────────────
 
 export interface AppNotification {
   id: string;
-  type: "streak_danger" | "reward_ready" | "pending_challenge";
+  type: "streak_danger" | "pending_challenge";
   message: string;
   icon: string;
   cta?: string;
@@ -492,17 +421,6 @@ export function getActiveNotifications(): AppNotification[] {
   const user = getOrCreateUser();
   const today = new Date().toDateString();
   const notes: AppNotification[] = [];
-
-  if (isRewardBoxReady()) {
-    notes.push({
-      id: "reward_ready",
-      type: "reward_ready",
-      message: "المكافأة اليومية جاهزة! افتحها الآن",
-      icon: "🎁",
-      cta: "افتح",
-      color: "#d97706",
-    });
-  }
 
   if (user.streak > 0 && user.lastPlayedDate !== today) {
     notes.push({
