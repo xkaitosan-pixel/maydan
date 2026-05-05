@@ -5,7 +5,8 @@ export type NotifType =
   | "streak_danger"
   | "daily_challenge"
   | "rank_dropped"
-  | "achievement";
+  | "achievement"
+  | "challenge_completed";
 
 export interface AppNotif {
   id: string;
@@ -144,6 +145,47 @@ async function checkRankDropped(dbUser: DbUser | null): Promise<AppNotif | null>
   }
 }
 
+/* ─────── challenge completion (per-id dedup, not per-type) ─────── */
+const COMPLETED_CHALLENGES_KEY_PREFIX = "maydan_seen_completed_challenges:";
+
+async function checkCompletedChallenges(
+  dbUser: DbUser | null,
+): Promise<AppNotif | null> {
+  if (!dbUser?.id) return null;
+  try {
+    const { data, error } = await supabase
+      .from("challenges")
+      .select("id, opponent_name, status, created_at")
+      .eq("creator_id", dbUser.id)
+      .eq("status", "completed")
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (error || !data?.length) return null;
+    const key = COMPLETED_CHALLENGES_KEY_PREFIX + dbUser.id;
+    const seen = new Set<string>(
+      JSON.parse(localStorage.getItem(key) || "[]") as string[],
+    );
+    const fresh = data.filter((c) => !seen.has(c.id));
+    if (!fresh.length) return null;
+    // Mark all as seen so we only notify once per completed challenge
+    const updated = [...Array.from(seen), ...fresh.map((f) => f.id)].slice(-100);
+    localStorage.setItem(key, JSON.stringify(updated));
+    const first = fresh[0];
+    const extra = fresh.length > 1 ? ` (+${fresh.length - 1})` : "";
+    return {
+      id: "challenge_completed_" + first.id,
+      type: "challenge_completed",
+      icon: "⚔️",
+      title: `${first.opponent_name || "متحدي"} أنهى تحديك! شوف النتيجة${extra}`,
+      ctaRoute: `/results/${first.id}/creator`,
+      autoDismissMs: 7000,
+    };
+  } catch (e) {
+    console.warn("[notifications] completed challenges check failed", e);
+    return null;
+  }
+}
+
 /* ─────── public API: collect all, respecting dedup ─────── */
 export async function collectNotifications(
   dbUser: DbUser | null,
@@ -160,10 +202,15 @@ export async function collectNotifications(
   const asyncResults = await Promise.allSettled([
     checkDailyChallenge(dbUser),
     checkRankDropped(dbUser),
+    checkCompletedChallenges(dbUser),
   ]);
   for (const r of asyncResults) {
     if (r.status !== "fulfilled" || !r.value) continue;
-    if (sessionSeen(r.value.type) || persistedSeenToday(r.value.type)) continue;
+    // challenge_completed dedupes by challenge id inside the producer itself,
+    // so we bypass the per-type session/day dedup for it.
+    if (r.value.type !== "challenge_completed") {
+      if (sessionSeen(r.value.type) || persistedSeenToday(r.value.type)) continue;
+    }
     out.push(r.value);
   }
   return out;

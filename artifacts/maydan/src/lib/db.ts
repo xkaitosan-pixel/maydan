@@ -170,6 +170,7 @@ export interface DbChallenge {
 }
 
 export async function createDbChallenge(params: {
+  id?: string;
   creator_id: string | null;
   creator_name: string;
   category: string;
@@ -178,23 +179,37 @@ export async function createDbChallenge(params: {
   creator_score: number;
   question_count: number;
 }): Promise<string | null> {
+  const payload: Record<string, unknown> = {
+    creator_id: params.creator_id,
+    creator_name: params.creator_name,
+    category: params.category,
+    question_ids: JSON.stringify(params.question_ids),
+    creator_answers: JSON.stringify(params.creator_answers),
+    creator_score: params.creator_score,
+    question_count: params.question_count,
+    status: "pending",
+  };
+  if (params.id) payload.id = params.id;
+
   const { data, error } = await supabase
     .from("challenges")
-    .insert({
-      creator_id: params.creator_id,
-      creator_name: params.creator_name,
-      category: params.category,
-      question_ids: JSON.stringify(params.question_ids),
-      creator_answers: JSON.stringify(params.creator_answers),
-      creator_score: params.creator_score,
-      question_count: params.question_count,
-      status: "pending",
-    })
+    .insert(payload)
     .select("id")
     .single();
 
   if (error) { console.error("createDbChallenge error", error); return null; }
   return data?.id ?? null;
+}
+
+export async function getMyChallenges(userId: string, limit = 20): Promise<DbChallenge[]> {
+  const { data, error } = await supabase
+    .from("challenges")
+    .select("*")
+    .eq("creator_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) { console.error("getMyChallenges error", error); return []; }
+  return (data as DbChallenge[]) ?? [];
 }
 
 export async function getDbChallenge(id: string): Promise<DbChallenge | null> {
@@ -212,6 +227,8 @@ export async function completeDbChallenge(id: string, params: {
   opponent_answers: (number | null)[];
   opponent_score: number;
 }): Promise<void> {
+  // Guard against race: only the FIRST opponent to finish writes their result.
+  // Any subsequent attempts will match zero rows because status is no longer "pending".
   const { error } = await supabase
     .from("challenges")
     .update({
@@ -221,7 +238,8 @@ export async function completeDbChallenge(id: string, params: {
       opponent_score: params.opponent_score,
       status: "completed",
     })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("status", "pending");
 
   if (error) console.error("completeDbChallenge error", error);
 }

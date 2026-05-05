@@ -162,3 +162,16 @@ BEGIN
       );
   END IF;
 END $$;
+
+-- ──────────────────────────── CHALLENGES (cross-device sync) ────────────────────────────
+-- The challenges table existed with only minimal columns. The app's createDbChallenge /
+-- completeDbChallenge code in src/lib/db.ts requires the columns below. id stays uuid;
+-- the client now generates UUIDs in storage.generateId() to match.
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS question_ids       text;
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS creator_answers    text;
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS opponent_answers   text;
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS question_count     int NOT NULL DEFAULT 10;
+
+-- Index to make Profile.tsx "تحدياتي" list (getMyChallenges) fast.
+CREATE INDEX IF NOT EXISTS challenges_creator_id_created_at_idx
+  ON challenges (creator_id, created_at DESC);

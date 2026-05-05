@@ -3,12 +3,13 @@ import { useLocation } from "wouter";
 import { CATEGORIES } from "@/lib/questions";
 import { fetchGameQuestions } from "@/lib/questionService";
 import { saveChallenge, incrementChallengesCount, generateId, getOrCreateUser, canCreateChallenge, getRemainingChallenges } from "@/lib/storage";
+import { createDbChallenge } from "@/lib/db";
 import { useAuth } from "@/lib/AuthContext";
 import CategoryCard from "@/components/CategoryCard";
 
 export default function CreateChallenge() {
   const [, navigate] = useLocation();
-  const { dbUser, googleDisplayName } = useAuth();
+  const { dbUser, googleDisplayName, isGuest } = useAuth();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [questionCount, setQuestionCount] = useState(10);
   const [search, setSearch] = useState("");
@@ -61,6 +62,22 @@ export default function CreateChallenge() {
 
     saveChallenge(challenge);
     incrementChallengesCount();
+
+    // Fire-and-forget: also write to Supabase so the creator can track this
+    // challenge from any device (and so completion notifications work).
+    if (!isGuest) {
+      createDbChallenge({
+        id: challengeId,
+        creator_id: dbUser?.id ?? null,
+        creator_name: challenge.creatorName,
+        category: selectedCategory,
+        question_ids: challenge.questions,
+        creator_answers: challenge.creatorAnswers,
+        creator_score: 0,
+        question_count: questionCount,
+      }).catch((e) => console.warn("[challenge] supabase create failed", e));
+    }
+
     navigate(`/quiz/${challengeId}/creator`);
   }
 
@@ -145,7 +162,7 @@ export default function CreateChallenge() {
             <div>
               <p className="text-sm text-muted-foreground mb-3 text-center">عدد الأسئلة</p>
               <div className="grid grid-cols-3 gap-3">
-                {[5, 10, 15].map((count) => (
+                {[10, 15, 20].map((count) => (
                   <button
                     key={count}
                     onClick={() => setQuestionCount(count)}

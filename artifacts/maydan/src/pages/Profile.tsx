@@ -3,9 +3,13 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { parseAchievementsData, ACHIEVEMENTS, LEVELS } from "@/lib/gamification";
-import { Crown, Trophy, Target, Zap, Star, Edit2, Check, X, Camera } from "lucide-react";
+import { Crown, Trophy, Target, Zap, Star, Edit2, Check, X, Camera, Swords } from "lucide-react";
 
 import { COUNTRIES } from "@/lib/countryUtils";
+import { CATEGORIES, getCategoryById } from "@/lib/questions";
+import { getMyChallenges, type DbChallenge } from "@/lib/db";
+
+const FAV_CAT_LIMIT = 3;
 
 const AVATAR_STYLES = [
   { id: "adventurer", label: "مغامرين" },
@@ -38,11 +42,30 @@ export default function Profile() {
   const [avatarSaved, setAvatarSaved] = useState(false);
   const [avatarError, setAvatarError] = useState("");
 
+  // Sent challenges
+  const [myChallenges, setMyChallenges] = useState<DbChallenge[] | null>(null);
+
+  // Favorite categories
+  const [editingFavs, setEditingFavs] = useState(false);
+  const [favDraft, setFavDraft] = useState<string[]>([]);
+  const [savingFavs, setSavingFavs] = useState(false);
+  const [favsSaved, setFavsSaved] = useState(false);
+
   useEffect(() => {
     setDisplayName(dbUser?.display_name ?? dbUser?.username ?? "");
     setCountry(dbUser?.country ?? "");
     setBio(dbUser?.bio ?? "");
+    setFavDraft(dbUser?.favorite_categories ?? []);
   }, [dbUser]);
+
+  useEffect(() => {
+    if (!dbUser?.id || isGuest) return;
+    let cancelled = false;
+    getMyChallenges(dbUser.id, 10).then((rows) => {
+      if (!cancelled) setMyChallenges(rows);
+    });
+    return () => { cancelled = true; };
+  }, [dbUser?.id, isGuest]);
 
   const totalGames = (dbUser?.total_wins ?? 0) + (dbUser?.total_losses ?? 0);
   const winRate = totalGames > 0 ? Math.round(((dbUser?.total_wins ?? 0) / totalGames) * 100) : 0;
@@ -75,6 +98,32 @@ export default function Profile() {
   async function handleSignOut() {
     await signOut();
     navigate("/");
+  }
+
+  function toggleFav(id: string) {
+    setFavDraft((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      if (prev.length >= FAV_CAT_LIMIT) return prev;
+      return [...prev, id];
+    });
+  }
+
+  async function handleSaveFavs() {
+    if (!dbUser || favDraft.length === 0) return;
+    setSavingFavs(true);
+    const { error } = await supabase
+      .from("users")
+      .update({ favorite_categories: favDraft })
+      .eq("id", dbUser.id);
+    setSavingFavs(false);
+    if (!error) {
+      setFavsSaved(true);
+      await refreshUser();
+      setTimeout(() => {
+        setFavsSaved(false);
+        setEditingFavs(false);
+      }, 1200);
+    }
   }
 
   async function handleSaveAvatar() {
@@ -309,6 +358,164 @@ export default function Profile() {
                 className="w-full h-11 bg-background border border-border rounded-xl px-3 text-sm text-foreground outline-none focus:border-primary"
               />
             </div>
+          </div>
+        )}
+
+        {/* Favorite categories */}
+        {!isGuest && dbUser && (
+          <div className="rounded-2xl border border-border/40 bg-card p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-sm">⭐ فئاتي المفضلة</h3>
+              {!editingFavs ? (
+                <button
+                  onClick={() => { setEditingFavs(true); setFavDraft(dbUser.favorite_categories ?? []); }}
+                  className="text-xs text-primary flex items-center gap-1"
+                >
+                  <Edit2 className="w-3 h-3" /> تعديل
+                </button>
+              ) : (
+                <button
+                  onClick={() => { setEditingFavs(false); setFavDraft(dbUser.favorite_categories ?? []); }}
+                  className="text-xs text-muted-foreground"
+                >
+                  إلغاء
+                </button>
+              )}
+            </div>
+
+            {!editingFavs ? (
+              (dbUser.favorite_categories?.length ?? 0) === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-3">
+                  لم تختر فئات بعد — اضغط "تعديل" لاختيار 3 فئات مفضلة
+                </p>
+              ) : (
+                <div className="grid grid-cols-3 gap-2">
+                  {(dbUser.favorite_categories ?? []).slice(0, FAV_CAT_LIMIT).map(id => {
+                    const c = getCategoryById(id);
+                    if (!c) return null;
+                    return (
+                      <div
+                        key={id}
+                        className="rounded-xl p-3 flex flex-col items-center gap-1 text-center text-white"
+                        style={{ background: `linear-gradient(135deg, ${c.gradientFrom}, ${c.gradientTo})` }}
+                      >
+                        <span className="text-2xl">{c.icon}</span>
+                        <span className="text-[10px] font-bold leading-tight">{c.name}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            ) : (
+              <div className="space-y-3">
+                <p className="text-[11px] text-muted-foreground text-center">
+                  اختر {FAV_CAT_LIMIT} فئات — مختار: {favDraft.length}/{FAV_CAT_LIMIT}
+                </p>
+                <div className="grid grid-cols-3 gap-2">
+                  {CATEGORIES.filter(c => !c.isPremium).map(c => {
+                    const isSel = favDraft.includes(c.id);
+                    const isDisabled = !isSel && favDraft.length >= FAV_CAT_LIMIT;
+                    return (
+                      <button
+                        key={c.id}
+                        onClick={() => toggleFav(c.id)}
+                        disabled={isDisabled}
+                        className={`rounded-xl p-2.5 flex flex-col items-center gap-1 text-center transition-all border-2 ${
+                          isSel ? "border-yellow-500 scale-[1.02]" : "border-transparent"
+                        } ${isDisabled ? "opacity-30 cursor-not-allowed" : ""}`}
+                        style={{
+                          background: isSel
+                            ? `linear-gradient(135deg, ${c.gradientFrom}, ${c.gradientTo})`
+                            : "hsl(var(--background))",
+                          color: isSel ? "white" : undefined,
+                        }}
+                      >
+                        <span className="text-xl">{c.icon}</span>
+                        <span className="text-[10px] font-bold leading-tight">{c.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={handleSaveFavs}
+                  disabled={favDraft.length === 0 || savingFavs}
+                  className="w-full h-10 rounded-xl text-sm font-bold text-background disabled:opacity-40 flex items-center justify-center gap-1.5"
+                  style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}
+                >
+                  {favsSaved ? <><Check className="w-4 h-4" /> تم الحفظ</> : savingFavs ? "جاري..." : "حفظ"}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Sent challenges */}
+        {!isGuest && dbUser && (
+          <div className="rounded-2xl border border-border/40 bg-card p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-sm flex items-center gap-1.5">
+                <Swords className="w-4 h-4 text-primary" /> تحدياتي
+              </h3>
+              <button
+                onClick={() => navigate("/challenge/create")}
+                className="text-xs text-primary"
+              >
+                + جديد
+              </button>
+            </div>
+
+            {myChallenges === null ? (
+              <div className="flex justify-center py-3">
+                <div className="w-5 h-5 border-2 border-primary/40 border-t-primary rounded-full animate-spin" />
+              </div>
+            ) : myChallenges.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-3">
+                لم ترسل أي تحدٍ بعد — تحدَّ صديقك الآن!
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {myChallenges.map(ch => {
+                  const cat = getCategoryById(ch.category);
+                  const isPending = ch.status !== "completed";
+                  const my = ch.creator_score ?? 0;
+                  const opp = ch.opponent_score ?? 0;
+                  let badge: { icon: string; text: string; color: string };
+                  if (isPending) {
+                    badge = { icon: "⏳", text: "في الانتظار", color: "#a3a3a3" };
+                  } else if (my > opp) {
+                    badge = { icon: "🏆", text: "فزت", color: "#22c55e" };
+                  } else if (opp > my) {
+                    badge = { icon: "❌", text: "خسرت", color: "#ef4444" };
+                  } else {
+                    badge = { icon: "🤝", text: "تعادل", color: "#f59e0b" };
+                  }
+                  return (
+                    <button
+                      key={ch.id}
+                      onClick={() => navigate(`/results/${ch.id}/creator`)}
+                      className="w-full flex items-center gap-3 p-3 rounded-xl border border-border/40 bg-background hover:border-primary/40 transition-colors text-right"
+                    >
+                      <span className="text-2xl">{cat?.icon ?? "🎯"}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold truncate">
+                          ضد {ch.opponent_name || "بانتظار خصم"}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {cat?.name ?? ch.category}
+                          {!isPending && ` • ${my} - ${opp}`}
+                        </p>
+                      </div>
+                      <span
+                        className="text-[10px] font-bold px-2 py-1 rounded-full whitespace-nowrap"
+                        style={{ background: `${badge.color}22`, color: badge.color, border: `1px solid ${badge.color}44` }}
+                      >
+                        {badge.icon} {badge.text}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 

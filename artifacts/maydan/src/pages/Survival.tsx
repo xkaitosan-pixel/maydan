@@ -16,10 +16,10 @@ import { awardGameRewards, XP_REWARDS } from "@/lib/gamification";
 const XP_PER_CORRECT = XP_REWARDS.correct_answer;
 
 const LIVES_START = 3;
-const BASE_TIME = 30;
-const TIME_DECREMENT = 5;
+const BASE_TIME = 20;
+const TIME_DECREMENT = 1;
 const SPEED_EVERY = 5;
-const MIN_TIME = 10;
+const MIN_TIME = 8;
 
 type Phase = "select" | "playing" | "gameover";
 
@@ -244,7 +244,10 @@ export default function Survival() {
   const user = getOrCreateUser();
   const rank = getSurvivalRank(score);
   const timerPct = maxTime > 0 ? (timeLeft / maxTime) * 100 : 0;
-  const isTimerDanger = timeLeft <= 5;
+  const isTimerDanger = timeLeft < 6;
+  const isTimerWarn = timeLeft >= 6 && timeLeft <= 10;
+  const timerColor = isTimerDanger ? "#ef4444" : isTimerWarn ? "#f59e0b" : "#22c55e";
+  const questionNumber = usedIds.size; // current question (1-indexed since first is added in startGame)
 
   // ── CATEGORY SELECT ──
   if (phase === "select") {
@@ -266,7 +269,8 @@ export default function Survival() {
             <div className="bg-red-500/10 border border-red-500/25 rounded-2xl p-4 mb-4 text-sm space-y-1.5">
               <p className="font-bold text-red-400 mb-2">⚔️ قواعد وضع البقاء</p>
               <p className="text-muted-foreground">❤️ لديك 3 أرواح — الإجابة الخاطئة تُفقدك روحاً</p>
-              <p className="text-muted-foreground">⏱️ الوقت يقل كل 5 إجابات صحيحة (30←25←20←15)</p>
+              <p className="text-muted-foreground">⏱️ الوقت يبدأ 20 ثانية ويقل ثانية كل 5 أسئلة (الحد الأدنى 8)</p>
+              <p className="text-muted-foreground">♾️ بدون حد للأسئلة — استمر حتى نهاية الأرواح</p>
               <p className="text-muted-foreground">🃏 لديك بطاقتا قوة: تخطي ووقت إضافي</p>
             </div>
 
@@ -446,13 +450,16 @@ export default function Survival() {
               <span key={i} className={`text-xl transition-all ${i < lives ? "" : "opacity-20 grayscale"}`}>❤️</span>
             ))}
           </div>
-          {/* Score */}
+          {/* Score + question # */}
           <div className="text-center">
             <span className="text-2xl font-black text-primary">{score}</span>
-            <p className="text-[10px] text-muted-foreground">إجابة صحيحة</p>
+            <p className="text-[10px] text-muted-foreground">السؤال #{questionNumber}</p>
           </div>
           {/* Timer */}
-          <span className={`text-2xl font-black tabular-nums ${isTimerDanger ? "timer-danger" : "text-primary"}`}>
+          <span
+            className={`text-2xl font-black tabular-nums ${isTimerDanger ? "timer-danger" : ""}`}
+            style={{ color: timerColor }}
+          >
             {timeLeft}s
           </span>
         </div>
@@ -463,7 +470,7 @@ export default function Survival() {
             className="h-full rounded-full transition-all duration-1000 ease-linear"
             style={{
               width: `${timerPct}%`,
-              background: isTimerDanger ? "hsl(0 70% 50%)" : `linear-gradient(90deg, ${category?.gradientFrom || "#d97706"}, ${category?.gradientTo || "#f59e0b"})`,
+              background: timerColor,
             }}
           />
         </div>

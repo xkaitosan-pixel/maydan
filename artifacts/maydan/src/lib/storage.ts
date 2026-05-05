@@ -264,7 +264,21 @@ export function getChallenges(): Record<string, ChallengeData> {
 }
 
 export function generateId(): string {
-  return Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+  // UUID v4 — needed because Supabase `challenges.id` is a uuid column and we
+  // mirror the same id from local storage to the server.
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  // Fallback for older browsers (very rare)
+  const bytes = new Uint8Array(16);
+  (crypto?.getRandomValues ?? ((b: Uint8Array) => {
+    for (let i = 0; i < b.length; i++) b[i] = Math.floor(Math.random() * 256);
+    return b;
+  }))(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const h = Array.from(bytes, b => b.toString(16).padStart(2, "0"));
+  return `${h[0]}${h[1]}${h[2]}${h[3]}-${h[4]}${h[5]}-${h[6]}${h[7]}-${h[8]}${h[9]}-${h[10]}${h[11]}${h[12]}${h[13]}${h[14]}${h[15]}`;
 }
 
 // ──────────────────────────── RANK ────────────────────────────

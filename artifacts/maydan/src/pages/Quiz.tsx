@@ -4,6 +4,7 @@ import { getCategoryById, Question } from "@/lib/questions";
 import { fetchQuestionsByIds } from "@/lib/questionService";
 import QuestionImage from "@/components/QuestionImage";
 import { getChallenge, saveChallenge, getOrCreateUser, recordGamePlayed, recordCategoryAnswers, getAvailablePowerCards, useSkipCard, useTimeCard } from "@/lib/storage";
+import { completeDbChallenge } from "@/lib/db";
 import { playCorrect, playWrong, playTick } from "@/lib/sound";
 import { XP_REWARDS } from "@/lib/gamification";
 
@@ -167,6 +168,17 @@ export default function Quiz() {
       updatedChallenge.completedAt = new Date().toISOString();
     }
     saveChallenge(updatedChallenge);
+
+    // Fire-and-forget: mirror challenger completion to Supabase so the creator
+    // gets a "your challenge is complete" notification on any device.
+    if (role !== "creator") {
+      completeDbChallenge(challengeId, {
+        opponent_name: updatedChallenge.challengerName ?? "متحدي",
+        opponent_answers: finalAnswers,
+        opponent_score: score,
+      }).catch((e) => console.warn("[challenge] supabase complete failed", e));
+    }
+
     navigate(`/results/${challengeId}/${role}`);
   }
 
