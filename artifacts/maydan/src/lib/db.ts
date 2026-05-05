@@ -359,3 +359,36 @@ export async function getMyAllTimeRank(username: string): Promise<number | null>
   const distinctHigher = new Set((higher ?? []).map((r: any) => r.username));
   return distinctHigher.size + 1;
 }
+
+export async function getMyWeeklyRank(username: string): Promise<number | null> {
+  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+  const { data: mine } = await supabase
+    .from("scores")
+    .select("score")
+    .eq("username", username)
+    .gte("created_at", weekAgo)
+    .order("score", { ascending: false })
+    .limit(1);
+  const myBest = mine?.[0]?.score;
+  if (myBest == null) return null;
+  const { data: higher } = await supabase
+    .from("scores")
+    .select("username, score")
+    .gte("created_at", weekAgo)
+    .gt("score", myBest)
+    .limit(500);
+  const distinctHigher = new Set((higher ?? []).map((r: any) => r.username));
+  return distinctHigher.size + 1;
+}
+
+// ──────────────────────────── PENDING CHALLENGES ────────────────────────────
+/** Number of challenges I created that are still waiting for an opponent. */
+export async function getMyPendingChallengesCount(creatorId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from("challenges")
+    .select("id", { count: "exact", head: true })
+    .eq("creator_id", creatorId)
+    .eq("status", "pending");
+  if (error) { console.error("getMyPendingChallengesCount error", error); return 0; }
+  return count ?? 0;
+}

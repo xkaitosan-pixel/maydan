@@ -5,7 +5,7 @@ import {
   getActiveNotifications, AppNotification, updateStreak, getTodayStats,
 } from "@/lib/storage";
 import { useAuth } from "@/lib/AuthContext";
-import { syncStreak } from "@/lib/db";
+import { syncStreak, getMyPendingChallengesCount } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 import StreakMilestone from "@/components/StreakMilestone";
 import NotificationBanner from "@/components/NotificationBanner";
@@ -47,6 +47,7 @@ export default function Home() {
   const [isDark, setIsDark] = useState(() => getTheme() === "dark");
   const [soundOn, setSoundOn] = useState(() => isSoundEnabled());
   const [seasonRewardMsg, setSeasonRewardMsg] = useState<string | null>(null);
+  const [pendingChallenges, setPendingChallenges] = useState(0);
 
   function handleThemeToggle() {
     playClick();
@@ -103,6 +104,11 @@ export default function Home() {
       });
     }
     setNotifications(getActiveNotifications());
+    if (dbUser?.id && !isGuest) {
+      getMyPendingChallengesCount(dbUser.id).then(setPendingChallenges).catch(() => {});
+    } else {
+      setPendingChallenges(0);
+    }
   }, [dbUser?.id, isGuest]);
 
   function handleGuestSaveName() {
@@ -123,6 +129,7 @@ export default function Home() {
       gradient: "linear-gradient(135deg, #d97706, #f59e0b)",
       onClick: () => canCreate ? navigate("/create") : undefined,
       disabled: !canCreate,
+      badge: pendingChallenges > 0 ? pendingChallenges : undefined,
     },
     {
       id: "survival", icon: "🏃", label: "وضع البقاء", sub: "كم تصمد؟",
@@ -473,6 +480,14 @@ export default function Home() {
                         className={`relative rounded-2xl p-4 md:p-6 text-center transition-all ${mode.disabled ? "opacity-50 cursor-not-allowed" : "hover:scale-[1.03] active:scale-[0.97]"}`}
                         style={{ background: mode.gradient, border: "1px solid rgba(255,255,255,0.08)" }}
                       >
+                        {mode.badge && (
+                          <span
+                            className="absolute -top-1.5 -right-1.5 min-w-[22px] h-[22px] px-1.5 rounded-full bg-red-500 text-white text-[11px] font-black flex items-center justify-center shadow-lg ring-2 ring-background"
+                            aria-label={`${mode.badge} تحديات معلقة`}
+                          >
+                            {mode.badge > 99 ? "99+" : mode.badge}
+                          </span>
+                        )}
                         <span className="block text-3xl md:text-4xl mb-1.5">{mode.icon}</span>
                         <p className="text-white font-black text-sm md:text-base leading-tight">{mode.label}</p>
                         <p className="text-white/70 text-xs md:text-sm mt-0.5">{mode.sub}</p>

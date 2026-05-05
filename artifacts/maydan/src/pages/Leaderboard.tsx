@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { getWeeklyLeaderboard, getAllTimeLeaderboard, getMyAllTimeRank, ScoreEntry } from "@/lib/db";
+import { getWeeklyLeaderboard, getAllTimeLeaderboard, getMyAllTimeRank, getMyWeeklyRank, ScoreEntry } from "@/lib/db";
 import { useAuth } from "@/lib/AuthContext";
 import { getOrCreateUser } from "@/lib/storage";
 import { CATEGORIES } from "@/lib/questions";
@@ -87,10 +87,11 @@ export default function Leaderboard() {
   // When user has scores but is outside the visible top, fetch their global rank.
   const [globalRank, setGlobalRank] = useState<number | null>(null);
   useEffect(() => {
-    if (isGuest || !myName || tab !== "alltime") { setGlobalRank(null); return; }
+    if (isGuest || !myName || tab === "daily") { setGlobalRank(null); return; }
     if (myRank > 0) { setGlobalRank(null); return; }
     let cancelled = false;
-    getMyAllTimeRank(myName).then((r) => { if (!cancelled) setGlobalRank(r); });
+    const fn = tab === "weekly" ? getMyWeeklyRank : getMyAllTimeRank;
+    fn(myName).then((r) => { if (!cancelled) setGlobalRank(r); });
     return () => { cancelled = true; };
   }, [myName, isGuest, tab, myRank, refreshKey]);
 
@@ -175,11 +176,11 @@ export default function Leaderboard() {
             </div>
           </div>
         )}
-        {!isGuest && myRank <= 0 && globalRank && tab === "alltime" && (
+        {!isGuest && myRank <= 0 && globalRank && tab !== "daily" && (
           <div className="mx-3 mt-3 bg-card border border-border/40 rounded-xl px-4 py-2.5 flex items-center gap-3">
             <span className="text-lg font-black text-primary">#{globalRank}</span>
             <div className="flex-1">
-              <p className="text-sm font-bold">أنت في المركز #{globalRank}</p>
+              <p className="text-sm font-bold">أنت في المركز #{globalRank} <span className="text-xs text-secondary">(هذا أنت)</span></p>
               <p className="text-xs text-muted-foreground">العب أكثر للوصول للقائمة 🏆</p>
             </div>
           </div>

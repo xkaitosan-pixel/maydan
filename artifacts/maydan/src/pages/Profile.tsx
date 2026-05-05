@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { parseAchievementsData, ACHIEVEMENTS, LEVELS } from "@/lib/gamification";
-import { Crown, Trophy, Target, Zap, Star, Edit2, Check, X, Camera, Swords, Bell, Users, Share2, Settings as SettingsIcon } from "lucide-react";
+import { Crown, Trophy, Target, Zap, Star, Edit2, Check, X, Camera, Swords, Bell, Users, Share2, Link2, Settings as SettingsIcon } from "lucide-react";
 
 import { COUNTRIES, getCountryFlag } from "@/lib/countryUtils";
 import { CATEGORIES, getCategoryById } from "@/lib/questions";
@@ -54,6 +54,16 @@ export default function Profile() {
   // Friends
   const [friends, setFriends] = useState<Friend[] | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  function handleCopyProfileLink() {
+    if (!dbUser?.id) return;
+    const url = `${window.location.origin}${import.meta.env.BASE_URL}profile/${dbUser.id}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    }).catch(() => {});
+  }
 
   // Notification preferences
   const [notifPrefs, setNotifPrefsState] = useState<Record<NotifType, boolean>>(() => getNotifPrefs());
@@ -205,16 +215,26 @@ export default function Profile() {
       <header className="p-4 flex items-center gap-3 border-b border-border/30">
         <button onClick={() => navigate("/")} className="text-muted-foreground hover:text-foreground text-xl transition-colors">←</button>
         <h1 className="text-lg font-bold">الملف الشخصي</h1>
-        {!isGuest && (
+        <div className="mr-auto flex items-center gap-2">
           <button
-            onClick={handleSave}
-            disabled={saving}
-            className="mr-auto flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold text-background disabled:opacity-50"
-            style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}
+            onClick={() => navigate("/settings")}
+            className="w-9 h-9 rounded-full bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+            title="الإعدادات"
+            aria-label="الإعدادات"
           >
-            {saved ? <><Check className="w-4 h-4" /> تم الحفظ</> : saving ? "جاري..." : <><Edit2 className="w-4 h-4" /> حفظ</>}
+            <SettingsIcon className="w-4 h-4" />
           </button>
-        )}
+          {!isGuest && (
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold text-background disabled:opacity-50"
+              style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}
+            >
+              {saved ? <><Check className="w-4 h-4" /> تم الحفظ</> : saving ? "جاري..." : <><Edit2 className="w-4 h-4" /> حفظ</>}
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4 max-w-md mx-auto w-full pb-8">
@@ -641,19 +661,27 @@ export default function Profile() {
           </div>
         )}
 
-        {/* Share + Settings shortcuts */}
+        {/* Share + Copy link + Settings shortcuts */}
         {!isGuest && dbUser && (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-2">
             <button
               onClick={handleShareProfile}
-              className="h-11 rounded-xl border border-border bg-card font-bold text-sm flex items-center justify-center gap-1.5 hover:border-primary/40"
+              className="h-11 rounded-xl border border-border bg-card font-bold text-xs flex items-center justify-center gap-1.5 hover:border-primary/40"
             >
               <Share2 className="w-4 h-4" />
-              {shareCopied ? "✓ تم النسخ" : "شارك ملفي"}
+              {shareCopied ? "✓ تم" : "شارك"}
+            </button>
+            <button
+              onClick={handleCopyProfileLink}
+              className="h-11 rounded-xl border border-border bg-card font-bold text-xs flex items-center justify-center gap-1.5 hover:border-primary/40"
+              title="نسخ رابط الملف"
+            >
+              <Link2 className="w-4 h-4" />
+              {linkCopied ? "✓ نُسخ" : "نسخ الرابط"}
             </button>
             <button
               onClick={() => navigate("/settings")}
-              className="h-11 rounded-xl border border-border bg-card font-bold text-sm flex items-center justify-center gap-1.5 hover:border-primary/40"
+              className="h-11 rounded-xl border border-border bg-card font-bold text-xs flex items-center justify-center gap-1.5 hover:border-primary/40"
             >
               <SettingsIcon className="w-4 h-4" /> الإعدادات
             </button>
