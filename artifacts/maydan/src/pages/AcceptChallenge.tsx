@@ -27,8 +27,14 @@ export default function AcceptChallenge() {
           return;
         }
         try {
-          const questionIds: number[] = JSON.parse(dbCh.question_ids ?? "[]");
-          const creatorAnswers: (number | null)[] = JSON.parse(dbCh.creator_answers ?? "[]");
+          const safeParseArr = <T,>(s: string | null | undefined, fallback: T[]): T[] => {
+            if (!s) return fallback;
+            try { const v = JSON.parse(s); return Array.isArray(v) ? v as T[] : fallback; }
+            catch { return fallback; }
+          };
+          const questionIds = safeParseArr<number>(dbCh.question_ids, []);
+          const creatorAnswers = safeParseArr<number | null>(dbCh.creator_answers, []);
+          const opponentAnswers = safeParseArr<number | null>(dbCh.opponent_answers, []);
           challenge = {
             id: dbCh.id,
             creatorId: dbCh.creator_id ?? "",
@@ -41,6 +47,10 @@ export default function AcceptChallenge() {
             creatorTime: 0,
             createdAt: dbCh.created_at,
             status: dbCh.status === "completed" ? "completed" : "waiting",
+            // Opponent / challenger fields — populated when another player has finished.
+            challengerName: dbCh.opponent_name ?? undefined,
+            challengerAnswers: opponentAnswers.length ? opponentAnswers : undefined,
+            challengerScore: dbCh.opponent_score ?? undefined,
           } as ChallengeData;
           saveChallenge(challenge);
         } catch (e) {

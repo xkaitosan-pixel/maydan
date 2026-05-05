@@ -221,8 +221,10 @@ export default function Results() {
               <button
                 onClick={async () => {
                   // Clear guest flag so the Auth screen renders, then go home.
-                  await signOut();
-                  navigate("/");
+                  // Use try/finally so we still navigate even if remote sign-out fails.
+                  try { await signOut(); }
+                  catch (e) { console.warn("[Results] signOut failed before signup CTA", e); }
+                  finally { navigate("/"); }
                 }}
                 className="flex-1 h-11 rounded-xl gradient-gold text-background font-bold text-sm hover:opacity-90 transition"
               >
