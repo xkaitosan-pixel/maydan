@@ -342,41 +342,49 @@ export async function getDailyPercentile(date: string, myScore: number): Promise
 // ──────────────────────────── LEADERBOARD: MY RANK ────────────────────────────
 // Counts how many distinct usernames have a higher best score than mine,
 // returning my 1-based rank (or null if I have no scores).
-export async function getMyAllTimeRank(username: string): Promise<number | null> {
-  const { data: mine } = await supabase
+export async function getMyAllTimeRank(username: string, category?: string): Promise<number | null> {
+  let mineQ = supabase
     .from("scores")
     .select("score")
     .eq("username", username)
     .order("score", { ascending: false })
     .limit(1);
+  if (category && category !== "all") mineQ = mineQ.eq("category", category);
+  const { data: mine } = await mineQ;
   const myBest = mine?.[0]?.score;
   if (myBest == null) return null;
-  const { data: higher } = await supabase
+  let higherQ = supabase
     .from("scores")
     .select("username, score")
     .gt("score", myBest)
-    .limit(500);
+    .limit(2000);
+  if (category && category !== "all") higherQ = higherQ.eq("category", category);
+  const { data: higher } = await higherQ;
   const distinctHigher = new Set((higher ?? []).map((r: any) => r.username));
   return distinctHigher.size + 1;
 }
 
-export async function getMyWeeklyRank(username: string): Promise<number | null> {
+export async function getMyWeeklyRank(username: string, category?: string): Promise<number | null> {
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-  const { data: mine } = await supabase
+  let mineQ = supabase
     .from("scores")
     .select("score")
     .eq("username", username)
     .gte("created_at", weekAgo)
     .order("score", { ascending: false })
     .limit(1);
+  if (category && category !== "all") mineQ = mineQ.eq("category", category);
+  const { data: mine } = await mineQ;
   const myBest = mine?.[0]?.score;
   if (myBest == null) return null;
-  const { data: higher } = await supabase
+  let higherQ = supabase
     .from("scores")
     .select("username, score")
     .gte("created_at", weekAgo)
     .gt("score", myBest)
-    .limit(500);
+    .limit(2000);
+  if (category && category !== "all") higherQ = higherQ.eq("category", category);
+  const { data: higher } = await higherQ;
   const distinctHigher = new Set((higher ?? []).map((r: any) => r.username));
   return distinctHigher.size + 1;
 }

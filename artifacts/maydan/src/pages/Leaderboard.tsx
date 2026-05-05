@@ -91,9 +91,9 @@ export default function Leaderboard() {
     if (myRank > 0) { setGlobalRank(null); return; }
     let cancelled = false;
     const fn = tab === "weekly" ? getMyWeeklyRank : getMyAllTimeRank;
-    fn(myName).then((r) => { if (!cancelled) setGlobalRank(r); });
+    fn(myName, category).then((r) => { if (!cancelled) setGlobalRank(r); });
     return () => { cancelled = true; };
-  }, [myName, isGuest, tab, myRank, refreshKey]);
+  }, [myName, isGuest, tab, category, myRank, refreshKey]);
 
   const categories = [
     { id: "all", name: "الكل", icon: "🌐" },
