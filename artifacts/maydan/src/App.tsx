@@ -37,6 +37,8 @@ const RankedMode = lazy(() => import("@/pages/RankedMode"));
 const Achievements = lazy(() => import("@/pages/Achievements"));
 const Store = lazy(() => import("@/pages/Store"));
 const DailyChallenge = lazy(() => import("@/pages/DailyChallenge"));
+const Settings = lazy(() => import("@/pages/Settings"));
+const PublicProfile = lazy(() => import("@/pages/PublicProfile"));
 
 const queryClient = new QueryClient();
 
@@ -258,6 +260,8 @@ function AppRoutes() {
             <Route path="/premium" component={Premium} />
             <Route path="/leaderboard" component={Leaderboard} />
             <Route path="/profile" component={Profile} />
+            <Route path="/profile/:userId" component={PublicProfile} />
+            <Route path="/settings" component={Settings} />
             <Route path="/admin" component={Admin} />
             <Route path="/ranked" component={RankedMode} />
             <Route path="/achievements" component={Achievements} />

@@ -1,0 +1,125 @@
+Make all remaining improvements to ميدان app.
+This is a comprehensive update - do everything carefully.
+
+═══════════════════════════════
+PART 1 - CHALLENGE SYSTEM:
+═══════════════════════════════
+
+1. Add friend request after challenge:
+When opponent finishes a challenge, show:
+"هل تريد إضافة [اسم] كصديق؟"
+Two buttons: "إضافة ✅" / "لا شكراً"
+Create friends table:
+CREATE TABLE IF NOT EXISTS friends (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id TEXT NOT NULL,
+  friend_id TEXT NOT NULL,
+  friend_name TEXT,
+  friend_avatar TEXT,
+  status TEXT DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT now()
+);
+Show friends list in profile page.
+"تحدي صديق" → show friends list first
+
+2. Show challenge results properly:
+After opponent finishes, creator sees:
+- Both scores side by side
+- Winner highlighted with 🏆
+- "تحدي مجدداً" button
+
+═══════════════════════════════
+PART 2 - SOCIAL FEATURES:
+═══════════════════════════════
+
+3. Public profile page:
+Create /profile/:userId page
+Shows: avatar, name, country flag, level, 
+stats (wins/losses/streak), achievements,
+favorite categories
+"تحدي هذا اللاعب ⚔️" button
+
+4. Share profile:
+In profile page add "شارك ملفي" button
+Opens: maydanapp.com/profile/[userId]
+
+═══════════════════════════════
+PART 3 - GAME IMPROVEMENTS:
+═══════════════════════════════
+
+5. Ranked mode improvements:
+- Show opponent's country flag and avatar during match
+- Show live score for both players during game
+- After match: show detailed breakdown
+  (which questions each got right/wrong)
+- Add "تحدي مجدداً" button after ranked match
+
+6. Daily challenge improvements:
+- Show question number clearly (السؤال 1/10)
+- Show time remaining more prominently  
+- After finish: show correct answers for all questions
+  (reveal mode - since they can't replay)
+- Show how you compared to others:
+  "أجبت أسرع من 70% من اللاعبين"
+
+7. Survival improvements:
+- Add "أفضل نتيجة" (best score) display during game
+- Show combo multiplier for consecutive correct answers
+  (x1, x1.5, x2, x2.5 max)
+- Add "شارك نتيجتك" button on game over
+
+═══════════════════════════════
+PART 4 - UI/UX IMPROVEMENTS:
+═══════════════════════════════
+
+8. Better home screen:
+- Show today's stats: "اليوم: X انتصار / Y هزيمة"
+- Show XP needed for next level
+- Quick play button: "العب الآن ⚡" → goes to survival
+- Show current season end date countdown
+
+9. Settings page (/settings):
+Create a proper settings page:
+- Display name (editable)
+- Username (editable)  
+- Country (editable)
+- Favorite categories (editable)
+- Notification preferences
+- Theme toggle (dark/light)
+- Sound toggle
+- Language (Arabic only for now)
+- "حذف الحساب" (danger zone)
+- "تسجيل الخروج"
+Link from profile page.
+
+10. Improved leaderboard:
+- Show user's own rank even if not in top 10
+  "أنت في المركز #47" at bottom
+- Add country flag filter
+- Show win streak next to each player
+- Animate rank changes
+
+═══════════════════════════════
+PART 5 - TECHNICAL:
+═══════════════════════════════
+
+11. Fix all remaining TypeScript errors
+12. Make sure all pages work on mobile
+13. Optimize images and loading speed
+14. Add proper error messages in Arabic
+15. Make sure dark/light mode works everywhere
+
+Run this SQL (provide it separately for user to run):
+CREATE TABLE IF NOT EXISTS friends (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id TEXT NOT NULL,
+  friend_id TEXT NOT NULL,
+  friend_name TEXT,
+  friend_avatar TEXT,
+  friend_country TEXT,
+  status TEXT DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT now(),
+  UNIQUE(user_id, friend_id)
+);
+
+Push everything to GitHub when done.

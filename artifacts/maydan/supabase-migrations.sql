@@ -175,3 +175,19 @@ ALTER TABLE challenges ADD COLUMN IF NOT EXISTS question_count     int NOT NULL 
 -- Index to make Profile.tsx "تحدياتي" list (getMyChallenges) fast.
 CREATE INDEX IF NOT EXISTS challenges_creator_id_created_at_idx
   ON challenges (creator_id, created_at DESC);
+
+-- ──────────────────────────── FRIENDS (NEW) ────────────────────────────
+-- Run this block in Supabase SQL Editor to enable the friends system.
+CREATE TABLE IF NOT EXISTS friends (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id      text NOT NULL,
+  friend_id    text NOT NULL,
+  friend_name  text,
+  friend_avatar text,
+  friend_country text,
+  status       text NOT NULL DEFAULT 'accepted',  -- 'accepted' (one-tap add) | 'pending' | 'blocked'
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT friends_user_friend_unique UNIQUE (user_id, friend_id)
+);
+CREATE INDEX IF NOT EXISTS friends_user_id_idx   ON friends (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS friends_friend_id_idx ON friends (friend_id);

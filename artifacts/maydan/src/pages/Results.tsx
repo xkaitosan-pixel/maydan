@@ -4,7 +4,7 @@ import { getCategoryById, Question } from "@/lib/questions";
 import { fetchQuestionsByIds } from "@/lib/questionService";
 import { getChallenge, recordWin, getOrCreateUser, addLeaderboardEntry, getSurvivalRank } from "@/lib/storage";
 import { useAuth } from "@/lib/AuthContext";
-import { insertScore, updateUserStats } from "@/lib/db";
+import { insertScore, updateUserStats, addFriend, isFriend } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 import AchievementPopup from "@/components/AchievementPopup";
 import FloatingReward from "@/components/FloatingReward";
@@ -30,6 +30,10 @@ export default function Results() {
   const [showReward, setShowReward] = useState<{ xp: number; coins: number } | null>(null);
   const [newAchievements, setNewAchievements] = useState<string[]>([]);
   const [rewardSummary, setRewardSummary] = useState<{ xp: number; coins: number; achievements: number } | null>(null);
+  const [friendOfferShown, setFriendOfferShown] = useState(false);
+  const [friendOfferDismissed, setFriendOfferDismissed] = useState(false);
+  const [friendAdded, setFriendAdded] = useState(false);
+  const [addingFriend, setAddingFriend] = useState(false);
 
   const challenge = getChallenge(challengeId);
   const category = challenge ? getCategoryById(challenge.categoryId) : null;
@@ -384,16 +388,59 @@ export default function Results() {
             </div>
           </div>
 
+          {/* Add-friend offer (only the challenger has the creator's id available) */}
+          {isCompleted && !isGuest && dbUser?.id && role === "challenger" && (() => {
+            const otherId = challenge?.creatorId;
+            const otherName = challenge?.creatorName;
+            if (!otherId || otherId === dbUser.id || friendOfferDismissed) return null;
+            return (
+              <div className="rounded-2xl border border-primary/30 p-3 flex items-center gap-3"
+                style={{ background: "linear-gradient(135deg,rgba(217,119,6,0.10),rgba(245,158,11,0.06))" }}>
+                <span className="text-2xl shrink-0">👥</span>
+                <p className="flex-1 text-sm font-bold">هل تريد إضافة {otherName ?? "اللاعب"} كصديق؟</p>
+                {friendAdded ? (
+                  <span className="text-xs px-3 py-1.5 rounded-full bg-green-500/15 text-green-400 font-bold">✓ تمت الإضافة</span>
+                ) : (
+                  <>
+                    <button
+                      disabled={addingFriend}
+                      onClick={async () => {
+                        setAddingFriend(true);
+                        const ok = await addFriend({
+                          user_id: dbUser.id,
+                          friend_id: otherId!,
+                          friend_name: otherName ?? null,
+                        });
+                        setAddingFriend(false);
+                        if (ok) setFriendAdded(true);
+                      }}
+                      className="text-xs px-3 py-1.5 rounded-full gradient-gold text-background font-bold disabled:opacity-60"
+                    >إضافة ✅</button>
+                    <button
+                      onClick={() => setFriendOfferDismissed(true)}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >لا شكراً</button>
+                  </>
+                )}
+              </div>
+            );
+          })()}
+
           <div className="flex gap-3">
             <Button onClick={() => navigate("/")} variant="outline" className="flex-1 h-12 rounded-xl border-border">
               🏠 الرئيسية
             </Button>
             <Button
-              onClick={() => navigate("/create")}
+              onClick={() => {
+                const otherId = role === "challenger" ? challenge?.creatorId : null;
+                const otherName = role === "challenger" ? challenge?.creatorName : challenge?.challengerName;
+                if (otherId) navigate(`/create?opponent=${encodeURIComponent(otherId)}&name=${encodeURIComponent(otherName ?? "")}`);
+                else navigate("/create");
+              }}
               className="flex-1 h-12 rounded-xl text-white font-bold hover:opacity-90"
               style={{ background: category ? `linear-gradient(135deg, ${category.gradientFrom}, ${category.gradientTo})` : "hsl(270 60% 40%)" }}
             >
-              ⚔️ تحدي جديد
+              {isCompleted ? "🔄 تحدي مجدداً" : "⚔️ تحدي جديد"}
             </Button>
           </div>
         </div>

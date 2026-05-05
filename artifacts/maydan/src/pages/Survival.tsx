@@ -55,6 +55,16 @@ export default function Survival() {
   const [newAchievements, setNewAchievements] = useState<string[]>([]);
   const [perAnswerXP, setPerAnswerXP] = useState(false);
   const [rewardSummary, setRewardSummary] = useState<{ xp: number; coins: number; achievements: number } | null>(null);
+  const [combo, setCombo] = useState(0);
+  const personalBest = getOrCreateUser().stats.survivalBest;
+
+  // Visual-only combo multiplier: x1 (combo<3) → x1.5 (3-5) → x2 (6-9) → x2.5 (10+)
+  function comboMultiplier(c: number): number {
+    if (c >= 10) return 2.5;
+    if (c >= 6) return 2;
+    if (c >= 3) return 1.5;
+    return 1;
+  }
 
   function loadPowerCards() {
     const cards = getAvailablePowerCards();
@@ -77,6 +87,7 @@ export default function Survival() {
     const t = BASE_TIME;
     setLives(LIVES_START);
     setScore(0);
+    setCombo(0);
     setUsedIds(new Set([first.id]));
     setCurrentQ(first);
     setTimeLeft(t);
@@ -143,11 +154,13 @@ export default function Survival() {
     if (isCorrect) {
       const newScore = score + 1;
       setScore(newScore);
+      setCombo(c => c + 1);
       setCorrectAnswers(prev => ({ ...prev, [cat]: (prev[cat] || 0) + 1 }));
       setPerAnswerXP(true);
       setTimeout(() => setPerAnswerXP(false), 900);
       setTimeout(() => nextQuestion(newScore), 900);
     } else {
+      setCombo(0);
       setLives(prev => {
         const newLives = prev - 1;
         if (newLives <= 0) {
@@ -450,10 +463,12 @@ export default function Survival() {
               <span key={i} className={`text-xl transition-all ${i < lives ? "" : "opacity-20 grayscale"}`}>❤️</span>
             ))}
           </div>
-          {/* Score + question # */}
+          {/* Score + question # + best */}
           <div className="text-center">
             <span className="text-2xl font-black text-primary">{score}</span>
-            <p className="text-[10px] text-muted-foreground">السؤال #{questionNumber}</p>
+            <p className="text-[10px] text-muted-foreground">
+              #{questionNumber} • أفضل: {Math.max(personalBest, score)}
+            </p>
           </div>
           {/* Timer */}
           <span
@@ -475,11 +490,23 @@ export default function Survival() {
           />
         </div>
 
-        {/* Speed indicator */}
-        <div className="text-center text-xs text-muted-foreground">
-          ⚡ وقت السؤال: <span className="text-primary font-bold">{maxTime}s</span>
-          {score > 0 && score % SPEED_EVERY === 0 && maxTime < BASE_TIME && (
-            <span className="text-red-400 mr-2 font-bold animate-pulse">— تسريع!</span>
+        {/* Speed + combo */}
+        <div className="text-center text-xs text-muted-foreground flex items-center justify-center gap-3 flex-wrap">
+          <span>
+            ⚡ <span className="text-primary font-bold">{maxTime}s</span>
+            {score > 0 && score % SPEED_EVERY === 0 && maxTime < BASE_TIME && (
+              <span className="text-red-400 mr-1.5 font-bold animate-pulse">— تسريع!</span>
+            )}
+          </span>
+          {combo >= 3 && (
+            <span
+              className="px-2 py-0.5 rounded-full font-black text-white animate-pulse"
+              style={{
+                background: combo >= 10 ? "linear-gradient(135deg,#dc2626,#f59e0b)" : combo >= 6 ? "linear-gradient(135deg,#7c3aed,#ec4899)" : "linear-gradient(135deg,#0ea5e9,#8b5cf6)",
+              }}
+            >
+              🔥 {combo} متتالية × {comboMultiplier(combo)}
+            </span>
           )}
         </div>
       </header>

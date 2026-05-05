@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { getWeeklyLeaderboard, getAllTimeLeaderboard, ScoreEntry } from "@/lib/db";
+import { getWeeklyLeaderboard, getAllTimeLeaderboard, getMyAllTimeRank, ScoreEntry } from "@/lib/db";
 import { useAuth } from "@/lib/AuthContext";
 import { getOrCreateUser } from "@/lib/storage";
 import { CATEGORIES } from "@/lib/questions";
@@ -82,6 +82,16 @@ export default function Leaderboard() {
 
   const myRank = myName ? entries.findIndex(e => e.username === myName) + 1 : -1;
 
+  // When user has scores but is outside the visible top, fetch their global rank.
+  const [globalRank, setGlobalRank] = useState<number | null>(null);
+  useEffect(() => {
+    if (isGuest || !myName || tab !== "alltime") { setGlobalRank(null); return; }
+    if (myRank > 0) { setGlobalRank(null); return; }
+    let cancelled = false;
+    getMyAllTimeRank(myName).then((r) => { if (!cancelled) setGlobalRank(r); });
+    return () => { cancelled = true; };
+  }, [myName, isGuest, tab, myRank, refreshKey]);
+
   const categories = [
     { id: "all", name: "الكل", icon: "🌐" },
     ...CATEGORIES.filter(c => !c.isPremium).map(c => ({ id: c.id, name: c.name, icon: c.icon })),
@@ -160,6 +170,15 @@ export default function Leaderboard() {
             <div>
               <p className="text-sm font-bold">{myName}</p>
               <p className="text-xs text-muted-foreground">مركزك {tab === "weekly" ? "هذا الأسبوع" : "في كل الوقت"}</p>
+            </div>
+          </div>
+        )}
+        {!isGuest && myRank <= 0 && globalRank && tab === "alltime" && (
+          <div className="mx-3 mt-3 bg-card border border-border/40 rounded-xl px-4 py-2.5 flex items-center gap-3">
+            <span className="text-lg font-black text-primary">#{globalRank}</span>
+            <div className="flex-1">
+              <p className="text-sm font-bold">أنت في المركز #{globalRank}</p>
+              <p className="text-xs text-muted-foreground">العب أكثر للوصول للقائمة 🏆</p>
             </div>
           </div>
         )}

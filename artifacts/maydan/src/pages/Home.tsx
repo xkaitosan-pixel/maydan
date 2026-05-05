@@ -369,6 +369,10 @@ export default function Home() {
 
                   {/* Bottom links */}
                   <div className="flex flex-wrap justify-center gap-x-4 gap-y-2">
+                    <button onClick={() => navigate("/settings")} className="text-xs text-secondary hover:text-secondary/80 transition-colors">
+                      ⚙️ الإعدادات
+                    </button>
+                    <span className="text-border">|</span>
                     <button onClick={() => navigate("/stats")} className="text-xs text-secondary hover:text-secondary/80 transition-colors">
                       📊 إحصائياتي
                     </button>

@@ -243,3 +243,119 @@ export async function completeDbChallenge(id: string, params: {
 
   if (error) console.error("completeDbChallenge error", error);
 }
+
+// ──────────────────────────── FRIENDS ────────────────────────────
+export interface Friend {
+  id: string;
+  user_id: string;
+  friend_id: string;
+  friend_name: string | null;
+  friend_avatar: string | null;
+  friend_country: string | null;
+  status: string;
+  created_at: string;
+}
+
+export async function addFriend(params: {
+  user_id: string;
+  friend_id: string;
+  friend_name?: string | null;
+  friend_avatar?: string | null;
+  friend_country?: string | null;
+}): Promise<boolean> {
+  if (params.user_id === params.friend_id) return false;
+  const { error } = await supabase.from("friends").upsert(
+    {
+      user_id: params.user_id,
+      friend_id: params.friend_id,
+      friend_name: params.friend_name ?? null,
+      friend_avatar: params.friend_avatar ?? null,
+      friend_country: params.friend_country ?? null,
+      status: "accepted",
+    },
+    { onConflict: "user_id,friend_id" }
+  );
+  if (error) { console.error("addFriend error", error); return false; }
+  return true;
+}
+
+export async function getFriends(userId: string): Promise<Friend[]> {
+  const { data, error } = await supabase
+    .from("friends")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("status", "accepted")
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) { console.error("getFriends error", error); return []; }
+  return (data as Friend[]) ?? [];
+}
+
+export async function isFriend(userId: string, friendId: string): Promise<boolean> {
+  const { data } = await supabase
+    .from("friends")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("friend_id", friendId)
+    .eq("status", "accepted")
+    .maybeSingle();
+  return !!data;
+}
+
+export async function removeFriend(userId: string, friendId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from("friends")
+    .delete()
+    .eq("user_id", userId)
+    .eq("friend_id", friendId);
+  if (error) { console.error("removeFriend error", error); return false; }
+  return true;
+}
+
+// ──────────────────────────── PUBLIC PROFILE ────────────────────────────
+export async function getPublicProfile(userId: string): Promise<DbUser | null> {
+  const { data, error } = await supabase
+    .from("users")
+    .select("*")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) { console.error("getPublicProfile error", error); return null; }
+  return (data as DbUser) ?? null;
+}
+
+// ──────────────────────────── DAILY RANK / PERCENTILE ────────────────────────────
+export async function getDailyPercentile(date: string, myScore: number): Promise<number | null> {
+  const { count: total, error: e1 } = await supabase
+    .from("daily_scores")
+    .select("user_id", { count: "exact", head: true })
+    .eq("date", date);
+  if (e1 || !total) return null;
+  const { count: below, error: e2 } = await supabase
+    .from("daily_scores")
+    .select("user_id", { count: "exact", head: true })
+    .eq("date", date)
+    .lt("score", myScore);
+  if (e2 || below == null) return null;
+  return Math.round((below / total) * 100);
+}
+
+// ──────────────────────────── LEADERBOARD: MY RANK ────────────────────────────
+// Counts how many distinct usernames have a higher best score than mine,
+// returning my 1-based rank (or null if I have no scores).
+export async function getMyAllTimeRank(username: string): Promise<number | null> {
+  const { data: mine } = await supabase
+    .from("scores")
+    .select("score")
+    .eq("username", username)
+    .order("score", { ascending: false })
+    .limit(1);
+  const myBest = mine?.[0]?.score;
+  if (myBest == null) return null;
+  const { data: higher } = await supabase
+    .from("scores")
+    .select("username, score")
+    .gt("score", myBest)
+    .limit(500);
+  const distinctHigher = new Set((higher ?? []).map((r: any) => r.username));
+  return distinctHigher.size + 1;
+}

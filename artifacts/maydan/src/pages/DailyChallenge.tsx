@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { fetchMixedDifficultyDailyQuestions } from "@/lib/questionService";
 import { Question } from "@/lib/questions";
 import { playSound } from "@/lib/sound";
+import { getDailyPercentile } from "@/lib/db";
 import { getCountryFlag } from "@/lib/countryUtils";
 import ShareCard from "@/components/ShareCard";
 
@@ -46,6 +47,9 @@ export default function DailyChallenge() {
   const [leaderboard, setLeaderboard] = useState<DailyEntry[]>([]);
   const [myEntry, setMyEntry] = useState<DailyEntry | null>(null);
   const [totalPlayers, setTotalPlayers] = useState(0);
+  const [percentile, setPercentile] = useState<number | null>(null);
+  const [answers, setAnswers] = useState<(number | null)[]>([]);
+  const [showReveal, setShowReveal] = useState(false);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const answeredRef = useRef(false);
@@ -146,6 +150,11 @@ export default function DailyChallenge() {
 
     setSelected(idx);
     setWasCorrect(correct);
+    setAnswers((prev) => {
+      const next = [...prev];
+      next[qIdx] = idx === -1 ? null : idx;
+      return next;
+    });
 
     setTimeout(() => {
       const nextIdx = qIdx + 1;
@@ -180,6 +189,8 @@ export default function DailyChallenge() {
       .upsert(entry, { onConflict: "user_id,date" });
     setMyEntry(entry);
     await loadLeaderboard();
+    // Fetch percentile (how the user compares to today's other players)
+    getDailyPercentile(today, finalScore).then((p) => setPercentile(p));
   }
 
   useEffect(() => {
@@ -347,7 +358,62 @@ export default function DailyChallenge() {
           {myRank > 0 && (
             <p className="text-primary font-bold mt-2">مركزك اليوم: #{myRank} من {leaderboard.length}</p>
           )}
+          {percentile !== null && percentile > 0 && (
+            <p className="text-sm font-bold mt-1" style={{ color: "#22c55e" }}>
+              ⚡ تفوّقت على {percentile}% من اللاعبين اليوم
+            </p>
+          )}
         </div>
+
+        {/* Answer reveal toggle */}
+        {answers.length > 0 && questions.length > 0 && (
+          <div className="w-full max-w-sm">
+            <button
+              onClick={() => setShowReveal((v) => !v)}
+              className="w-full py-2.5 rounded-xl border border-border bg-card font-bold text-sm hover:border-primary/40 transition-colors"
+            >
+              {showReveal ? "إخفاء الأجوبة الصحيحة ▲" : "📖 عرض الأجوبة الصحيحة"}
+            </button>
+            {showReveal && (
+              <div className="mt-3 space-y-2 text-right">
+                {questions.map((q, i) => {
+                  const my = answers[i];
+                  const ok = my === q.correct;
+                  return (
+                    <div key={i} className="rounded-xl border border-border/40 bg-card p-3">
+                      <p className="text-xs text-muted-foreground mb-1">السؤال {i + 1}</p>
+                      <p className="text-sm font-bold mb-2 leading-relaxed">{q.question}</p>
+                      <div className="space-y-1">
+                        {q.options.map((opt, idx) => {
+                          const isCorrect = idx === q.correct;
+                          const isMine = idx === my;
+                          return (
+                            <div
+                              key={idx}
+                              className="text-xs rounded-lg px-2.5 py-1.5 flex items-center gap-2"
+                              style={{
+                                background: isCorrect
+                                  ? "rgba(34,197,94,0.15)"
+                                  : isMine
+                                  ? "rgba(239,68,68,0.15)"
+                                  : "rgba(255,255,255,0.03)",
+                                color: isCorrect ? "#22c55e" : isMine ? "#ef4444" : "rgba(255,255,255,0.7)",
+                              }}
+                            >
+                              <span className="shrink-0">{isCorrect ? "✓" : isMine ? "✗" : "•"}</span>
+                              <span className="flex-1">{opt}</span>
+                              {isMine && <span className="text-[10px] font-bold">{ok ? "إجابتك" : "إجابتك ✗"}</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="w-full max-w-sm">
           <ShareCard

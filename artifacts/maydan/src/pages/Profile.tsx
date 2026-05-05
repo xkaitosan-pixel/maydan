@@ -3,11 +3,11 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { parseAchievementsData, ACHIEVEMENTS, LEVELS } from "@/lib/gamification";
-import { Crown, Trophy, Target, Zap, Star, Edit2, Check, X, Camera, Swords, Bell } from "lucide-react";
+import { Crown, Trophy, Target, Zap, Star, Edit2, Check, X, Camera, Swords, Bell, Users, Share2, Settings as SettingsIcon } from "lucide-react";
 
-import { COUNTRIES } from "@/lib/countryUtils";
+import { COUNTRIES, getCountryFlag } from "@/lib/countryUtils";
 import { CATEGORIES, getCategoryById } from "@/lib/questions";
-import { getMyChallenges, type DbChallenge } from "@/lib/db";
+import { getMyChallenges, getFriends, removeFriend, type DbChallenge, type Friend } from "@/lib/db";
 import {
   NOTIF_TYPES,
   getNotifPrefs,
@@ -51,6 +51,10 @@ export default function Profile() {
   // Sent challenges
   const [myChallenges, setMyChallenges] = useState<DbChallenge[] | null>(null);
 
+  // Friends
+  const [friends, setFriends] = useState<Friend[] | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
+
   // Notification preferences
   const [notifPrefs, setNotifPrefsState] = useState<Record<NotifType, boolean>>(() => getNotifPrefs());
   function toggleNotifPref(type: NotifType) {
@@ -78,8 +82,26 @@ export default function Profile() {
     getMyChallenges(dbUser.id, 10).then((rows) => {
       if (!cancelled) setMyChallenges(rows);
     });
+    getFriends(dbUser.id).then((rows) => {
+      if (!cancelled) setFriends(rows);
+    });
     return () => { cancelled = true; };
   }, [dbUser?.id, isGuest]);
+
+  function handleShareProfile() {
+    if (!dbUser?.id) return;
+    const url = `${window.location.origin}${import.meta.env.BASE_URL}profile/${dbUser.id}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    }).catch(() => {});
+  }
+
+  async function handleRemoveFriend(friendId: string) {
+    if (!dbUser?.id) return;
+    const ok = await removeFriend(dbUser.id, friendId);
+    if (ok) setFriends((prev) => (prev ?? []).filter((f) => f.friend_id !== friendId));
+  }
 
   const totalGames = (dbUser?.total_wins ?? 0) + (dbUser?.total_losses ?? 0);
   const winRate = totalGames > 0 ? Math.round(((dbUser?.total_wins ?? 0) / totalGames) * 100) : 0;
@@ -543,6 +565,79 @@ export default function Profile() {
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Friends list */}
+        {!isGuest && dbUser && (
+          <div className="rounded-2xl border border-border/40 bg-card p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-sm flex items-center gap-1.5">
+                <Users className="w-4 h-4 text-primary" /> الأصدقاء
+                {friends && <span className="text-xs text-muted-foreground font-normal">({friends.length})</span>}
+              </h3>
+            </div>
+            {friends === null ? (
+              <p className="text-xs text-muted-foreground text-center py-3">جاري التحميل...</p>
+            ) : friends.length === 0 ? (
+              <div className="text-center py-3">
+                <p className="text-3xl mb-1">👥</p>
+                <p className="text-xs text-muted-foreground">لا أصدقاء بعد — أضفهم بعد التحديات أو من ملفاتهم العامة.</p>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {friends.map((f) => {
+                  const flag = getCountryFlag(f.friend_country ?? "");
+                  return (
+                    <div
+                      key={f.id}
+                      className="flex items-center gap-3 p-2 rounded-xl border border-border/30 bg-background"
+                    >
+                      <button
+                        onClick={() => navigate(`/profile/${f.friend_id}`)}
+                        className="flex items-center gap-3 flex-1 text-right hover:opacity-80"
+                      >
+                        <div className="w-9 h-9 rounded-full overflow-hidden bg-muted shrink-0 flex items-center justify-center text-sm">
+                          {f.friend_avatar ? <img src={f.friend_avatar} alt="" className="w-full h-full object-cover" /> : "👤"}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold leading-tight truncate">{f.friend_name ?? "صديق"}</p>
+                          {flag && <p className="text-[10px] text-muted-foreground">{flag}</p>}
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => navigate(`/create?opponent=${encodeURIComponent(f.friend_id)}&name=${encodeURIComponent(f.friend_name ?? "")}`)}
+                        className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25"
+                      >⚔️ تحدي</button>
+                      <button
+                        onClick={() => handleRemoveFriend(f.friend_id)}
+                        className="text-muted-foreground hover:text-red-400 text-xs"
+                        title="إزالة"
+                      >✕</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Share + Settings shortcuts */}
+        {!isGuest && dbUser && (
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={handleShareProfile}
+              className="h-11 rounded-xl border border-border bg-card font-bold text-sm flex items-center justify-center gap-1.5 hover:border-primary/40"
+            >
+              <Share2 className="w-4 h-4" />
+              {shareCopied ? "✓ تم النسخ" : "شارك ملفي"}
+            </button>
+            <button
+              onClick={() => navigate("/settings")}
+              className="h-11 rounded-xl border border-border bg-card font-bold text-sm flex items-center justify-center gap-1.5 hover:border-primary/40"
+            >
+              <SettingsIcon className="w-4 h-4" /> الإعدادات
+            </button>
           </div>
         )}
 
