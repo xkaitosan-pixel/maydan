@@ -91,7 +91,21 @@ export default function Profile() {
   function handleShareProfile() {
     if (!dbUser?.id) return;
     const url = `${window.location.origin}${import.meta.env.BASE_URL}profile/${dbUser.id}`;
-    navigator.clipboard.writeText(url).then(() => {
+    const lvl = dbUser.level ?? 1;
+    const wins = dbUser.total_wins ?? 0;
+    const name = dbUser.display_name || dbUser.username || "لاعب ميدان";
+    const text = `🎯 شوف ملفي في ميدان!\n👤 ${name}\n⭐ المستوى: ${lvl}\n🏆 الانتصارات: ${wins}\n👇 جرّب التحدي\n${url}`;
+    // Try native share first; on failure copy the rich text to clipboard.
+    const nav: any = navigator;
+    if (nav.share) {
+      nav.share({ title: "ملفي في ميدان", text, url }).catch(() => {
+        navigator.clipboard.writeText(text).catch(() => {});
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2000);
+      });
+      return;
+    }
+    navigator.clipboard.writeText(text).then(() => {
       setShareCopied(true);
       setTimeout(() => setShareCopied(false), 2000);
     }).catch(() => {});
@@ -335,6 +349,11 @@ export default function Profile() {
                 </button>
               )}
               <p className="text-xs text-muted-foreground mt-0.5">@{dbUser?.username}</p>
+              {dbUser?.created_at && (
+                <p className="text-[11px] text-muted-foreground/70 mt-1">
+                  📅 انضم في {new Date(dbUser.created_at).toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" })}
+                </p>
+              )}
             </div>
           )}
           {isGuest && <h2 className="text-xl font-black text-muted-foreground">زائر</h2>}

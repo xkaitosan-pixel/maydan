@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { fetchMixedDifficultyDailyQuestions } from "@/lib/questionService";
 import { Question } from "@/lib/questions";
 import { playSound } from "@/lib/sound";
+import { recordTodayWin, recordTodayLoss, recordTodayXP } from "@/lib/storage";
 import { getDailyPercentile } from "@/lib/db";
 import { getCountryFlag } from "@/lib/countryUtils";
 import ShareCard from "@/components/ShareCard";
@@ -50,6 +51,14 @@ export default function DailyChallenge() {
   const [percentile, setPercentile] = useState<number | null>(null);
   const [answers, setAnswers] = useState<(number | null)[]>([]);
   const [showReveal, setShowReveal] = useState(false);
+  const [combo, setCombo] = useState(0);
+
+  function comboMultiplier(c: number): number {
+    if (c >= 10) return 2.5;
+    if (c >= 6) return 2;
+    if (c >= 3) return 1.5;
+    return 1;
+  }
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const answeredRef = useRef(false);
@@ -155,6 +164,15 @@ export default function DailyChallenge() {
       next[qIdx] = idx === -1 ? null : idx;
       return next;
     });
+    if (correct) {
+      setCombo((c) => {
+        const next = c + 1;
+        if (next === 3 || next === 6 || next === 10) playSound("combo", next);
+        return next;
+      });
+    } else {
+      setCombo(0);
+    }
 
     setTimeout(() => {
       const nextIdx = qIdx + 1;
@@ -172,6 +190,11 @@ export default function DailyChallenge() {
 
   async function finishChallenge(finalScore: number) {
     setPhase("finished");
+    // Today-stats: count as win if ≥70 % accuracy
+    const accPct = Math.round((finalScore / Math.max(1, DAILY_Q_COUNT * (BASE_POINTS + MAX_SPEED_BONUS))) * 100);
+    if (accPct >= 70) recordTodayWin(); else recordTodayLoss();
+    recordTodayXP(Math.round(finalScore / 5));
+    playSound("gameover");
     if (!userId) return;
 
     const entry: DailyEntry = {
@@ -291,7 +314,17 @@ export default function DailyChallenge() {
           <div className="flex justify-between items-center mb-2">
             <span className="text-sm font-bold text-muted-foreground">{qIdx + 1} / {DAILY_Q_COUNT}</span>
             <span className={`text-4xl font-black tabular-nums ${isDanger ? "text-red-400" : "text-primary"}`}>{timeLeft}</span>
-            <span className="text-sm font-black text-primary">{score} نقطة</span>
+            <div className="flex items-center gap-1.5">
+              {combo >= 3 && (
+                <span
+                  className="px-1.5 py-0.5 rounded-full text-[10px] font-black text-white animate-pulse"
+                  style={{
+                    background: combo >= 10 ? "linear-gradient(135deg,#dc2626,#f59e0b)" : combo >= 6 ? "linear-gradient(135deg,#7c3aed,#ec4899)" : "linear-gradient(135deg,#0ea5e9,#8b5cf6)",
+                  }}
+                >🔥{combo}×{comboMultiplier(combo)}</span>
+              )}
+              <span className="text-sm font-black text-primary">{score} نقطة</span>
+            </div>
           </div>
           <div className="h-3 bg-muted rounded-full overflow-hidden">
             <div className="h-full rounded-full transition-all"

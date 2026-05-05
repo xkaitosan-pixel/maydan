@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import {
   getOrCreateUser, updateDisplayName, canCreateChallenge,
-  getActiveNotifications, AppNotification, updateStreak
+  getActiveNotifications, AppNotification, updateStreak, getTodayStats,
 } from "@/lib/storage";
 import { useAuth } from "@/lib/AuthContext";
 import { syncStreak } from "@/lib/db";
@@ -151,6 +151,16 @@ export default function Home() {
   const seasonPoints    = dbUser?.season_points ?? 0;
   const seasonTier      = getSeasonTier(seasonPoints);
   const daysUntilReset  = getDaysUntilSunday();
+  const todayStats      = getTodayStats();
+
+  // Time-of-day greeting (Arabic, by local hour)
+  const hour = new Date().getHours();
+  const greeting =
+    hour < 5  ? { text: "ليلة هادئة 🌙", sub: "وقت مثالي لتحدي خاطف" } :
+    hour < 12 ? { text: "صباح المعرفة ☀️", sub: "ابدأ يومك بسؤال" } :
+    hour < 17 ? { text: "مرحبا بك مجدداً 👋", sub: "هل تتحدى أحدهم الآن؟" } :
+    hour < 21 ? { text: "مساء التحدي 🌅", sub: "وقت ذروة التحدي!" } :
+                { text: "سهرة معرفية 🌌", sub: "آخر فرصة للستريك اليوم" };
 
   return (
     <div className="min-h-screen gradient-hero star-bg flex flex-col">
@@ -328,6 +338,35 @@ export default function Home() {
                       <div className="text-left">
                         <p className="text-[10px] text-muted-foreground">ينتهي خلال</p>
                         <p className="text-xs font-bold text-yellow-400">{daysUntilReset} أيام</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Time-of-day greeting */}
+                  <div
+                    className="rounded-2xl px-4 py-3 border border-primary/20 flex items-center gap-3"
+                    style={{ background: "linear-gradient(135deg,rgba(217,119,6,0.10),rgba(124,58,237,0.10))" }}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-black text-primary">{greeting.text}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">{greeting.sub}</p>
+                    </div>
+                  </div>
+
+                  {/* Today stats — local rolling counters */}
+                  {(todayStats.wins + todayStats.losses + todayStats.xp) > 0 && (
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="bg-card border border-green-500/20 rounded-xl p-2 text-center">
+                        <p className="text-lg font-black text-green-400">{todayStats.wins}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">انتصارات اليوم</p>
+                      </div>
+                      <div className="bg-card border border-red-500/20 rounded-xl p-2 text-center">
+                        <p className="text-lg font-black text-red-400">{todayStats.losses}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">هزائم اليوم</p>
+                      </div>
+                      <div className="bg-card border border-purple-500/20 rounded-xl p-2 text-center">
+                        <p className="text-lg font-black text-purple-400">+{todayStats.xp}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">XP اليوم</p>
                       </div>
                     </div>
                   )}

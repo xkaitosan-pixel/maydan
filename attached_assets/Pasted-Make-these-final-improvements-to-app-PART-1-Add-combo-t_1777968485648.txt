@@ -1,0 +1,72 @@
+Make these final improvements to ميدان app:
+
+PART 1 - Add combo to more game modes:
+Add combo multiplier to:
+1. Daily Challenge - same as survival:
+   3 correct = x1.5, 6 = x2, 10 = x2.5
+   Show combo badge during questions
+   
+2. Ranked mode - show combo during match:
+   Same multiplier system
+   Show both players' combos
+
+PART 2 - Ranked mode visual improvements:
+During ranked match show:
+- Both players avatars at top (yours vs opponent)
+- Both country flags
+- Live score for each player
+- Combo multiplier for each player
+- Timer bar that counts down
+- After each question: brief result (1.5s)
+  showing who got it right and points earned
+
+PART 3 - Better challenge sharing:
+When sending challenge via WhatsApp:
+Message format:
+"⚔️ [username] يتحداك في ميدان!
+فئة: [category]
+هل تقبل التحدي؟ 😏
+👉 maydanapp.com/challenge/[id]"
+
+After opponent finishes:
+Show both scores clearly:
+[your avatar] [your score] vs [score] [opponent avatar]
+Winner gets 🏆 crown
+"تحدي مجدداً 🔄" button
+
+PART 4 - Home screen improvements:
+Add motivational message based on time:
+- Morning (6-12): "صباح الميدان! هيا نبدأ 🌅"
+- Afternoon (12-17): "وقت التحدي! من تتحدى اليوم؟ ⚔️"
+- Evening (17-21): "مساء المنافسة! من سيتصدر الليلة؟ 🌙"
+- Night (21-24): "الليل للأبطال! هيا العب 🌟"
+
+Show user's today stats on home:
+- انتصارات اليوم: X
+- هزائم اليوم: X  
+- XP اليوم: +X
+
+PART 5 - Profile improvements:
+Add "مشاركة ملفي" button that copies:
+"شوف ملفي في ميدان! 
+مستواي: [level]
+انتصاراتي: [wins]
+👉 maydanapp.com/profile/[userId]"
+
+Show join date "انضم في [date]" on profile.
+
+PART 6 - Sound improvements:
+Add more sounds:
+- Level up sound (when XP milestone reached)
+- Achievement unlock sound  
+- Coin earned sound
+- Correct answer streak sound (different for combo)
+- Countdown beep for last 3 seconds
+
+PART 7 - Fix any remaining bugs:
+- Make sure bottom nav works correctly
+- Fix any light mode issues
+- Make sure all Arabic text is correct
+- Fix any console errors
+
+Push to GitHub.

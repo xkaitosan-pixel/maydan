@@ -121,17 +121,66 @@ export function playMatchFound() {
   [440, 550, 660].forEach((f, i) => tone(f, 0.2, "sine", 0.28, i * 0.12));
 }
 
+/** Triumphant level-up: ascending major chord then sparkle */
+export function playLevelUp() {
+  [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.18, "triangle", 0.3, i * 0.09));
+}
+
+/** Achievement unlock: bright two-tone bell */
+export function playAchievement() {
+  tone(880, 0.18, "triangle", 0.3);
+  tone(1175, 0.25, "triangle", 0.28, 0.12);
+  tone(1568, 0.3, "sine", 0.22, 0.24);
+}
+
+/** Coin earned: short metallic ping */
+export function playCoin() {
+  tone(988, 0.08, "square", 0.18);
+  tone(1318, 0.12, "square", 0.16, 0.05);
+}
+
 /**
- * Unified helper — accepts 'correct' | 'wrong' | 'click' | 'tick' | 'gameover'.
+ * Streak/combo earned. Pitch rises with combo tier:
+ *  c<3 → noop, 3-5 → C, 6-9 → G, 10+ → C(higher) with extra chime.
+ */
+export function playComboStreak(combo: number) {
+  if (combo < 3) return;
+  if (combo >= 10) {
+    [784, 988, 1318, 1760].forEach((f, i) => tone(f, 0.12, "triangle", 0.28, i * 0.06));
+  } else if (combo >= 6) {
+    tone(784, 0.12, "triangle", 0.26);
+    tone(988, 0.15, "triangle", 0.26, 0.08);
+  } else {
+    tone(659, 0.1, "triangle", 0.22);
+    tone(784, 0.13, "triangle", 0.22, 0.07);
+  }
+}
+
+/** Countdown beep for last 3 seconds — slightly higher than the regular tick */
+export function playCountdownBeep() {
+  tone(900, 0.09, "square", 0.16);
+}
+
+/**
+ * Unified helper — accepts a wider set of effect names.
  * Also used as a test sound: playSound('click') from the toggle button.
  */
-export function playSound(type: "correct" | "wrong" | "click" | "tick" | "gameover" | "match") {
+export type SoundType =
+  | "correct" | "wrong" | "click" | "tick" | "gameover" | "match"
+  | "levelup" | "achievement" | "coin" | "combo" | "countdown";
+
+export function playSound(type: SoundType, extra?: number) {
   switch (type) {
-    case "correct":  return playCorrect();
-    case "wrong":    return playWrong();
-    case "click":    return playClick();
-    case "tick":     return playTick();
-    case "gameover": return playGameOver();
-    case "match":    return playMatchFound();
+    case "correct":     return playCorrect();
+    case "wrong":       return playWrong();
+    case "click":       return playClick();
+    case "tick":        return playTick();
+    case "gameover":    return playGameOver();
+    case "match":       return playMatchFound();
+    case "levelup":     return playLevelUp();
+    case "achievement": return playAchievement();
+    case "coin":        return playCoin();
+    case "combo":       return playComboStreak(extra ?? 3);
+    case "countdown":   return playCountdownBeep();
   }
 }

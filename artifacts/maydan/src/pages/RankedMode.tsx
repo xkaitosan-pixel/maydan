@@ -5,8 +5,10 @@ import { CATEGORIES, Question } from "@/lib/questions";
 import { fetchSeededQuestions } from "@/lib/questionService";
 import { useAuth } from "@/lib/AuthContext";
 import { getOrCreateUser } from "@/lib/storage";
-import { playCorrect, playWrong, playTick, playGameOver, playMatchFound } from "@/lib/sound";
+import { playCorrect, playWrong, playTick, playGameOver, playMatchFound, playSound } from "@/lib/sound";
 import { RANKS, getRankInfo } from "@/lib/rank";
+import { getCountryFlag } from "@/lib/countryUtils";
+import { recordTodayWin, recordTodayLoss, recordTodayXP } from "@/lib/storage";
 import AchievementPopup from "@/components/AchievementPopup";
 import FloatingReward from "@/components/FloatingReward";
 import ShareCard from "@/components/ShareCard";
@@ -90,8 +92,20 @@ export default function RankedMode() {
   const [showReward, setShowReward] = useState<{ xp: number; coins: number } | null>(null);
   const [newAchievements, setNewAchievements] = useState<string[]>([]);
   const [rewardSummary, setRewardSummary] = useState<{ xp: number; coins: number; achievements: number } | null>(null);
+  const [myCombo, setMyCombo] = useState(0);
+  const [oppCombo, setOppCombo] = useState(0);
+  const [oppCountry, setOppCountry] = useState<string | null>(null);
+  const [oppAvatar, setOppAvatar] = useState<string | null>(null);
+
+  function comboMultiplier(c: number): number {
+    if (c >= 10) return 2.5;
+    if (c >= 6) return 2;
+    if (c >= 3) return 1.5;
+    return 1;
+  }
 
   const searchIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const matchRef = useRef<RankedMatch | null>(null);
@@ -169,31 +183,27 @@ export default function RankedMode() {
     let elapsed = 0;
 
     // Countdown display
-    const displayInterval = setInterval(() => {
+    if (searchIntervalRef.current) clearInterval(searchIntervalRef.current);
+    searchIntervalRef.current = setInterval(() => {
       elapsed++;
       setSearchTimer(SEARCH_TIMEOUT - elapsed);
       if (elapsed >= SEARCH_TIMEOUT) {
-        clearInterval(displayInterval);
+        clearSearchTimers();
         cancelSearch();
       }
     }, 1000);
-    searchIntervalRef.current = displayInterval;
 
     // Poll for opponent
-    const pollInterval = setInterval(async () => {
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    pollIntervalRef.current = setInterval(async () => {
       const found = await findOpponent(category);
-      if (found) clearInterval(pollInterval);
+      if (found) clearSearchTimers();
     }, 2000);
+  }
 
-    // Store both intervals (we'll stop them manually when match is found)
-    const originalFn = searchIntervalRef.current;
-    searchIntervalRef.current = {
-      ...originalFn,
-      // Combined cleanup
-    } as unknown as ReturnType<typeof setInterval>;
-
-    // Actually just use one ref for the poll
-    // We'll track both via the global cleanup
+  function clearSearchTimers() {
+    if (searchIntervalRef.current) { clearInterval(searchIntervalRef.current); searchIntervalRef.current = null; }
+    if (pollIntervalRef.current)   { clearInterval(pollIntervalRef.current);   pollIntervalRef.current = null; }
   }
 
   async function findOpponent(category: string): Promise<boolean> {
@@ -268,11 +278,23 @@ export default function RankedMode() {
   // ── MATCH SETUP ──────────────────────────────────────────────────────────
 
   async function startMatch(m: RankedMatch, role: "p1" | "p2") {
+    clearSearchTimers();
     matchRef.current = m;
     setMatch(m);
     const qs = await getMatchQuestions(m.id, m.category);
     matchQsRef.current = qs;
     setMatchQs(qs);
+    setMyCombo(0);
+    setOppCombo(0);
+
+    // Fetch opponent country/avatar for the in-match scoreboard
+    const oppId = role === "p1" ? m.player2_id : m.player1_id;
+    if (oppId) {
+      supabase.from("users").select("country, avatar_url").eq("id", oppId).single()
+        .then(({ data }) => {
+          if (data) { setOppCountry(data.country ?? null); setOppAvatar(data.avatar_url ?? null); }
+        });
+    }
 
     playMatchFound();
     phaseRef.current = "matched";
@@ -350,7 +372,8 @@ export default function RankedMode() {
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
-        if (prev <= 4 && prev > 0) playTick();
+        if (prev <= 3 && prev > 0) playSound("countdown");
+        else if (prev <= 4 && prev > 0) playTick();
         if (prev <= 1) {
           clearInterval(timerRef.current!);
           handleTimeout(qIdx);
@@ -447,6 +470,20 @@ export default function RankedMode() {
 
         setMyTotalScore(myNewScore);
         setOppTotalScore(isP1 ? current.player2_score : current.player1_score);
+
+        // Update combos based on outcome
+        const myPtsThisQ = isP1 ? p1Pts : p2Pts;
+        const oppPtsThisQ = isP1 ? p2Pts : p1Pts;
+        if (myPtsThisQ > 0) {
+          setMyCombo((c) => {
+            const next = c + 1;
+            if (next === 3 || next === 6 || next === 10) playSound("combo", next);
+            return next;
+          });
+        } else {
+          setMyCombo(0);
+        }
+        setOppCombo((c) => (oppPtsThisQ > 0 ? c + 1 : 0));
         setPhase("q_result");
 
         // After result delay, advance
@@ -533,10 +570,19 @@ export default function RankedMode() {
       }).then(result => {
         setShowReward({ xp: result.xpGained, coins: result.coinsGained });
         setRewardSummary({ xp: result.xpGained, coins: result.coinsGained, achievements: result.newlyUnlocked.length });
-        if (result.newlyUnlocked.length > 0) setNewAchievements(result.newlyUnlocked);
+        if (result.newlyUnlocked.length > 0) {
+          setNewAchievements(result.newlyUnlocked);
+          playSound("achievement");
+        }
+        if (result.coinsGained > 0) playSound("coin");
+        if (result.leveledUp) playSound("levelup");
         refreshUser();
       }).catch(() => {});
     }
+
+    // Today-stats roll-up (works for guests too)
+    if (won) recordTodayWin(); else if (!draw) recordTodayLoss();
+    recordTodayXP(won ? XP_REWARDS.win_ranked : (draw ? 15 : 5));
   }
 
   // ── RENDER ────────────────────────────────────────────────────────────────
@@ -646,7 +692,7 @@ export default function RankedMode() {
           </div>
         </div>
         <button
-          onClick={() => { cancelSearch(); if (searchIntervalRef.current) clearInterval(searchIntervalRef.current); }}
+          onClick={() => { clearSearchTimers(); cancelSearch(); }}
           className="px-6 py-3 rounded-xl bg-card border border-border text-sm font-bold text-muted-foreground"
         >
           إلغاء البحث
@@ -687,25 +733,78 @@ export default function RankedMode() {
 
   // ── PLAYING ───────────────────────────────────────────────────────────────
   if ((phase === "playing" || phase === "q_result") && currentQ && match) {
+    const myFlag = dbUser?.country ? getCountryFlag(dbUser.country) : "";
+    const oppFlag = oppCountry ? getCountryFlag(oppCountry) : "";
+    const myAvatar = dbUser?.avatar_url;
+    const myScoreVal = isP1 ? match.player1_score : match.player2_score;
+    const oppScoreVal = isP1 ? match.player2_score : match.player1_score;
     return (
       <div className="min-h-screen gradient-hero flex flex-col">
-        <header className="p-3 border-b border-border/30">
-          <div className="flex justify-between items-center mb-1.5">
-            <div className="text-center">
-              <p className="text-xs text-muted-foreground">أنت</p>
-              <p className="text-xl font-black text-primary">{isP1 ? match.player1_score : match.player2_score}</p>
+        <header className="p-3 border-b border-border/30 space-y-2">
+          {/* Both players row */}
+          <div className="flex items-center gap-2">
+            {/* Me */}
+            <div className="flex-1 flex items-center gap-2 bg-card/60 rounded-xl p-2 border border-primary/20">
+              {myAvatar ? (
+                <img src={myAvatar} alt="" className="w-9 h-9 rounded-full border-2 border-primary object-cover shrink-0" />
+              ) : (
+                <div className="w-9 h-9 rounded-full bg-primary/15 border-2 border-primary flex items-center justify-center text-sm font-black text-primary shrink-0">
+                  {myName.charAt(0)}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1">
+                  {myFlag && <span className="text-xs">{myFlag}</span>}
+                  <p className="text-[11px] font-bold truncate">{myName}</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-lg font-black text-primary leading-none">{myScoreVal}</p>
+                  {myCombo >= 3 && (
+                    <span className="px-1 rounded text-[9px] font-black text-white"
+                      style={{ background: myCombo >= 10 ? "#dc2626" : myCombo >= 6 ? "#7c3aed" : "#0ea5e9" }}>
+                      🔥{myCombo}×{comboMultiplier(myCombo)}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="text-center">
-              <p className="text-xs text-muted-foreground">سؤال {currentQIdx + 1}/{MATCH_QUESTIONS}</p>
-              <span className={`text-2xl font-black tabular-nums ${isDanger && phase === "playing" ? "timer-danger" : "text-foreground"}`}>
+
+            {/* VS + question counter */}
+            <div className="text-center px-1 shrink-0">
+              <p className="text-[9px] text-muted-foreground">{currentQIdx + 1}/{MATCH_QUESTIONS}</p>
+              <span className={`text-lg font-black tabular-nums ${isDanger && phase === "playing" ? "timer-danger" : "text-foreground"}`}>
                 {phase === "q_result" ? "✓" : `${timeLeft}s`}
               </span>
             </div>
-            <div className="text-center">
-              <p className="text-xs text-muted-foreground">{opponentName}</p>
-              <p className="text-xl font-black text-secondary">{isP1 ? match.player2_score : match.player1_score}</p>
+
+            {/* Opponent */}
+            <div className="flex-1 flex items-center gap-2 bg-card/60 rounded-xl p-2 border border-secondary/20 flex-row-reverse text-right">
+              {oppAvatar ? (
+                <img src={oppAvatar} alt="" className="w-9 h-9 rounded-full border-2 border-secondary object-cover shrink-0" />
+              ) : (
+                <div className="w-9 h-9 rounded-full bg-secondary/15 border-2 border-secondary flex items-center justify-center text-sm font-black text-secondary shrink-0">
+                  {opponentName?.charAt(0) ?? "؟"}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1 flex-row-reverse">
+                  {oppFlag && <span className="text-xs">{oppFlag}</span>}
+                  <p className="text-[11px] font-bold truncate">{opponentName}</p>
+                </div>
+                <div className="flex items-center gap-1.5 flex-row-reverse">
+                  <p className="text-lg font-black text-secondary leading-none">{oppScoreVal}</p>
+                  {oppCombo >= 3 && (
+                    <span className="px-1 rounded text-[9px] font-black text-white"
+                      style={{ background: oppCombo >= 10 ? "#dc2626" : oppCombo >= 6 ? "#7c3aed" : "#0ea5e9" }}>
+                      🔥{oppCombo}×{comboMultiplier(oppCombo)}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
+
+          {/* Timer bar */}
           {phase === "playing" && (
             <div className="h-1.5 bg-muted rounded-full overflow-hidden">
               <div className="h-full rounded-full transition-all duration-1000 ease-linear"

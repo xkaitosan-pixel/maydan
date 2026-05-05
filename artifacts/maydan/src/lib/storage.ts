@@ -464,3 +464,29 @@ export function getActiveNotifications(): AppNotification[] {
 
   return notes;
 }
+
+// ── Today-stats (per-day rolling counters in localStorage) ──────────────────
+const TODAY_STATS_KEY = "maydan_today_stats_v1";
+export interface TodayStats { date: string; wins: number; losses: number; xp: number }
+
+function todayKey(): string { return new Date().toISOString().slice(0, 10); }
+
+export function getTodayStats(): TodayStats {
+  try {
+    const raw = localStorage.getItem(TODAY_STATS_KEY);
+    if (!raw) return { date: todayKey(), wins: 0, losses: 0, xp: 0 };
+    const s = JSON.parse(raw) as TodayStats;
+    if (s.date !== todayKey()) return { date: todayKey(), wins: 0, losses: 0, xp: 0 };
+    return s;
+  } catch { return { date: todayKey(), wins: 0, losses: 0, xp: 0 }; }
+}
+
+function bumpToday(field: "wins" | "losses" | "xp", delta: number) {
+  const s = getTodayStats();
+  s[field] += delta;
+  localStorage.setItem(TODAY_STATS_KEY, JSON.stringify(s));
+}
+
+export function recordTodayWin()    { bumpToday("wins", 1); }
+export function recordTodayLoss()   { bumpToday("losses", 1); }
+export function recordTodayXP(n: number) { if (n > 0) bumpToday("xp", n); }

@@ -12,6 +12,7 @@ import AchievementPopup from "@/components/AchievementPopup";
 import FloatingReward from "@/components/FloatingReward";
 import ShareCard from "@/components/ShareCard";
 import { awardGameRewards, XP_REWARDS } from "@/lib/gamification";
+import { recordTodayWin, recordTodayLoss, recordTodayXP } from "@/lib/storage";
 
 const XP_PER_CORRECT = XP_REWARDS.correct_answer;
 
@@ -154,7 +155,11 @@ export default function Survival() {
     if (isCorrect) {
       const newScore = score + 1;
       setScore(newScore);
-      setCombo(c => c + 1);
+      setCombo(c => {
+        const next = c + 1;
+        if (next === 3 || next === 6 || next === 10) playSound("combo", next);
+        return next;
+      });
       setCorrectAnswers(prev => ({ ...prev, [cat]: (prev[cat] || 0) + 1 }));
       setPerAnswerXP(true);
       setTimeout(() => setPerAnswerXP(false), 900);
@@ -228,11 +233,19 @@ export default function Survival() {
         }).then(result => {
           setShowReward({ xp: result.xpGained, coins: result.coinsGained });
           setRewardSummary({ xp: result.xpGained, coins: result.coinsGained, achievements: result.newlyUnlocked.length });
-          if (result.newlyUnlocked.length > 0) setNewAchievements(result.newlyUnlocked);
+          if (result.newlyUnlocked.length > 0) {
+            setNewAchievements(result.newlyUnlocked);
+            playSound("achievement");
+          }
+          if (result.coinsGained > 0) playSound("coin");
+          if (result.leveledUp) playSound("levelup");
+          recordTodayXP(result.xpGained);
           refreshUser();
         }).catch(() => {});
       }
     }
+    // Today-stats: ≥15 = win, otherwise loss
+    if (finalScore >= 15) recordTodayWin(); else recordTodayLoss();
     setScore(finalScore);
     setPhase("gameover");
   }

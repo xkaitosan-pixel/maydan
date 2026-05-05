@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { useLocation, useParams } from "wouter";
 import { getCategoryById, Question } from "@/lib/questions";
 import { fetchQuestionsByIds } from "@/lib/questionService";
-import { getChallenge, recordWin, getOrCreateUser, addLeaderboardEntry, getSurvivalRank } from "@/lib/storage";
+import { getChallenge, recordWin, getOrCreateUser, addLeaderboardEntry, getSurvivalRank, recordTodayWin, recordTodayLoss, recordTodayXP } from "@/lib/storage";
+import { playSound } from "@/lib/sound";
 import { useAuth } from "@/lib/AuthContext";
 import { insertScore, updateUserStats, addFriend, isFriend } from "@/lib/db";
 import { Button } from "@/components/ui/button";
@@ -48,11 +49,19 @@ export default function Results() {
   useEffect(() => {
     if (!challenge || winRecorded) return;
     if (challenge.status === "completed") {
+      // Persistent idempotency guard — prevents double-awarding XP/coins/wins
+      // on remount or refresh of /results/:id/:role.
+      const guardKey = `maydan_results_awarded_${challengeId}_${role}`;
+      if (typeof localStorage !== "undefined" && localStorage.getItem(guardKey)) {
+        setWinRecorded(true);
+        return;
+      }
       const cs = challenge.creatorScore;
       const chs = challenge.challengerScore ?? 0;
       const myWon = role === "creator" ? cs > chs : chs > cs;
       if (myWon) { recordWin(); }
       setWinRecorded(true);
+      try { localStorage.setItem(guardKey, "1"); } catch {}
 
       // Record to local leaderboard
       const myScore = role === "creator" ? cs : chs;
@@ -98,11 +107,20 @@ export default function Results() {
           }).then(result => {
             setShowReward({ xp: result.xpGained, coins: result.coinsGained });
             setRewardSummary({ xp: result.xpGained, coins: result.coinsGained, achievements: result.newlyUnlocked.length });
-            if (result.newlyUnlocked.length > 0) setNewAchievements(result.newlyUnlocked);
+            if (result.newlyUnlocked.length > 0) {
+              setNewAchievements(result.newlyUnlocked);
+              playSound("achievement");
+            }
+            if (result.coinsGained > 0) playSound("coin");
+            if (result.leveledUp) playSound("levelup");
+            recordTodayXP(result.xpGained);
             refreshUser();
           }).catch(() => {});
         }
       }
+
+      // Today-stats roll-up (works for guests too, only when challenge is finished)
+      if (myWon) recordTodayWin(); else if (cs !== chs) recordTodayLoss();
     }
   }, [challenge, role, winRecorded]);
 
@@ -132,15 +150,15 @@ export default function Results() {
   const pct = Math.round((myScore / total) * 100);
   const rank = getSurvivalRank(myScore);
 
-  // Viral share texts
+  // Viral share texts (richer format with header + signature)
   function getViralShareText() {
     const catLabel = category ? `${category.icon} ${category.name}` : "ميدان";
     if (isCompleted) {
       return isWinner
-        ? `🏆 فزت في تحدي ${catLabel}!\nنتيجتي: ${myScore}/${total} (${pct}%)\nرتبتي: ${rank.icon} ${rank.title}\nتحداني إذا تجرأ 😏\n${shareUrl}`
-        : `⚔️ خضت تحدي ${catLabel} في ميدان!\nنتيجتي: ${myScore}/${total}\nهل تستطيع التغلب عليّ؟\n${shareUrl}`;
+        ? `👑 فزت في تحدي ميدان!\n━━━━━━━━━━━━\n🎯 الفئة: ${catLabel}\n🏆 نتيجتي: ${myScore}/${total} (${pct}%)\n${rank.icon} رتبتي: ${rank.title}\n━━━━━━━━━━━━\n💪 هل تستطيع هزيمتي؟ تحدّاني الآن:\n${shareUrl}\n\n📲 ميدان — تحدي المعرفة العربي`
+        : `⚔️ خضت تحدي ميدان!\n━━━━━━━━━━━━\n🎯 الفئة: ${catLabel}\n📊 نتيجتي: ${myScore}/${total}\n━━━━━━━━━━━━\n💪 جرّب أنت وأرني ما عندك:\n${shareUrl}\n\n📲 ميدان — تحدي المعرفة العربي`;
     }
-    return `⚔️ تحداك ${challenge?.creatorName ?? ""} في ${catLabel}!\nنتيجته: ${creatorScore}/${total}\nهل تستطيع التغلب عليه؟\n${shareUrl}`;
+    return `⚔️ تحداك ${challenge?.creatorName ?? "صديق"} في ميدان!\n━━━━━━━━━━━━\n🎯 الفئة: ${catLabel}\n🏆 نتيجته: ${creatorScore}/${total}\n━━━━━━━━━━━━\n💪 هل تستطيع التغلب عليه؟\n${shareUrl}\n\n📲 ميدان — تحدي المعرفة العربي`;
   }
 
   function shareResult() {
@@ -149,7 +167,7 @@ export default function Results() {
 
   function shareChallengeLink() {
     const catLabel = category ? `${category.icon} ${category.name}` : "ميدان";
-    const text = `⚔️ تعال تحداني في ميدان — ${catLabel}!\nأنا جاهز، هل أنت جاهز؟ 💪\n${shareUrl}`;
+    const text = `⚔️ تحداك ${myName || "صديقك"} في ميدان!\n━━━━━━━━━━━━\n🎯 الفئة: ${catLabel}\n📊 ${isCompleted ? `نتيجتي: ${myScore}/${total}` : `نتيجتي: ${creatorScore}/${total} — هل تتفوّق عليّ؟`}\n━━━━━━━━━━━━\n👇 اضغط الرابط للعب نفس الأسئلة:\n${shareUrl}\n\n📲 ميدان — تحدي المعرفة العربي`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
   }
 
@@ -228,18 +246,28 @@ export default function Results() {
           <div className="bg-card border border-border rounded-2xl p-5 fade-in-up">
             <div className="grid grid-cols-3 gap-4 items-center text-center">
               <div>
-                <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-2 border-2"
-                  style={{ background: `${category?.gradientFrom}22`, borderColor: category?.gradientFrom || "hsl(var(--primary))" }}>
-                  <span className="text-xl font-black" style={{ color: category?.gradientFrom }}>{myScore}</span>
+                <div className="relative w-14 h-14 mx-auto mb-2">
+                  {isWinner && (
+                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-xl drop-shadow-[0_0_4px_rgba(245,158,11,0.6)]">👑</span>
+                  )}
+                  <div className="w-14 h-14 rounded-full flex items-center justify-center border-2"
+                    style={{ background: `${category?.gradientFrom}22`, borderColor: category?.gradientFrom || "hsl(var(--primary))" }}>
+                    <span className="text-xl font-black" style={{ color: category?.gradientFrom }}>{myScore}</span>
+                  </div>
                 </div>
                 <p className="text-xs text-muted-foreground">{myName}</p>
                 <p className="text-xs font-bold" style={{ color: category?.gradientFrom }}>{pct}%</p>
               </div>
               <div><p className="text-2xl font-black text-muted-foreground">VS</p></div>
               <div>
-                <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-2 border-2 ${(opponentScore ?? 0) > myScore ? "" : "border-border bg-muted"}`}
-                  style={(opponentScore ?? 0) > myScore ? { background: `${category?.gradientFrom}22`, borderColor: category?.gradientFrom } : {}}>
-                  <span className="text-xl font-black" style={(opponentScore ?? 0) > myScore ? { color: category?.gradientFrom } : { color: "hsl(var(--muted-foreground))" }}>{opponentScore}</span>
+                <div className="relative w-14 h-14 mx-auto mb-2">
+                  {!isWinner && !isTie && (opponentScore ?? 0) > myScore && (
+                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-xl drop-shadow-[0_0_4px_rgba(245,158,11,0.6)]">👑</span>
+                  )}
+                  <div className={`w-14 h-14 rounded-full flex items-center justify-center border-2 ${(opponentScore ?? 0) > myScore ? "" : "border-border bg-muted"}`}
+                    style={(opponentScore ?? 0) > myScore ? { background: `${category?.gradientFrom}22`, borderColor: category?.gradientFrom } : {}}>
+                    <span className="text-xl font-black" style={(opponentScore ?? 0) > myScore ? { color: category?.gradientFrom } : { color: "hsl(var(--muted-foreground))" }}>{opponentScore}</span>
+                  </div>
                 </div>
                 <p className="text-xs text-muted-foreground">{opponentName}</p>
                 <p className="text-xs text-muted-foreground">{Math.round(((opponentScore ?? 0) / total) * 100)}%</p>
