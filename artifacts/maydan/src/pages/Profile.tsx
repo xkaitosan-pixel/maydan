@@ -457,7 +457,7 @@ export default function Profile() {
                 <Swords className="w-4 h-4 text-primary" /> تحدياتي
               </h3>
               <button
-                onClick={() => navigate("/challenge/create")}
+                onClick={() => navigate("/create")}
                 className="text-xs text-primary"
               >
                 + جديد
