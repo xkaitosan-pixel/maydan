@@ -416,3 +416,37 @@ img, video, svg {
     padding-top: env(safe-area-inset-top, 0px);
   }
 }
+
+/* ── Page transitions / smooth animations ─────────────────────────────── */
+@keyframes mdyFadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.page-enter {
+  animation: mdyFadeIn 0.3s ease forwards;
+}
+
+@keyframes mdySlideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.modal-enter {
+  animation: mdySlideUp 0.25s ease-out forwards;
+}
+
+@keyframes mdyScoreBounce {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.25); }
+  70%  { transform: scale(0.95); }
+  100% { transform: scale(1); }
+}
+.score-bounce {
+  animation: mdyScoreBounce 0.5s ease-out;
+}
+
+/* Bottom-nav offset on mobile so fixed nav doesn't overlap content */
+@media (max-width: 767.98px) {
+  body.has-bottom-nav {
+    padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  }
+}

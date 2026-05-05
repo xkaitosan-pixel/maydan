@@ -64,6 +64,23 @@ export default function Achievements() {
           </div>
         </div>
 
+        {/* Empty state when nothing unlocked yet */}
+        {unlocked.length === 0 && (
+          <div className="text-center py-6 rounded-2xl border border-border/40 bg-card">
+            <p className="text-5xl mb-3">🏅</p>
+            <p className="text-foreground font-bold">لا إنجازات بعد! العب لتفتحها 🏅</p>
+            <p className="text-xs text-muted-foreground mt-1 px-6">
+              كل إنجاز يفتح يمنحك XP وعملات إضافية
+            </p>
+            <button
+              onClick={() => navigate("/")}
+              className="mt-4 px-6 py-2.5 rounded-xl gradient-gold text-background font-bold text-sm hover:opacity-90"
+            >
+              ابدأ اللعب الآن
+            </button>
+          </div>
+        )}
+
         {/* Achievement cards */}
         <div className="grid grid-cols-1 gap-3">
           {ACHIEVEMENTS.map((ach) => {

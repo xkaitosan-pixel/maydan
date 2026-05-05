@@ -6,7 +6,51 @@ export type NotifType =
   | "daily_challenge"
   | "rank_dropped"
   | "achievement"
-  | "challenge_completed";
+  | "challenge_completed"
+  | "challenge_reminder";
+
+export const NOTIF_TYPES: Array<{ type: NotifType; icon: string; label: string; desc: string }> = [
+  { type: "streak_danger", icon: "🔥", label: "تنبيه الستريك", desc: "تذكير قبل خسارة ستريكك اليومي" },
+  { type: "daily_challenge", icon: "📅", label: "تحدي اليوم", desc: "تذكير بتحدي اليوم إذا لم تلعبه" },
+  { type: "rank_dropped", icon: "⚔️", label: "تغيّر ترتيبك", desc: "تنبيه عند تجاوزك في لوحة المتصدرين" },
+  { type: "achievement", icon: "🏅", label: "إنجازات جديدة", desc: "إشعار عند فتح إنجاز" },
+  { type: "challenge_completed", icon: "🎯", label: "إكمال تحدياتك", desc: "إشعار عندما يُنهي خصمك تحديك" },
+  { type: "challenge_reminder", icon: "⏳", label: "تذكير التحديات", desc: "تذكير إذا لم يلعب خصمك بعد ٢٤ ساعة" },
+];
+
+const PREFS_KEY = "maydan_notif_prefs";
+
+export function getNotifPrefs(): Record<NotifType, boolean> {
+  const defaults: Record<NotifType, boolean> = {
+    streak_danger: true,
+    daily_challenge: true,
+    rank_dropped: true,
+    achievement: true,
+    challenge_completed: true,
+    challenge_reminder: true,
+  };
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (!raw) return defaults;
+    return { ...defaults, ...JSON.parse(raw) };
+  } catch {
+    return defaults;
+  }
+}
+
+export function setNotifPref(type: NotifType, enabled: boolean) {
+  try {
+    const prev = getNotifPrefs();
+    const next = { ...prev, [type]: enabled };
+    localStorage.setItem(PREFS_KEY, JSON.stringify(next));
+  } catch {
+    /* ignore */
+  }
+}
+
+function isEnabled(type: NotifType): boolean {
+  return getNotifPrefs()[type] !== false;
+}
 
 export interface AppNotif {
   id: string;
@@ -186,7 +230,49 @@ async function checkCompletedChallenges(
   }
 }
 
-/* ─────── public API: collect all, respecting dedup ─────── */
+/* ─────── challenge reminder (creator: opponent hasn't played in 24h+) ─────── */
+const REMINDED_CHALLENGES_KEY_PREFIX = "maydan_seen_reminded_challenges:";
+
+async function checkChallengeReminders(
+  dbUser: DbUser | null,
+): Promise<AppNotif | null> {
+  if (!dbUser?.id) return null;
+  try {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabase
+      .from("challenges")
+      .select("id, opponent_name, status, created_at")
+      .eq("creator_id", dbUser.id)
+      .eq("status", "pending")
+      .lt("created_at", cutoff)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (error || !data?.length) return null;
+    const key = REMINDED_CHALLENGES_KEY_PREFIX + dbUser.id;
+    const seen = new Set<string>(
+      JSON.parse(localStorage.getItem(key) || "[]") as string[],
+    );
+    const fresh = data.filter((c) => !seen.has(c.id));
+    if (!fresh.length) return null;
+    const updated = [...Array.from(seen), ...fresh.map((f) => f.id)].slice(-100);
+    localStorage.setItem(key, JSON.stringify(updated));
+    const first = fresh[0];
+    const extra = fresh.length > 1 ? ` (+${fresh.length - 1})` : "";
+    return {
+      id: "challenge_reminder_" + first.id,
+      type: "challenge_reminder",
+      icon: "⏳",
+      title: `تحديك لـ ${first.opponent_name || "صديقك"} لا يزال في الانتظار${extra}`,
+      ctaRoute: `/profile`,
+      autoDismissMs: 7000,
+    };
+  } catch (e) {
+    console.warn("[notifications] reminder check failed", e);
+    return null;
+  }
+}
+
+/* ─────── public API: collect all, respecting dedup + user prefs ─────── */
 export async function collectNotifications(
   dbUser: DbUser | null,
 ): Promise<AppNotif[]> {
@@ -196,6 +282,7 @@ export async function collectNotifications(
     ["streak_danger", checkStreakDanger(dbUser)],
   ];
   for (const [type, n] of sync) {
+    if (!isEnabled(type)) continue;
     if (n && !sessionSeen(type) && !persistedSeenToday(type)) out.push(n);
   }
 
@@ -203,12 +290,17 @@ export async function collectNotifications(
     checkDailyChallenge(dbUser),
     checkRankDropped(dbUser),
     checkCompletedChallenges(dbUser),
+    checkChallengeReminders(dbUser),
   ]);
   for (const r of asyncResults) {
     if (r.status !== "fulfilled" || !r.value) continue;
-    // challenge_completed dedupes by challenge id inside the producer itself,
-    // so we bypass the per-type session/day dedup for it.
-    if (r.value.type !== "challenge_completed") {
+    if (!isEnabled(r.value.type)) continue;
+    // challenge_completed and challenge_reminder dedupe by id inside the producer,
+    // so we bypass the per-type session/day dedup for them.
+    if (
+      r.value.type !== "challenge_completed" &&
+      r.value.type !== "challenge_reminder"
+    ) {
       if (sessionSeen(r.value.type) || persistedSeenToday(r.value.type)) continue;
     }
     out.push(r.value);
@@ -241,6 +333,7 @@ export function pushNotification(n: Omit<AppNotif, "id"> & { id?: string }) {
 }
 
 export function pushAchievement(name: string) {
+  if (!isEnabled("achievement")) return;
   pushNotification({
     type: "achievement",
     icon: "🏅",

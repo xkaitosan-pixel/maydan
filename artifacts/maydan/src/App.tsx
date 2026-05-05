@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -6,30 +6,37 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { hasCompletedOnboarding } from "@/lib/storage";
 import { AuthProvider, useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
+import LogoIcon from "@/components/LogoIcon";
+import NotificationSystem from "@/components/NotificationSystem";
+import ErrorBoundary from "@/components/ErrorBoundary";
+import InstallPrompt from "@/components/InstallPrompt";
+import BottomNav from "@/components/BottomNav";
+
+// Eager: critical auth-flow + landing pages
 import Home from "@/pages/Home";
 import Auth from "@/pages/Auth";
 import UsernameSetup from "@/pages/UsernameSetup";
-import CreateChallenge from "@/pages/CreateChallenge";
-import Quiz from "@/pages/Quiz";
-import Results from "@/pages/Results";
-import AcceptChallenge from "@/pages/AcceptChallenge";
-import Survival from "@/pages/Survival";
-import Stats from "@/pages/Stats";
-import Premium from "@/pages/Premium";
 import Onboarding from "@/pages/Onboarding";
-import Leaderboard from "@/pages/Leaderboard";
-import Profile from "@/pages/Profile";
-import Admin from "@/pages/Admin";
-import Party from "@/pages/Party";
-import PartyHost from "@/pages/PartyHost";
-import PartyGuest from "@/pages/PartyGuest";
-import RankedMode from "@/pages/RankedMode";
-import Achievements from "@/pages/Achievements";
-import Store from "@/pages/Store";
-import DailyChallenge from "@/pages/DailyChallenge";
 import NotFound from "@/pages/not-found";
-import LogoIcon from "@/components/LogoIcon";
-import NotificationSystem from "@/components/NotificationSystem";
+
+// Lazy: heavier / less-frequently-used pages
+const CreateChallenge = lazy(() => import("@/pages/CreateChallenge"));
+const Quiz = lazy(() => import("@/pages/Quiz"));
+const Results = lazy(() => import("@/pages/Results"));
+const AcceptChallenge = lazy(() => import("@/pages/AcceptChallenge"));
+const Survival = lazy(() => import("@/pages/Survival"));
+const Stats = lazy(() => import("@/pages/Stats"));
+const Premium = lazy(() => import("@/pages/Premium"));
+const Leaderboard = lazy(() => import("@/pages/Leaderboard"));
+const Profile = lazy(() => import("@/pages/Profile"));
+const Admin = lazy(() => import("@/pages/Admin"));
+const Party = lazy(() => import("@/pages/Party"));
+const PartyHost = lazy(() => import("@/pages/PartyHost"));
+const PartyGuest = lazy(() => import("@/pages/PartyGuest"));
+const RankedMode = lazy(() => import("@/pages/RankedMode"));
+const Achievements = lazy(() => import("@/pages/Achievements"));
+const Store = lazy(() => import("@/pages/Store"));
+const DailyChallenge = lazy(() => import("@/pages/DailyChallenge"));
 
 const queryClient = new QueryClient();
 
@@ -186,6 +193,16 @@ function RedirectHome() {
   return <LoadingScreen />;
 }
 
+// Wraps a child route so it re-mounts (and re-plays the page-enter animation) on path change.
+function PageTransition({ children }: { children: React.ReactNode }) {
+  const [location] = useLocation();
+  return (
+    <div key={location} className="page-enter">
+      {children}
+    </div>
+  );
+}
+
 function AppRoutes() {
   const [location] = useLocation();
   const { session, isGuest, isLoading, needsUsername } = useAuth();
@@ -195,19 +212,23 @@ function AppRoutes() {
   const isRankedRoute = location.startsWith("/ranked");
   if (isPartyRoute) {
     return (
-      <Switch>
-        <Route path="/party/host" component={PartyHost} />
-        <Route path="/party/guest" component={PartyGuest} />
-        <Route path="/party" component={Party} />
-      </Switch>
+      <Suspense fallback={<LoadingScreen />}>
+        <Switch>
+          <Route path="/party/host" component={PartyHost} />
+          <Route path="/party/guest" component={PartyGuest} />
+          <Route path="/party" component={Party} />
+        </Switch>
+      </Suspense>
     );
   }
 
   if (isRankedRoute) {
     return (
-      <Switch>
-        <Route path="/ranked" component={RankedMode} />
-      </Switch>
+      <Suspense fallback={<LoadingScreen />}>
+        <Switch>
+          <Route path="/ranked" component={RankedMode} />
+        </Switch>
+      </Suspense>
     );
   }
 
@@ -221,27 +242,31 @@ function AppRoutes() {
 
   return (
     <OnboardingGuard>
-      <Switch>
-        <Route path="/onboarding" component={Onboarding} />
-        <Route path="/" component={Home} />
-        <Route path="/create" component={CreateChallenge} />
-        <Route path="/quiz/:id/:role" component={Quiz} />
-        <Route path="/results/:id/:role" component={Results} />
-        <Route path="/challenge/:id" component={AcceptChallenge} />
-        <Route path="/survival" component={Survival} />
-        <Route path="/stats" component={Stats} />
-        <Route path="/room" component={RedirectHome} />
-        <Route path="/tournament" component={RedirectHome} />
-        <Route path="/premium" component={Premium} />
-        <Route path="/leaderboard" component={Leaderboard} />
-        <Route path="/profile" component={Profile} />
-        <Route path="/admin" component={Admin} />
-        <Route path="/ranked" component={RankedMode} />
-        <Route path="/achievements" component={Achievements} />
-        <Route path="/store" component={Store} />
-        <Route path="/daily" component={DailyChallenge} />
-        <Route component={NotFound} />
-      </Switch>
+      <Suspense fallback={<LoadingScreen />}>
+        <PageTransition>
+          <Switch>
+            <Route path="/onboarding" component={Onboarding} />
+            <Route path="/" component={Home} />
+            <Route path="/create" component={CreateChallenge} />
+            <Route path="/quiz/:id/:role" component={Quiz} />
+            <Route path="/results/:id/:role" component={Results} />
+            <Route path="/challenge/:id" component={AcceptChallenge} />
+            <Route path="/survival" component={Survival} />
+            <Route path="/stats" component={Stats} />
+            <Route path="/room" component={RedirectHome} />
+            <Route path="/tournament" component={RedirectHome} />
+            <Route path="/premium" component={Premium} />
+            <Route path="/leaderboard" component={Leaderboard} />
+            <Route path="/profile" component={Profile} />
+            <Route path="/admin" component={Admin} />
+            <Route path="/ranked" component={RankedMode} />
+            <Route path="/achievements" component={Achievements} />
+            <Route path="/store" component={Store} />
+            <Route path="/daily" component={DailyChallenge} />
+            <Route component={NotFound} />
+          </Switch>
+        </PageTransition>
+      </Suspense>
     </OnboardingGuard>
   );
 }
@@ -252,26 +277,30 @@ function App() {
   const isCallback = detectAuthCallback();
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        {isCallback ? (
-          // Standalone callback handler — no AuthProvider needed, just Supabase client
-          <div className="min-h-screen w-full">
-            <AuthCallbackHandler />
-          </div>
-        ) : (
-          <AuthProvider>
-            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-              <div className="min-h-screen w-full">
-                <AppRoutes />
-                <NotificationSystem />
-              </div>
-            </WouterRouter>
-          </AuthProvider>
-        )}
-        <Toaster />
-      </TooltipProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          {isCallback ? (
+            // Standalone callback handler — no AuthProvider needed, just Supabase client
+            <div className="min-h-screen w-full">
+              <AuthCallbackHandler />
+            </div>
+          ) : (
+            <AuthProvider>
+              <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+                <div className="min-h-screen w-full">
+                  <AppRoutes />
+                  <NotificationSystem />
+                  <BottomNav />
+                  <InstallPrompt />
+                </div>
+              </WouterRouter>
+            </AuthProvider>
+          )}
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

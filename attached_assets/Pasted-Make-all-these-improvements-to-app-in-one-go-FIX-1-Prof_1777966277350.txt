@@ -1,0 +1,88 @@
+Make all these improvements to ميدان app in one go:
+
+FIX 1 - Professional logo:
+Replace current logo with a better SVG design.
+Two crossed golden swords on dark background,
+more detailed and professional than current version.
+Swords should have:
+- Gradient gold blade (light gold to dark gold)
+- Purple gem at crossing point with glow effect
+- Detailed guard and pommel
+- Subtle glow/shadow effect around swords
+Update LogoIcon.tsx with the new design.
+
+FIX 2 - PWA improvements (install as mobile app):
+Update manifest.json:
+- name: "ميدان"
+- short_name: "ميدان" 
+- theme_color: "#0D0D1A"
+- background_color: "#0D0D1A"
+- display: "standalone"
+- orientation: "portrait"
+- Add proper icons (192x192, 512x512) as SVG
+Add install prompt banner:
+- Show "📱 أضف ميدان لشاشتك الرئيسية" banner
+- Appears after 30 seconds on mobile
+- Uses beforeinstallprompt event
+- Dismiss option saves to localStorage
+
+FIX 3 - Performance improvements:
+- Add loading skeleton screens instead of blank pages
+- Lazy load routes with React.lazy and Suspense
+- Add error boundaries for graceful failures
+- Cache questions in memory (already done, verify)
+
+FIX 4 - SEO and meta tags:
+Update index.html:
+- title: "ميدان - تحدى أصدقاءك في المعرفة العربية"
+- description: "تحدى أصدقاءك في أسئلة ثقافية وترفيهية عربية"
+- og:title, og:description, og:image
+- twitter:card meta tags
+- lang="ar" on html tag
+- canonical URL
+
+FIX 5 - Show active notifications list:
+In settings or profile page, add section showing
+what notifications are currently active:
+- List all notification types with toggle ON/OFF
+- Save preferences to localStorage
+- User can disable specific notification types
+
+FIX 6 - Challenge reminder:
+If user sent a challenge 24h ago and opponent hasn't played:
+Show notification: "⏳ تحديك لـ [اسم] لا يزال في الانتظار"
+Check on app load.
+
+FIX 7 - Better empty states:
+When no challenges, no achievements, no scores:
+Show friendly Arabic message with illustration emoji
+Instead of blank space:
+- تحدياتي empty: "لم ترسل أي تحدي بعد! ابدأ الآن ⚔️"
+- Achievements empty: "لا إنجازات بعد! العب لتفتحها 🏅"
+- Leaderboard empty: "لا يوجد متصدرون بعد! كن الأول 🏆"
+
+FIX 8 - Smooth animations:
+Add smooth page transitions:
+- Fade in when navigating between pages
+- Slide up animation for modals
+- Bounce animation for score updates
+Add CSS:
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.page-enter {
+  animation: fadeIn 0.3s ease forwards;
+}
+
+FIX 9 - Footer navigation bar:
+Add bottom navigation bar on mobile:
+- 🏠 الرئيسية → /
+- ⚔️ تحدي → /create  
+- 📅 اليوم → /daily
+- 🏆 المتصدرون → /leaderboard
+- 👤 ملفي → /profile
+Show active state with gold color.
+Hide on game screens (/quiz, /survival, /ranked, /party, /daily while playing).
+
+Push everything to GitHub.

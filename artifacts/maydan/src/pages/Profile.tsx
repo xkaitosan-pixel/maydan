@@ -3,11 +3,17 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { parseAchievementsData, ACHIEVEMENTS, LEVELS } from "@/lib/gamification";
-import { Crown, Trophy, Target, Zap, Star, Edit2, Check, X, Camera, Swords } from "lucide-react";
+import { Crown, Trophy, Target, Zap, Star, Edit2, Check, X, Camera, Swords, Bell } from "lucide-react";
 
 import { COUNTRIES } from "@/lib/countryUtils";
 import { CATEGORIES, getCategoryById } from "@/lib/questions";
 import { getMyChallenges, type DbChallenge } from "@/lib/db";
+import {
+  NOTIF_TYPES,
+  getNotifPrefs,
+  setNotifPref,
+  type NotifType,
+} from "@/lib/notifications";
 
 const FAV_CAT_LIMIT = 3;
 
@@ -44,6 +50,14 @@ export default function Profile() {
 
   // Sent challenges
   const [myChallenges, setMyChallenges] = useState<DbChallenge[] | null>(null);
+
+  // Notification preferences
+  const [notifPrefs, setNotifPrefsState] = useState<Record<NotifType, boolean>>(() => getNotifPrefs());
+  function toggleNotifPref(type: NotifType) {
+    const next = !notifPrefs[type];
+    setNotifPref(type, next);
+    setNotifPrefsState((prev) => ({ ...prev, [type]: next }));
+  }
 
   // Favorite categories
   const [editingFavs, setEditingFavs] = useState(false);
@@ -469,9 +483,22 @@ export default function Profile() {
                 <div className="w-5 h-5 border-2 border-primary/40 border-t-primary rounded-full animate-spin" />
               </div>
             ) : myChallenges.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-3">
-                لم ترسل أي تحدٍ بعد — تحدَّ صديقك الآن!
-              </p>
+              <div className="text-center py-6">
+                <p className="text-4xl mb-2">⚔️</p>
+                <p className="text-sm text-foreground font-bold">
+                  لم ترسل أي تحدي بعد!
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  ابدأ الآن وتحدَّ صديقك
+                </p>
+                <button
+                  onClick={() => navigate("/create")}
+                  className="mt-3 px-5 py-2 rounded-xl text-xs font-bold text-background"
+                  style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}
+                >
+                  إنشاء تحدي جديد
+                </button>
+              </div>
             ) : (
               <div className="space-y-2">
                 {myChallenges.map(ch => {
@@ -516,6 +543,55 @@ export default function Profile() {
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Notification preferences */}
+        {!isGuest && dbUser && (
+          <div className="rounded-2xl border border-border/40 bg-card p-4 space-y-3">
+            <h3 className="font-bold text-sm flex items-center gap-1.5">
+              <Bell className="w-4 h-4 text-primary" /> الإشعارات
+            </h3>
+            <p className="text-[11px] text-muted-foreground -mt-1">
+              تحكّم في أنواع الإشعارات التي تظهر لك
+            </p>
+            <div className="space-y-1.5">
+              {NOTIF_TYPES.map(({ type, icon, label, desc }) => {
+                const enabled = notifPrefs[type] !== false;
+                return (
+                  <button
+                    key={type}
+                    onClick={() => toggleNotifPref(type)}
+                    className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-border/30 bg-background hover:border-primary/40 transition-colors text-right"
+                  >
+                    <span className="text-xl shrink-0">{icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold leading-tight">{label}</p>
+                      <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">
+                        {desc}
+                      </p>
+                    </div>
+                    <div
+                      className="w-10 h-6 rounded-full p-0.5 transition-colors shrink-0"
+                      style={{
+                        background: enabled
+                          ? "linear-gradient(135deg,#d97706,#f59e0b)"
+                          : "rgba(255,255,255,0.1)",
+                      }}
+                      role="switch"
+                      aria-checked={enabled}
+                    >
+                      <div
+                        className="w-5 h-5 rounded-full bg-white shadow transition-transform"
+                        style={{
+                          transform: enabled ? "translateX(-16px)" : "translateX(0)",
+                        }}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 

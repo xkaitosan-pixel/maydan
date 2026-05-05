@@ -255,7 +255,7 @@ export default function Leaderboard() {
           ) : entries.length === 0 ? (
             <div className="text-center py-14 fade-in-up">
               <p className="text-5xl mb-4">🏆</p>
-              <p className="text-foreground font-bold">لا يوجد متصدرون بعد</p>
+              <p className="text-foreground font-bold">لا يوجد متصدرون بعد! كن الأول 🏆</p>
               <p className="text-xs text-muted-foreground mt-1 px-6">
                 {isGuest
                   ? "سجّل دخولك وانتهِ من لعبة لتظهر هنا"

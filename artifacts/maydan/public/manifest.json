@@ -1,18 +1,40 @@
 {
-  "name": "ميدان - تحدي المعرفة",
+  "name": "ميدان",
   "short_name": "ميدان",
-  "description": "ساحة المعرفة العربية",
+  "description": "تحدى أصدقاءك في المعرفة العربية",
   "start_url": "/",
-  "display": "fullscreen",
-  "orientation": "any",
-  "background_color": "#0d1117",
-  "theme_color": "#d97706",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0D0D1A",
+  "theme_color": "#0D0D1A",
+  "lang": "ar",
+  "dir": "rtl",
+  "categories": ["games", "education", "entertainment"],
   "icons": [
+    {
+      "src": "/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    },
     {
       "src": "/favicon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ]
 }
