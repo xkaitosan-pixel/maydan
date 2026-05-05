@@ -221,11 +221,15 @@ function AppRoutes() {
     location.startsWith("/challenge/") ||
     location.startsWith("/quiz/") ||
     location.startsWith("/results/");
-  // Static info pages — accessible to anyone with no auth required
+  // Static info pages — accessible to anyone with no auth required.
+  // Normalize trailing slash so /terms, /terms/, /terms?utm=x all match.
+  // (wouter's `location` already excludes the query string, but we strip it
+  //  again defensively in case a future router change re-introduces it.)
+  const normalizedPath = location.split("?")[0].split("#")[0].replace(/\/+$/, "") || "/";
   const isPublicInfoRoute =
-    location === "/terms" ||
-    location === "/privacy" ||
-    location === "/about";
+    normalizedPath === "/terms" ||
+    normalizedPath === "/privacy" ||
+    normalizedPath === "/about";
   if (isPartyRoute) {
     return (
       <Suspense fallback={<LoadingScreen />}>
