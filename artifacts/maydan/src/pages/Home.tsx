@@ -11,7 +11,6 @@ import StreakMilestone from "@/components/StreakMilestone";
 import NotificationBanner from "@/components/NotificationBanner";
 import XPBar from "@/components/XPBar";
 import { toggleTheme, getTheme } from "@/lib/theme";
-import LogoIcon from "@/components/LogoIcon";
 import { isSoundEnabled, toggleSound, playClick, playSound } from "@/lib/sound";
 import {
   parseAchievementsData, ACHIEVEMENTS, getSeasonTier, getDaysUntilSunday,
@@ -181,7 +180,7 @@ export default function Home() {
       {/* ── Header ───────────────────────────────────────────────────────── */}
       <header className="px-4 md:px-8 pt-4 pb-3 flex justify-between items-center border-b border-border/30">
         <div className="flex items-center gap-2">
-          <LogoIcon size={36} />
+          <img src="/logo.png" alt="ميدان" className="app-logo" style={{ width: 44, height: "auto" }} />
           <span className="text-xl md:text-2xl font-black text-primary">ميدان</span>
         </div>
         <div className="flex items-center gap-2">
@@ -247,7 +246,7 @@ export default function Home() {
               {/* Hero logo */}
               <div className="text-center pt-2 md:pt-6">
                 <div className="gold-glow mb-3 mx-auto w-fit rounded-3xl">
-                  <LogoIcon size={96} />
+                  <img src="/logo.png" alt="ميدان" className="app-logo" style={{ width: 120, height: "auto" }} />
                 </div>
                 <h1 className="text-4xl md:text-5xl font-black text-primary">ميدان</h1>
                 <p className="text-secondary text-sm md:text-base font-semibold mt-1">تحدي المعرفة العربي</p>

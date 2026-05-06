@@ -1,6 +1,5 @@
 import { useLocation } from "wouter";
 import { ArrowRight, Mail, Globe, MessageCircle } from "lucide-react";
-import LogoIcon from "@/components/LogoIcon";
 
 const APP_VERSION = "1.0.0";
 
@@ -34,7 +33,7 @@ export default function About() {
           {/* Hero */}
           <div className="text-center space-y-3 pt-2">
             <div className="gold-glow mx-auto w-fit rounded-3xl">
-              <LogoIcon size={88} />
+              <img src="/logo.png" alt="ميدان" className="app-logo" style={{ width: 96, height: "auto" }} />
             </div>
             <h2 className="text-3xl font-black text-primary">ميدان</h2>
             <p className="text-secondary font-semibold text-sm">منصة تحديات المعرفة العربية</p>

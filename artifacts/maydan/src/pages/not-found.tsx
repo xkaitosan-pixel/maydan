@@ -1,5 +1,4 @@
 import { useLocation } from "wouter";
-import LogoIcon from "@/components/LogoIcon";
 
 export default function NotFound() {
   const [, navigate] = useLocation();
@@ -10,7 +9,7 @@ export default function NotFound() {
       dir="rtl"
     >
       <div className="gold-glow rounded-3xl mb-2">
-        <LogoIcon size={72} />
+        <img src="/logo.png" alt="ميدان" className="app-logo" style={{ width: 80, height: "auto" }} />
       </div>
 
       <div className="text-7xl font-black text-primary leading-none" aria-hidden>

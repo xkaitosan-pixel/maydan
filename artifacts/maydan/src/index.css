@@ -339,6 +339,21 @@ html.light-mode .option-btn:hover:not(:disabled) {
                     radial-gradient(circle at 80% 80%, hsl(270 60% 50% / 0.05) 0%, transparent 50%);
 }
 
+/* ─── App logo ─── */
+.app-logo {
+  object-fit: contain;
+  background: transparent !important;
+  display: block;
+}
+
+.dark .app-logo {
+  filter: none;
+}
+
+.light-mode .app-logo {
+  filter: drop-shadow(0 0 8px rgba(0, 0, 0, 0.1));
+}
+
 /* ─── Mobile / PWA polish ─── */
 
 html, body {

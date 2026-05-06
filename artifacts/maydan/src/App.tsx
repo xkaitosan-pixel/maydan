@@ -6,7 +6,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { hasCompletedOnboarding } from "@/lib/storage";
 import { AuthProvider, useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
-import LogoIcon from "@/components/LogoIcon";
 import NotificationSystem from "@/components/NotificationSystem";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import InstallPrompt from "@/components/InstallPrompt";
@@ -115,7 +114,7 @@ function AuthCallbackHandler() {
     <div className="min-h-screen gradient-hero star-bg flex flex-col items-center justify-center gap-5 p-6 text-center"
       style={{ background: "hsl(220 20% 8%)" }}>
       <div className="gold-glow rounded-3xl">
-        <LogoIcon size={96} />
+        <img src="/logo.png" alt="ميدان" className="app-logo" style={{ width: 100, height: "auto" }} />
       </div>
 
       {status === "loading" && (
@@ -158,7 +157,7 @@ function LoadingScreen() {
   return (
     <div className="min-h-screen gradient-hero flex flex-col items-center justify-center gap-4">
       <div className="gold-glow rounded-3xl">
-        <LogoIcon size={80} />
+        <img src="/logo.png" alt="ميدان" className="app-logo" style={{ width: 100, height: "auto" }} />
       </div>
       <div className="flex gap-1.5">
         {[0, 1, 2].map(i => (
