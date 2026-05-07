@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useLocation, useParams } from "wouter";
 import { getCategoryById, Question } from "@/lib/questions";
 import { fetchQuestionsByIds } from "@/lib/questionService";
+import { shuffleQuestion } from "@/lib/shuffle";
 import { getChallenge, recordWin, getOrCreateUser, addLeaderboardEntry, getSurvivalRank, recordTodayWin, recordTodayLoss, recordTodayXP } from "@/lib/storage";
 import { playSound } from "@/lib/sound";
 import { useAuth } from "@/lib/AuthContext";
@@ -43,7 +44,10 @@ export default function Results() {
 
   useEffect(() => {
     if (challenge) {
-      fetchQuestionsByIds(challenge.questions).then(setLoadedQs);
+      // Apply same deterministic shuffle as Quiz so saved answer indices map to correct options
+      fetchQuestionsByIds(challenge.questions).then((qs) =>
+        setLoadedQs(qs.map((q) => shuffleQuestion(q, q.id)))
+      );
     }
   }, [challengeId]);
 
