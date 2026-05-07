@@ -5,7 +5,8 @@ import { fetchGameQuestions } from "@/lib/questionService";
 import { shuffleQuestion } from "@/lib/shuffle";
 import QuestionImage from "@/components/QuestionImage";
 import CategoryCard from "@/components/CategoryCard";
-import { recordSurvivalGame, recordCategoryAnswers, getSurvivalRank, getAvailablePowerCards, useSkipCard, useTimeCard, getOrCreateUser, addLeaderboardEntry } from "@/lib/storage";
+import { recordSurvivalGame, recordCategoryAnswers, getSurvivalRank, getAvailablePowerCards, useSkipCard, useTimeCard, getOrCreateUser, addLeaderboardEntry, canPlaySurvival, getRemainingSurvival, incrementSurvivalCount } from "@/lib/storage";
+import { fetchCategoryTree, type CategoryNode } from "@/lib/categoriesService";
 import { insertScore, updateUserStats } from "@/lib/db";
 import { useAuth } from "@/lib/AuthContext";
 import { playSound } from "@/lib/sound";
@@ -36,6 +37,10 @@ export default function Survival() {
   const { dbUser, isGuest, refreshUser } = useAuth();
   const [phase, setPhase] = useState<Phase>("select");
   const [selectedCategory, setSelectedCategory] = useState<string>("mix");
+  const [catTree, setCatTree] = useState<CategoryNode[]>([]);
+  const [navParent, setNavParent] = useState<CategoryNode | null>(null);
+
+  useEffect(() => { fetchCategoryTree().then(setCatTree); }, []);
 
   // Game state
   const [lives, setLives] = useState(LIVES_START);
@@ -82,6 +87,12 @@ export default function Survival() {
   }, [currentQ?.id]);
 
   async function startGame() {
+    if (!canPlaySurvival()) {
+      alert("لقد استنفدت جولات وضع البقاء اليوم (5/يوم). ترقّ إلى ميدان برو لجولات غير محدودة.");
+      navigate("/premium");
+      return;
+    }
+    incrementSurvivalCount();
     const rawPool = await fetchGameQuestions(selectedCategory);
     const pool = rawPool.map((q) => shuffleQuestion(q));
     if (!pool.length) return;
@@ -279,46 +290,88 @@ export default function Survival() {
 
   // ── CATEGORY SELECT ──
   if (phase === "select") {
-    const selectableCats = [
-      { id: "mix", name: "مزيج كل الفئات", icon: "🎲", gradient: "from-purple-600 to-pink-500", gFrom: "#9333ea", gTo: "#ec4899" },
-      ...CATEGORIES.filter(c => !c.isPremium).map(c => ({ id: c.id, name: c.name, icon: c.icon, gradient: c.gradient, gFrom: c.gradientFrom, gTo: c.gradientTo }))
-    ];
+    const isPremium = !!(dbUser?.is_premium ?? user.isPremium);
+    const survivalRemaining = getRemainingSurvival();
+
+    // Hierarchical: when navParent is null show roots; when set show its kids.
+    const mixTile = { id: "mix", name: "مزيج كل الفئات", icon: "🎲",
+      gradient: "from-purple-600 to-pink-500", gradientFrom: "#9333ea", gradientTo: "#ec4899",
+      isPremium: false, parentKey: null, children: [] as CategoryNode[] };
+
+    const visible: CategoryNode[] = navParent
+      ? navParent.children
+      : [mixTile as CategoryNode, ...catTree];
 
     return (
       <div className="min-h-screen gradient-hero flex flex-col">
         <header className="p-4 flex items-center gap-3 border-b border-border/30">
-          <button onClick={() => navigate("/")} className="text-muted-foreground hover:text-foreground text-xl">←</button>
-          <h1 className="text-lg font-bold">وضع البقاء 🏃</h1>
+          <button
+            onClick={() => navParent ? setNavParent(null) : navigate("/")}
+            className="text-muted-foreground hover:text-foreground text-xl"
+          >←</button>
+          <h1 className="text-lg font-bold">
+            {navParent ? `${navParent.icon} ${navParent.name}` : "وضع البقاء 🏃"}
+          </h1>
         </header>
 
         <div className="flex-1 overflow-y-auto p-4">
           <div className="rp-narrow">
-            {/* Rules */}
-            <div className="bg-red-500/10 border border-red-500/25 rounded-2xl p-4 mb-4 text-sm space-y-1.5">
-              <p className="font-bold text-red-400 mb-2">⚔️ قواعد وضع البقاء</p>
-              <p className="text-muted-foreground">❤️ لديك 3 أرواح — الإجابة الخاطئة تُفقدك روحاً</p>
-              <p className="text-muted-foreground">⏱️ الوقت يبدأ 20 ثانية ويقل ثانية كل 5 أسئلة (الحد الأدنى 8)</p>
-              <p className="text-muted-foreground">♾️ بدون حد للأسئلة — استمر حتى نهاية الأرواح</p>
-              <p className="text-muted-foreground">🃏 لديك بطاقتا قوة: تخطي ووقت إضافي</p>
-            </div>
+            {!navParent && (
+              <div className="bg-red-500/10 border border-red-500/25 rounded-2xl p-4 mb-4 text-sm space-y-1.5">
+                <p className="font-bold text-red-400 mb-2">⚔️ قواعد وضع البقاء</p>
+                <p className="text-muted-foreground">❤️ لديك 3 أرواح — الإجابة الخاطئة تُفقدك روحاً</p>
+                <p className="text-muted-foreground">⏱️ الوقت يبدأ 20 ثانية ويقل ثانية كل 5 أسئلة (الحد الأدنى 8)</p>
+                <p className="text-muted-foreground">♾️ بدون حد للأسئلة — استمر حتى نهاية الأرواح</p>
+                <p className="text-muted-foreground">🃏 لديك بطاقتا قوة: تخطي ووقت إضافي</p>
+              </div>
+            )}
 
-            <p className="text-xs text-muted-foreground mb-3 text-center font-semibold">اختر الفئة</p>
+            {!isPremium && !navParent && (
+              <div className="bg-purple-500/10 border border-purple-500/25 rounded-xl p-3 mb-3 text-center text-xs">
+                <span className="text-purple-300 font-bold">🏃 الجولات المتبقية اليوم: </span>
+                <span className="text-white font-black">{survivalRemaining === Infinity ? "∞" : survivalRemaining}</span>
+                <span className="text-muted-foreground"> / 5</span>
+              </div>
+            )}
+
+            <p className="text-xs text-muted-foreground mb-3 text-center font-semibold">
+              {navParent ? "اختر فئة فرعية" : "اختر الفئة"}
+            </p>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {selectableCats.map(cat => (
-                <CategoryCard
-                  key={cat.id}
-                  cat={cat as any}
-                  isSelected={selectedCategory === cat.id}
-                  questionCount={cat.id === "mix" ? 225 : 15}
-                  onClick={() => setSelectedCategory(cat.id)}
-                  size="small"
-                />
-              ))}
+              {visible.map(cat => {
+                const hasChildren = (cat.children?.length ?? 0) > 0;
+                const isLocked = !!cat.isPremium && !isPremium;
+                return (
+                  <div key={cat.id} className="relative">
+                    <CategoryCard
+                      cat={cat as any}
+                      isSelected={selectedCategory === cat.id}
+                      isLocked={isLocked}
+                      questionCount={cat.id === "mix" ? 225 : 15}
+                      onClick={() => {
+                        if (isLocked) return;
+                        if (hasChildren) {
+                          setNavParent(cat);
+                        } else {
+                          setSelectedCategory(cat.id);
+                        }
+                      }}
+                      size="small"
+                    />
+                    {hasChildren && !isLocked && (
+                      <span className="absolute bottom-1 right-1 text-[10px] bg-black/50 text-white px-1.5 py-0.5 rounded-full">
+                        {cat.children.length} ›
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             <button
               onClick={startGame}
-              className="w-full h-14 mt-5 rounded-xl text-white font-black text-lg transition-opacity hover:opacity-90"
+              disabled={navParent ? !visible.some(v => v.id === selectedCategory) : false}
+              className="w-full h-14 mt-5 rounded-xl text-white font-black text-lg transition-opacity hover:opacity-90 disabled:opacity-40"
               style={{ background: "linear-gradient(135deg, #dc2626, #ef4444)" }}
             >
               🏃 ابدأ البقاء

@@ -696,6 +696,378 @@ create policy "store_items read for all"
   );
 }
 
+// ─── Categories Manager Section ───────────────────────────────────────────────
+type DbCategoryRow = {
+  id: string;
+  name: string;
+  key: string;
+  icon: string | null;
+  parent_key: string | null;
+  is_premium: boolean;
+  sort_order: number;
+  created_at?: string;
+};
+
+function emptyCatDraft() {
+  return {
+    name: "",
+    key: "",
+    icon: "🎯",
+    parent_key: "",
+    is_premium: false,
+    sort_order: 0,
+  };
+}
+
+function CategoriesManager() {
+  const [items, setItems] = useState<DbCategoryRow[]>([]);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [info, setInfo] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<Partial<DbCategoryRow>>({});
+  const [draft, setDraft] = useState(emptyCatDraft());
+  const [adding, setAdding] = useState(false);
+
+  useEffect(() => { fetchAll(); }, []);
+
+  async function fetchAll() {
+    setLoading(true);
+    setErr("");
+    const { data, error } = await supabase
+      .from("categories")
+      .select("*")
+      .order("sort_order")
+      .order("name");
+    if (error) {
+      setErr(
+        error.code === "42P01" || /relation .* does not exist/i.test(error.message)
+          ? "جدول categories غير موجود. شغّل سكريبت SQL في الأسفل أولاً."
+          : error.message,
+      );
+      setItems([]);
+    } else {
+      setItems((data ?? []) as DbCategoryRow[]);
+    }
+    // Question counts (best-effort)
+    try {
+      const { data: qs } = await supabase.from("questions").select("category");
+      const c: Record<string, number> = {};
+      for (const r of (qs ?? []) as Array<{ category: string }>) {
+        c[r.category] = (c[r.category] || 0) + 1;
+      }
+      setCounts(c);
+    } catch { /* ignore */ }
+    setLoading(false);
+  }
+
+  function flash(msg: string, isErr = false) {
+    if (isErr) { setErr(msg); setInfo(""); }
+    else { setInfo(msg); setErr(""); }
+    setTimeout(() => { setInfo(""); }, 2500);
+  }
+
+  async function addCategory() {
+    setErr("");
+    const name = draft.name.trim();
+    const key = draft.key.trim().toLowerCase().replace(/\s+/g, "_");
+    if (!name) { setErr("أدخل اسم الفئة"); return; }
+    if (!key || !/^[a-z0-9_]+$/i.test(key)) { setErr("المفتاح بالإنجليزية فقط بدون مسافات (a-z, 0-9, _)"); return; }
+    setAdding(true);
+    const { data, error } = await supabase
+      .from("categories")
+      .insert({
+        name,
+        key,
+        icon: draft.icon.trim() || "🎯",
+        parent_key: draft.parent_key.trim() || null,
+        is_premium: !!draft.is_premium,
+        sort_order: Math.round(Number(draft.sort_order) || 0),
+      })
+      .select()
+      .single();
+    setAdding(false);
+    if (error) { flash(error.message.includes("unique") ? "هذا المفتاح مستخدم مسبقاً" : error.message, true); return; }
+    setItems((prev) => [...prev, data as DbCategoryRow]);
+    setDraft(emptyCatDraft());
+    flash(`✅ تمت إضافة "${name}"`);
+  }
+
+  function startEdit(it: DbCategoryRow) { setEditId(it.id); setEditDraft({ ...it }); }
+  function cancelEdit() { setEditId(null); setEditDraft({}); }
+
+  async function saveEdit() {
+    if (!editId) return;
+    const d = editDraft;
+    if (!d.name?.trim()) { flash("الاسم مطلوب", true); return; }
+    if (!d.key?.trim() || !/^[a-z0-9_]+$/i.test(d.key.trim())) { flash("مفتاح غير صحيح", true); return; }
+    setBusyId(editId);
+    const { error } = await supabase
+      .from("categories")
+      .update({
+        name: d.name.trim(),
+        key: d.key.trim().toLowerCase(),
+        icon: (d.icon ?? "").trim() || "🎯",
+        parent_key: (d.parent_key ?? "").trim() || null,
+        is_premium: !!d.is_premium,
+        sort_order: Math.round(Number(d.sort_order ?? 0)),
+      })
+      .eq("id", editId);
+    setBusyId(null);
+    if (error) { flash(error.message, true); return; }
+    setItems((prev) => prev.map((x) => (x.id === editId ? { ...x, ...(d as DbCategoryRow) } : x)));
+    cancelEdit();
+    flash("✅ تم حفظ التعديلات");
+  }
+
+  async function deleteCategory(it: DbCategoryRow) {
+    if (!confirm(`حذف الفئة "${it.name}" (${it.key}) نهائياً؟\nملاحظة: الأسئلة المرتبطة بها لن تُحذف.`)) return;
+    setBusyId(it.id);
+    const { error } = await supabase.from("categories").delete().eq("id", it.id);
+    setBusyId(null);
+    if (error) { flash(error.message, true); return; }
+    setItems((prev) => prev.filter((x) => x.id !== it.id));
+    flash(`🗑️ تم حذف "${it.name}"`);
+  }
+
+  const parentOptions = items.filter((x) => !x.parent_key);
+
+  return (
+    <div className="rounded-2xl border border-purple-500/30 overflow-hidden" style={{ background: "hsl(270 30% 9%)" }}>
+      <div className="px-5 py-4 border-b border-purple-500/20 flex items-center gap-3" style={{ background: "hsl(270 30% 11%)" }}>
+        <span className="text-xl">🗂️</span>
+        <h2 className="text-white font-bold">إدارة الفئات</h2>
+        <span className="mr-auto text-xs px-2 py-0.5 rounded-full bg-purple-900/50 text-purple-300">
+          {items.length} فئة
+        </span>
+        <button
+          onClick={fetchAll}
+          className="text-xs px-3 py-1 rounded-lg border border-white/15 text-white/70 hover:border-white/30"
+        >
+          🔄 تحديث
+        </button>
+      </div>
+
+      <div className="p-5 space-y-5">
+        {/* Add new */}
+        <div className="rounded-xl border border-white/10 p-4 space-y-3" style={{ background: "hsl(220 20% 12%)" }}>
+          <p className="text-sm text-white/70 font-bold">➕ إضافة فئة جديدة</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">الاسم (عربي) *</label>
+              <input
+                value={draft.name}
+                onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+                placeholder="جغرافيا الخليج"
+                className="w-full px-3 py-2 rounded-lg text-sm text-white border border-white/10"
+                style={{ background: "hsl(220 20% 16%)" }}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">المفتاح (إنجليزي، بدون مسافات) *</label>
+              <input
+                value={draft.key}
+                onChange={(e) => setDraft((d) => ({ ...d, key: e.target.value }))}
+                placeholder="gulf_geography"
+                dir="ltr"
+                className="w-full px-3 py-2 rounded-lg text-sm text-white border border-white/10 font-mono"
+                style={{ background: "hsl(220 20% 16%)" }}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">الأيقونة (إيموجي)</label>
+              <input
+                value={draft.icon}
+                onChange={(e) => setDraft((d) => ({ ...d, icon: e.target.value }))}
+                placeholder="🌍"
+                className="w-full px-3 py-2 rounded-lg text-sm text-white border border-white/10"
+                style={{ background: "hsl(220 20% 16%)" }}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">فئة أب (اختياري — للفئات الفرعية)</label>
+              <select
+                value={draft.parent_key}
+                onChange={(e) => setDraft((d) => ({ ...d, parent_key: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg text-sm text-white border border-white/10"
+                style={{ background: "hsl(220 20% 16%)" }}
+              >
+                <option value="">— لا يوجد (فئة رئيسية) —</option>
+                {parentOptions.map((p) => (
+                  <option key={p.id} value={p.key}>{p.icon || "🎯"} {p.name} ({p.key})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">ترتيب العرض</label>
+              <input
+                type="number"
+                value={draft.sort_order}
+                onChange={(e) => setDraft((d) => ({ ...d, sort_order: Number(e.target.value) }))}
+                className="w-full px-3 py-2 rounded-lg text-sm text-white border border-white/10"
+                style={{ background: "hsl(220 20% 16%)" }}
+              />
+            </div>
+            <div className="flex items-center">
+              <label className="flex items-center gap-2 text-sm text-white/80 cursor-pointer mt-5">
+                <input
+                  type="checkbox"
+                  checked={draft.is_premium}
+                  onChange={(e) => setDraft((d) => ({ ...d, is_premium: e.target.checked }))}
+                />
+                👑 للأعضاء المميزين فقط
+              </label>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              onClick={addCategory}
+              disabled={adding}
+              className="px-5 py-2 rounded-xl font-bold text-sm text-black disabled:opacity-50"
+              style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}
+            >
+              {adding ? "..." : "💾 حفظ الفئة"}
+            </button>
+          </div>
+        </div>
+
+        {/* Status */}
+        {err && <p className="text-red-400 text-xs">⚠️ {err}</p>}
+        {info && <p className="text-green-400 text-xs">{info}</p>}
+
+        {/* Items table */}
+        <div className="rounded-xl border border-white/10 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" style={{ minWidth: 720 }}>
+              <thead>
+                <tr style={{ background: "hsl(220 20% 14%)" }}>
+                  <th className="px-3 py-2 text-right text-white/40 font-medium w-12">أيقونة</th>
+                  <th className="px-3 py-2 text-right text-white/40 font-medium">الاسم</th>
+                  <th className="px-3 py-2 text-right text-white/40 font-medium">المفتاح</th>
+                  <th className="px-3 py-2 text-right text-white/40 font-medium hidden md:table-cell">فئة الأب</th>
+                  <th className="px-3 py-2 text-right text-white/40 font-medium">أسئلة</th>
+                  <th className="px-3 py-2 text-right text-white/40 font-medium">حالة</th>
+                  <th className="px-3 py-2 text-right text-white/40 font-medium w-32">إجراءات</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {loading ? (
+                  <tr><td colSpan={7} className="px-4 py-8 text-center text-white/40 text-sm">جاري التحميل...</td></tr>
+                ) : items.length === 0 ? (
+                  <tr><td colSpan={7} className="px-4 py-8 text-center text-white/40 text-sm">لا توجد فئات بعد — أضف أول فئة من الأعلى</td></tr>
+                ) : items.map((it) => {
+                  const isEditing = editId === it.id;
+                  if (isEditing) {
+                    return (
+                      <tr key={it.id} style={{ background: "hsl(220 20% 16%)" }}>
+                        <td className="px-3 py-2">
+                          <input
+                            value={editDraft.icon ?? ""}
+                            onChange={(e) => setEditDraft((d) => ({ ...d, icon: e.target.value }))}
+                            className="w-12 px-2 py-1 rounded text-sm text-white border border-white/10 text-center"
+                            style={{ background: "hsl(220 20% 12%)" }}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            value={editDraft.name ?? ""}
+                            onChange={(e) => setEditDraft((d) => ({ ...d, name: e.target.value }))}
+                            className="w-full px-2 py-1 rounded text-sm text-white border border-white/10"
+                            style={{ background: "hsl(220 20% 12%)" }}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            value={editDraft.key ?? ""}
+                            onChange={(e) => setEditDraft((d) => ({ ...d, key: e.target.value }))}
+                            dir="ltr"
+                            className="w-32 px-2 py-1 rounded text-xs text-white font-mono border border-white/10"
+                            style={{ background: "hsl(220 20% 12%)" }}
+                          />
+                        </td>
+                        <td className="px-3 py-2 hidden md:table-cell">
+                          <select
+                            value={editDraft.parent_key ?? ""}
+                            onChange={(e) => setEditDraft((d) => ({ ...d, parent_key: e.target.value || null }))}
+                            className="px-2 py-1 rounded text-xs text-white border border-white/10"
+                            style={{ background: "hsl(220 20% 12%)" }}
+                          >
+                            <option value="">— رئيسية —</option>
+                            {parentOptions.filter((p) => p.id !== it.id).map((p) => (
+                              <option key={p.id} value={p.key}>{p.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-3 py-2 text-white/50 text-xs">{counts[it.key] ?? 0}</td>
+                        <td className="px-3 py-2">
+                          <label className="text-xs text-white/70 flex items-center gap-1">
+                            <input
+                              type="checkbox"
+                              checked={!!editDraft.is_premium}
+                              onChange={(e) => setEditDraft((d) => ({ ...d, is_premium: e.target.checked }))}
+                            />
+                            👑
+                          </label>
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex gap-1.5">
+                            <button onClick={saveEdit} disabled={busyId === it.id} className="px-2 py-1 rounded text-xs text-green-300 border border-green-500/30 hover:border-green-500/60">💾</button>
+                            <button onClick={cancelEdit} className="px-2 py-1 rounded text-xs text-white/60 border border-white/10 hover:border-white/30">✕</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+                  return (
+                    <tr key={it.id} style={{ background: "hsl(220 20% 11%)" }}>
+                      <td className="px-3 py-2 text-center text-2xl">{it.icon || "🎯"}</td>
+                      <td className="px-3 py-2">
+                        <span className="text-white/90 text-sm">{it.name}</span>
+                        {it.is_premium && <span className="block text-[10px] text-yellow-400 mt-0.5">👑 بريميوم</span>}
+                      </td>
+                      <td className="px-3 py-2 text-white/50 text-xs font-mono" dir="ltr">{it.key}</td>
+                      <td className="px-3 py-2 text-white/50 text-xs hidden md:table-cell" dir="ltr">{it.parent_key || "—"}</td>
+                      <td className="px-3 py-2 text-white/70 text-xs">{counts[it.key] ?? 0}</td>
+                      <td className="px-3 py-2 text-white/50 text-xs">{it.parent_key ? "فرعية" : "رئيسية"}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex gap-1.5">
+                          <button onClick={() => startEdit(it)} className="px-2 py-1 rounded text-xs text-white/70 border border-white/10 hover:border-white/30" title="تعديل">✏️</button>
+                          <button onClick={() => deleteCategory(it)} disabled={busyId === it.id} className="px-2 py-1 rounded text-xs text-red-400 border border-red-500/15 hover:border-red-500/40" title="حذف">🗑️</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <details className="text-xs text-white/40">
+          <summary className="cursor-pointer hover:text-white/70">📜 سكريبت SQL لإنشاء جدول categories</summary>
+          <pre dir="ltr" className="mt-2 p-3 rounded-lg bg-black/40 overflow-x-auto text-[11px] text-white/60 font-mono whitespace-pre">{`create table if not exists public.categories (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null,
+  key         text unique not null,
+  icon        text default '🎯',
+  parent_key  text,
+  is_premium  boolean not null default false,
+  sort_order  integer not null default 0,
+  created_at  timestamptz not null default now()
+);
+alter table public.categories enable row level security;
+create policy "categories read for all"
+  on public.categories for select using (true);
+-- Writes are intended to be performed by admins via service role.`}</pre>
+        </details>
+      </div>
+    </div>
+  );
+}
+
 // ─── Admins Manager Section ───────────────────────────────────────────────────
 function AdminsManager() {
   const [admins, setAdmins] = useState<AdminRecord[]>([]);
@@ -833,7 +1205,7 @@ export default function Admin() {
   const [modalInitial, setModalInitial] = useState<Partial<EditableQ>>({});
 
   // Top-level tab
-  const [activeTab, setActiveTab] = useState<"questions" | "store">("questions");
+  const [activeTab, setActiveTab] = useState<"questions" | "store" | "categories">("questions");
 
   const userEmail = session?.user?.email ?? "";
 
@@ -1029,8 +1401,9 @@ export default function Admin() {
         {/* Top-level tabs */}
         <div className="flex gap-2 border-b border-white/10 pb-1">
           {([
-            { id: "questions", label: "📚 الأسئلة" },
-            { id: "store",     label: "🛍️ المتجر" },
+            { id: "questions",  label: "📚 الأسئلة" },
+            { id: "store",      label: "🛍️ المتجر" },
+            { id: "categories", label: "🗂️ إدارة الفئات" },
           ] as const).map((t) => (
             <button
               key={t.id}
@@ -1049,6 +1422,11 @@ export default function Admin() {
         {activeTab === "store" ? (
           <>
             <StoreManager />
+            <div className="h-10" />
+          </>
+        ) : activeTab === "categories" ? (
+          <>
+            <CategoriesManager />
             <div className="h-10" />
           </>
         ) : (

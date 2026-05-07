@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { supabase } from "./supabase";
+import { syncPremiumFromServer } from "./storage";
 import type { Session, User } from "@supabase/supabase-js";
 
 export interface DbUser {
@@ -73,6 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (data && !error) {
         setDbUser(data);
+        syncPremiumFromServer(!!data.is_premium);
         setNeedsUsername(!data.username);
         return;
       }
@@ -91,6 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (newUser && !insertError) {
         setDbUser(newUser);
+        syncPremiumFromServer(!!newUser.is_premium);
         setNeedsUsername(!existingUsername);
         setIsFirstLogin(true);
       }
@@ -215,7 +218,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       googleDisplayName, isFirstLogin,
       signInWithGoogle, signInWithApple,
       signInWithEmail, signUpWithEmail, resetPassword,
-      playAsGuest, signOut, setDbUser, setIsFirstLogin, refreshUser,
+      playAsGuest, signOut,
+      setDbUser: (u: DbUser) => { setDbUser(u); syncPremiumFromServer(!!u.is_premium); },
+      setIsFirstLogin, refreshUser,
     }}>
       {children}
     </AuthContext.Provider>

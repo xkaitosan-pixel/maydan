@@ -5,7 +5,7 @@ import { CATEGORIES, Question } from "@/lib/questions";
 import { shuffleQuestion } from "@/lib/shuffle";
 import { fetchSeededQuestions } from "@/lib/questionService";
 import { useAuth } from "@/lib/AuthContext";
-import { getOrCreateUser } from "@/lib/storage";
+import { getOrCreateUser, canPlayRanked, getRemainingRanked, incrementRankedCount } from "@/lib/storage";
 import { playCorrect, playWrong, playTick, playGameOver, playMatchFound, playSound } from "@/lib/sound";
 import { RANKS, getRankInfo } from "@/lib/rank";
 import { getCountryFlag } from "@/lib/countryUtils";
@@ -146,6 +146,12 @@ export default function RankedMode() {
 
   async function enterQueue() {
     if (!myId) return;
+    if (!canPlayRanked()) {
+      alert("لقد استنفدت جولاتك المصنّفة اليوم (5/يوم). ترقّ إلى ميدان برو لجولات غير محدودة.");
+      navigate("/premium");
+      return;
+    }
+    incrementRankedCount();
     const category = selectedCats.length > 0
       ? selectedCats[Math.floor(Math.random() * selectedCats.length)]
       : "mix";
@@ -599,10 +605,12 @@ export default function RankedMode() {
 
   // ── SELECT CATEGORIES ────────────────────────────────────────────────────
   if (phase === "select_cats") {
+    const isPremium = !!(dbUser?.is_premium ?? localUser.isPremium);
     const cats = [
       { id: "mix", name: "مزيج", icon: "🌐" },
-      ...CATEGORIES.filter((c) => !c.isPremium).map((c) => ({ id: c.id, name: c.name, icon: c.icon })),
+      ...CATEGORIES.filter((c) => !c.isPremium || isPremium).map((c) => ({ id: c.id, name: c.name, icon: c.icon })),
     ];
+    const rankedRemaining = getRemainingRanked();
     return (
       <div className="min-h-screen gradient-hero flex flex-col">
         <header className="p-4 flex items-center gap-3 border-b border-border/30">
@@ -656,6 +664,13 @@ export default function RankedMode() {
             <p className="text-xs text-muted-foreground mt-2">إذا لم تختر، سيكون المزيج</p>
           </div>
 
+          {!isPremium && (
+            <div className="bg-purple-500/10 border border-purple-500/25 rounded-xl p-3 text-center text-xs">
+              <span className="text-purple-300 font-bold">⚡ الجولات المتبقية اليوم: </span>
+              <span className="text-white font-black">{rankedRemaining === Infinity ? "∞" : rankedRemaining}</span>
+              <span className="text-muted-foreground"> / 5</span>
+            </div>
+          )}
           <div className="bg-card border border-border rounded-2xl p-4 text-sm space-y-1.5">
             <p className="font-bold text-center mb-2">⚡ قواعد التحدي</p>
             <p className="text-muted-foreground">• 10 أسئلة · 10 ثوانٍ لكل سؤال</p>

@@ -22,6 +22,10 @@ export interface UserData {
   displayName: string;
   challengesCreatedToday: number;
   lastChallengeDate: string;
+  survivalGamesToday: number;
+  lastSurvivalDate: string;
+  rankedGamesToday: number;
+  lastRankedDate: string;
   totalChallenges: number;
   wins: number;
   isPremium: boolean;
@@ -56,7 +60,9 @@ export interface ChallengeData {
 
 const USER_KEY = "maydan_user";
 const CHALLENGES_KEY = "maydan_challenges";
-const FREE_CHALLENGE_LIMIT = 5;
+const FREE_CHALLENGE_LIMIT = 10;
+const FREE_SURVIVAL_LIMIT = 5;
+const FREE_RANKED_LIMIT = 5;
 const FREE_POWER_CARDS_PER_DAY = 2;
 
 function defaultUser(): UserData {
@@ -65,6 +71,10 @@ function defaultUser(): UserData {
     displayName: "",
     challengesCreatedToday: 0,
     lastChallengeDate: "",
+    survivalGamesToday: 0,
+    lastSurvivalDate: "",
+    rankedGamesToday: 0,
+    lastRankedDate: "",
     totalChallenges: 0,
     wins: 0,
     isPremium: false,
@@ -143,6 +153,76 @@ export function incrementChallengesCount(): void {
     user.challengesCreatedToday += 1;
   }
   user.totalChallenges += 1;
+  saveUser(user);
+}
+
+// ──────────────────────────── SURVIVAL / RANKED DAILY LIMITS ────────────────────────────
+
+export function canPlaySurvival(): boolean {
+  const user = getOrCreateUser();
+  if (user.isPremium) return true;
+  const today = new Date().toDateString();
+  if (user.lastSurvivalDate !== today) return true;
+  return user.survivalGamesToday < FREE_SURVIVAL_LIMIT;
+}
+
+export function getRemainingSurvival(): number {
+  const user = getOrCreateUser();
+  if (user.isPremium) return Infinity;
+  const today = new Date().toDateString();
+  if (user.lastSurvivalDate !== today) return FREE_SURVIVAL_LIMIT;
+  return Math.max(0, FREE_SURVIVAL_LIMIT - user.survivalGamesToday);
+}
+
+export function incrementSurvivalCount(): void {
+  const user = getOrCreateUser();
+  const today = new Date().toDateString();
+  if (user.lastSurvivalDate !== today) {
+    user.survivalGamesToday = 1;
+    user.lastSurvivalDate = today;
+  } else {
+    user.survivalGamesToday += 1;
+  }
+  saveUser(user);
+}
+
+export function canPlayRanked(): boolean {
+  const user = getOrCreateUser();
+  if (user.isPremium) return true;
+  const today = new Date().toDateString();
+  if (user.lastRankedDate !== today) return true;
+  return user.rankedGamesToday < FREE_RANKED_LIMIT;
+}
+
+export function getRemainingRanked(): number {
+  const user = getOrCreateUser();
+  if (user.isPremium) return Infinity;
+  const today = new Date().toDateString();
+  if (user.lastRankedDate !== today) return FREE_RANKED_LIMIT;
+  return Math.max(0, FREE_RANKED_LIMIT - user.rankedGamesToday);
+}
+
+export function incrementRankedCount(): void {
+  const user = getOrCreateUser();
+  const today = new Date().toDateString();
+  if (user.lastRankedDate !== today) {
+    user.rankedGamesToday = 1;
+    user.lastRankedDate = today;
+  } else {
+    user.rankedGamesToday += 1;
+  }
+  saveUser(user);
+}
+
+/**
+ * Sync premium flag from Supabase `users.is_premium` into local storage so all
+ * gating helpers (which read local user) honor server-side premium state.
+ * Called from AuthContext whenever dbUser is loaded/refreshed.
+ */
+export function syncPremiumFromServer(isPremium: boolean): void {
+  const user = getOrCreateUser();
+  if (user.isPremium === isPremium) return;
+  user.isPremium = isPremium;
   saveUser(user);
 }
 

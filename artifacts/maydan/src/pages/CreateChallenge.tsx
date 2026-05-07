@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { CATEGORIES } from "@/lib/questions";
+import { CATEGORIES, type Category } from "@/lib/questions";
 import { fetchGameQuestions } from "@/lib/questionService";
+import { fetchCategoriesFlat } from "@/lib/categoriesService";
 import { saveChallenge, incrementChallengesCount, generateId, getOrCreateUser, canCreateChallenge, getRemainingChallenges } from "@/lib/storage";
 import { createDbChallenge } from "@/lib/db";
 import { useAuth } from "@/lib/AuthContext";
@@ -14,23 +15,29 @@ export default function CreateChallenge() {
   const [questionCount, setQuestionCount] = useState(10);
   const [search, setSearch] = useState("");
   const [step, setStep] = useState<"mode" | "category" | "config">("mode");
+  const [categories, setCategories] = useState<Category[]>(CATEGORIES);
 
   const user = getOrCreateUser();
+  const isPremium = !!(dbUser?.is_premium ?? user.isPremium);
   const remaining = getRemainingChallenges();
+
+  useEffect(() => {
+    fetchCategoriesFlat().then((cats) => setCategories(cats));
+  }, []);
 
   if (!canCreateChallenge()) {
     navigate("/");
     return null;
   }
 
-  const filtered = CATEGORIES.filter(
+  const filtered = categories.filter(
     (c) =>
       c.name.includes(search) ||
       c.id.includes(search.toLowerCase())
   );
 
-  function handleSelectCategory(id: string, isPremium?: boolean) {
-    if (isPremium && !user.isPremium) return;
+  function handleSelectCategory(id: string, premiumOnly?: boolean) {
+    if (premiumOnly && !isPremium) return;
     setSelectedCategory(id);
     setStep("config");
   }
@@ -81,7 +88,7 @@ export default function CreateChallenge() {
     navigate(`/quiz/${challengeId}/creator`);
   }
 
-  const selectedCat = CATEGORIES.find((c) => c.id === selectedCategory);
+  const selectedCat = categories.find((c) => c.id === selectedCategory) ?? CATEGORIES.find((c) => c.id === selectedCategory);
 
   if (step === "mode") {
     return (
@@ -250,7 +257,7 @@ export default function CreateChallenge() {
         ) : (
           <div className="grid grid-cols-2 gap-3">
             {filtered.map((cat) => {
-              const isLocked = cat.isPremium && !user.isPremium;
+              const isLocked = !!cat.isPremium && !isPremium;
               return (
                 <CategoryCard
                   key={cat.id}
@@ -265,7 +272,7 @@ export default function CreateChallenge() {
         )}
 
         {/* Premium Upsell */}
-        {!user.isPremium && (
+        {!isPremium && (
           <div className="mt-4 bg-gradient-to-r from-yellow-500/10 to-amber-400/10 border border-yellow-500/20 rounded-2xl p-4 text-center">
             <p className="text-sm font-bold text-yellow-400 mb-1">⭐ ترقية إلى بريميوم</p>
             <p className="text-xs text-muted-foreground">افتح فئة "تحدي الأساطير" وتحديات غير محدودة</p>
