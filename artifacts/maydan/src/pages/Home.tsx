@@ -163,7 +163,6 @@ export default function Home() {
   const hour = new Date().getHours();
   const greeting =
     hour < 5  ? { text: "ليلة هادئة 🌙", sub: "وقت مثالي لتحدي خاطف" } :
-    hour < 12 ? { text: "صباح المعرفة ☀️", sub: "ابدأ يومك بسؤال" } :
     hour < 17 ? { text: "مرحبا بك مجدداً 👋", sub: "هل تتحدى أحدهم الآن؟" } :
     hour < 21 ? { text: "مساء التحدي 🌅", sub: "وقت ذروة التحدي!" } :
                 { text: "سهرة معرفية 🌌", sub: "آخر فرصة للستريك اليوم" };
@@ -382,7 +381,7 @@ export default function Home() {
                     {[
                       { label: "الانتصارات", value: dbUser?.total_wins ?? localUser.wins },
                       { label: "النقاط", value: dbUser?.total_points ?? 0 },
-                      { label: "بقاء أفضل", value: localUser.stats.survivalBest },
+                      { label: "أفضل بقاء", value: localUser.stats.survivalBest },
                       { label: "الستريك", value: streak },
                     ].map((s) => (
                       <div key={s.label} className="bg-card border border-border rounded-xl p-2 text-center card-hover">
@@ -459,7 +458,7 @@ export default function Home() {
 
               {/* Feature pills — desktop: in left column */}
               <div className="hidden md:flex flex-wrap justify-center gap-2 pt-2">
-                {["⏱️ 30 ثانية", "🃏 بطاقات القوة", "📲 واتساب", "🔥 ستريك يومي", "🎁 مكافأة يومية"].map((f) => (
+                {["⚡ 5 أوضاع", "🏆 تنافس", "📅 تحدي يومي", "👥 تجمعات", "🎖️ إنجازات"].map((f) => (
                   <span key={f} className="bg-card border border-border text-muted-foreground text-xs px-3 py-1.5 rounded-full">{f}</span>
                 ))}
               </div>
@@ -497,7 +496,7 @@ export default function Home() {
 
                 {/* Mobile-only feature pills */}
                 <div className="flex md:hidden flex-wrap justify-center gap-2">
-                  {["⏱️ 30 ثانية", "🃏 بطاقات القوة", "📲 واتساب", "🔥 ستريك يومي", "🎁 مكافأة يومية"].map((f) => (
+                  {["⚡ 5 أوضاع", "🏆 تنافس", "📅 تحدي يومي", "👥 تجمعات", "🎖️ إنجازات"].map((f) => (
                     <span key={f} className="bg-card border border-border text-muted-foreground text-xs px-3 py-1.5 rounded-full">{f}</span>
                   ))}
                 </div>

@@ -76,12 +76,26 @@ export const ACHIEVEMENTS: Achievement[] = [
 ];
 
 // ─── STORE ITEMS ──────────────────────────────────────────────────────────────
-export const FRAMES = [
-  { id: "gold",    name: "إطار ذهبي",     cost: 200,  border: "2px solid #f59e0b", shadow: "0 0 12px #f59e0b80", premium: false },
-  { id: "fire",    name: "إطار ناري",     cost: 300,  border: "2px solid #ef4444", shadow: "0 0 12px #ef444480", premium: false },
-  { id: "royal",   name: "إطار ملكي",    cost: 500,  border: "2px solid #8b5cf6", shadow: "0 0 12px #8b5cf680", premium: false },
-  { id: "legend",  name: "إطار أسطوري",  cost: 1000, border: "2px solid #06b6d4", shadow: "0 0 12px #06b6d480", premium: false },
-  { id: "premium", name: "إطار بريميوم",  cost: 0,    border: "2px solid #f59e0b", shadow: "0 0 20px #f59e0b", premium: true },
+export interface FrameItem {
+  id: string;
+  name: string;
+  cost: number;
+  border: string;
+  shadow: string;
+  premium: boolean;
+  className?: string;
+}
+
+export const FRAMES: FrameItem[] = [
+  { id: "gold",        name: "إطار ذهبي",            cost: 200,  border: "2px solid #f59e0b", shadow: "0 0 12px #f59e0b80", premium: false },
+  { id: "fire",        name: "إطار ناري",            cost: 300,  border: "2px solid #ef4444", shadow: "0 0 12px #ef444480", premium: false },
+  { id: "royal",       name: "إطار ملكي",            cost: 500,  border: "2px solid #8b5cf6", shadow: "0 0 12px #8b5cf680", premium: false },
+  { id: "legend",      name: "إطار أسطوري",          cost: 1000, border: "2px solid #06b6d4", shadow: "0 0 12px #06b6d480", premium: false },
+  { id: "fire_glow",   name: "إطار اللهب المتوهج",   cost: 800,  border: "3px solid #f97316", shadow: "0 0 18px #f97316cc", premium: false, className: "frame-fire" },
+  { id: "electric",    name: "إطار البرق الكهربائي", cost: 1200, border: "3px solid #22d3ee", shadow: "0 0 16px #22d3eecc", premium: false, className: "frame-electric" },
+  { id: "ice",         name: "إطار الجليد المتلألئ", cost: 1500, border: "3px solid #93c5fd", shadow: "0 0 14px #93c5fdcc", premium: false, className: "frame-ice" },
+  { id: "rainbow",     name: "إطار قوس قزح",         cost: 2500, border: "3px solid #a78bfa", shadow: "0 0 20px #a78bfacc", premium: false, className: "frame-rainbow" },
+  { id: "premium",     name: "إطار بريميوم",          cost: 0,    border: "2px solid #f59e0b", shadow: "0 0 20px #f59e0b",    premium: true },
 ];
 
 export const TITLES = [
@@ -152,6 +166,11 @@ export function getFrameStyle(frameId: string | null): { border: string; boxShad
   return frame
     ? { border: frame.border, boxShadow: frame.shadow }
     : { border: '2px solid hsl(var(--primary))', boxShadow: 'none' };
+}
+
+export function getFrameClass(frameId: string | null): string {
+  const frame = FRAMES.find(f => f.id === frameId);
+  return frame?.className ?? '';
 }
 
 // ─── AWARD REWARDS ────────────────────────────────────────────────────────────

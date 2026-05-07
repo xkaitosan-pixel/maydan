@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { supabase } from "@/lib/supabase";
 import { CATEGORIES, Question } from "@/lib/questions";
+import { shuffleQuestion } from "@/lib/shuffle";
 import { fetchSeededQuestions } from "@/lib/questionService";
 import { useAuth } from "@/lib/AuthContext";
 import { getOrCreateUser } from "@/lib/storage";
@@ -282,8 +283,10 @@ export default function RankedMode() {
     matchRef.current = m;
     setMatch(m);
     const qs = await getMatchQuestions(m.id, m.category);
-    matchQsRef.current = qs;
-    setMatchQs(qs);
+    // Deterministic shuffle by q.id so both players see identical option order
+    const sq = qs.map((q) => shuffleQuestion(q, q.id));
+    matchQsRef.current = sq;
+    setMatchQs(sq);
     setMyCombo(0);
     setOppCombo(0);
 

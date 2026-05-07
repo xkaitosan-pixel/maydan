@@ -9,6 +9,7 @@ import { playCorrect, playWrong, playTick } from "@/lib/sound";
 import { hapticCorrect, hapticWrong } from "@/lib/haptics";
 import { sanitizeNickname } from "@/lib/sanitize";
 import { XP_REWARDS } from "@/lib/gamification";
+import { shuffleQuestion } from "@/lib/shuffle";
 
 const QUESTION_TIME = 30;
 
@@ -53,7 +54,10 @@ export default function Quiz() {
     }
     setAnswers(new Array(challenge.questions.length).fill(null));
     loadPowerCards();
-    fetchQuestionsByIds(challenge.questions).then(setLoadedQs);
+    // Deterministic shuffle by q.id so creator + challenger see identical option order
+    fetchQuestionsByIds(challenge.questions).then((qs) =>
+      setLoadedQs(qs.map((q) => shuffleQuestion(q, q.id)))
+    );
   }, [challengeId, role]);
 
   // Guarantee clean visual state on every question change (sync, before paint)

@@ -1,0 +1,174 @@
+Major improvements to ميدان app:
+
+PART 1 - Randomize answer options:
+In ALL game modes (Quiz, Survival, Daily, Ranked, Party):
+When displaying a question, shuffle the options array
+BUT track the correct answer by CONTENT not by index.
+
+Implementation:
+1. When question loads, create shuffledOptions:
+   const shuffledOptions = [...question.options]
+     .map((opt, i) => ({ text: opt, isCorrect: i === question.correct }))
+     .sort(() => Math.random() - 0.5);
+
+2. Find correct answer index after shuffle:
+   const newCorrectIndex = shuffledOptions.findIndex(o => o.isCorrect);
+
+3. Use shuffledOptions for display
+4. Check answer against shuffledOptions[selectedIndex].isCorrect
+
+Apply to: Quiz.tsx, Survival.tsx, DailyChallenge.tsx, 
+RankedMode.tsx, PartyHost.tsx, PartyGuest.tsx
+
+PART 2 - Category hierarchy system:
+Add parent/sub-category support:
+
+1. Add column to questions table:
+   ALTER TABLE questions ADD COLUMN IF NOT EXISTS 
+   subcategory TEXT;
+
+2. Update categories system to support:
+   Parent category → Sub categories
+   Example:
+   أنمي → ناروتو، ون بيس، شخصيات، بوسترات
+   إسلامية → قرآن، سيرة، فقه، أذكار
+   رياضة → كرة قدم، كرة سلة، ألعاب قوى
+   
+3. In home screen category grid:
+   - Show parent categories
+   - Tap parent → shows sub-categories
+   - Tap sub-category → start game with that sub
+
+4. In admin panel: add subcategory field to questions
+
+PART 3 - Challenge result modal:
+When tapping completed challenge in تحدياتي section:
+Instead of navigating away, show a beautiful modal:
+
+┌─────────────────────────┐
+│  نتيجة التحدي ⚔️        │
+│                         │
+│ [avatar] vs [avatar]    │
+│  أنت        الخصم       │
+│  8/10   vs   6/10       │
+│                         │
+│  🏆 فزت!                │
+│  الفئة: تاريخ عربي      │
+│  التاريخ: 5 مايو        │
+│                         │
+│  [تحدي مجدداً] [إغلاق] │
+└─────────────────────────┘
+
+PART 4 - Home screen fixes:
+1. Remove "صباح المعرفة" section completely
+2. Change "بقاء أفضل" to "أفضل بقاء"
+3. Update bottom info pills - replace with:
+   - "⚡ 5 أوضاع لعب مختلفة"
+   - "🏆 تنافس مع الآخرين"
+   - "📅 تحدي يومي جديد"
+   - "👥 وضع التجمعات"
+   - "🎖️ اكسب إنجازات وجوائز"
+
+PART 5 - Better avatar options:
+Increase DiceBear avatars to 24 options using more styles:
+- 8 adventurer (seeds 1-8)
+- 8 bottts/robots (seeds 1-8)  
+- 8 pixel-art (seeds 1-8)
+- 8 fun-emoji (seeds 1-8)
+Total: 32 avatar options in 4 tabs
+
+PART 6 - Ranked leaderboard:
+Add dedicated ranked leaderboard tab:
+In /leaderboard add tab "🏆 رانكد":
+- Shows players ranked by ranked_points
+- Shows: rank, flag, avatar, name, points, wins
+- Weekly season reset
+- "أنت في المركز #X" at bottom
+
+PART 7 - Better store with visual effects:
+Replace boring color-only frames with animated CSS frames:
+
+Avatar frames with REAL effects:
+1. 🔥 إطار ناري - animated fire border using CSS:
+   box-shadow: 0 0 20px #ff4500, 0 0 40px #ff4500;
+   border: 2px solid #ff6b35;
+   animation: fireGlow 1s ease-in-out infinite alternate;
+
+2. ⚡ إطار كهربائي - electric sparks:
+   box-shadow: 0 0 20px #00ffff, 0 0 40px #0080ff;
+   animation: electricPulse 0.5s ease-in-out infinite;
+
+3. ❄️ إطار جليدي - ice effect:
+   box-shadow: 0 0 15px #a8d8ea, 0 0 30px #6ec6e6;
+   border: 2px solid #a8d8ea;
+
+4. 🌟 إطار نجمي - stars rotating around:
+   Animated rotating stars using CSS
+
+5. 👑 إطار ملكي - golden crown effect
+6. 🌈 إطار قوس قزح - rainbow animated border
+7. 💜 إطار بنفسجي - purple glow
+8. ⚫ إطار أسود - dark mysterious
+9. 🎮 إطار جيمنج - pixel border style
+10. 🏆 إطار بطولة - premium gold (premium only)
+
+PART 8 - Better titles system:
+Replace current 4 titles with achievement-based badges:
+Remove purchased titles, add EARNED badges:
+
+Badges earned by playing:
+🥇 "الفارس الأول" - win 10 ranked matches
+⚡ "البرق" - answer 5 questions in under 3 seconds each
+🧠 "العبقري" - answer 20 questions correctly in a row  
+🔥 "المحترق" - maintain 7 day streak
+👑 "سيد الميدان" - reach level 6
+🌍 "الموسوعة" - play all 15 categories
+🏟️ "المضيف" - host 10 party rooms
+⚔️ "المحارب" - win 50 challenges
+🎯 "القناص" - 100% score in daily challenge 5 times
+💎 "الماسة" - premium subscriber badge
+
+Show earned badges on profile page
+Show main badge next to username in leaderboard
+
+PART 9 - Freemium model:
+Implement proper free vs premium limits:
+
+Free tier limits:
+- Daily challenges: unlimited (keep free to grow)
+- 1v1 challenges: 10 per day
+- Survival: 5 per day  
+- Ranked: 5 per day
+- Party mode: join unlimited, HOST limited to 3/day
+- Categories: all 15 available (to hook users)
+- No ads yet (add later)
+
+Premium benefits:
+- All modes: unlimited
+- Host unlimited party rooms
+- Exclusive frames (fire, electric, rainbow, tournament)
+- Premium badge 💎 on profile
+- Detailed statistics
+- Priority matchmaking in ranked
+- Exclusive categories when added
+
+Show limit counter: "3/5 تبقى اليوم" 
+When limit reached: show upgrade prompt
+
+PART 10 - Admin store management:
+In /admin add "إدارة المتجر" section:
+- List all store items
+- Add new item (name, type, price, effect CSS)
+- Edit existing items
+- Delete items
+- Toggle item visibility (show/hide)
+- Preview how frame looks
+
+Push everything to GitHub.
+Run this SQL separately:
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS subcategory TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS badges JSONB DEFAULT '[]';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_plays INT DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_plays_date DATE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ranked_plays INT DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ranked_plays_date DATE;

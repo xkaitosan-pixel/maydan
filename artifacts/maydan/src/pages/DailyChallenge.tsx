@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { fetchMixedDifficultyDailyQuestions } from "@/lib/questionService";
 import { Question } from "@/lib/questions";
+import { shuffleQuestion } from "@/lib/shuffle";
 import { playSound } from "@/lib/sound";
 import { recordTodayWin, recordTodayLoss, recordTodayXP } from "@/lib/storage";
 import { getDailyPercentile } from "@/lib/db";
@@ -77,7 +78,8 @@ export default function DailyChallenge() {
 
   async function loadState() {
     const qs = await fetchMixedDifficultyDailyQuestions("daily_" + today);
-    setQuestions(qs);
+    // Deterministic shuffle by q.id — every player sees the same option order
+    setQuestions(qs.map((q) => shuffleQuestion(q, q.id)));
 
     const { data: existing } = await supabase
       .from("daily_scores")

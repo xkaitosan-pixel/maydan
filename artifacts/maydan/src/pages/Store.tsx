@@ -98,7 +98,7 @@ export default function Store() {
             >
               {/* Preview avatar */}
               <div
-                className="w-14 h-14 rounded-full flex items-center justify-center text-2xl flex-shrink-0"
+                className={`w-14 h-14 rounded-full flex items-center justify-center text-2xl flex-shrink-0 ${f.className ?? ""}`}
                 style={{ border: f.border, boxShadow: f.shadow, background: "hsl(220 20% 18%)" }}
               >
                 👤

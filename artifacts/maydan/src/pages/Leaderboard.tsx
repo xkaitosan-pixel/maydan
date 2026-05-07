@@ -18,6 +18,16 @@ interface DailyEntry {
   completed_at: string;
 }
 
+interface RankedEntry {
+  id: string;
+  username: string;
+  display_name: string | null;
+  country: string | null;
+  total_points: number;
+  total_wins: number | null;
+  avatar_url: string | null;
+}
+
 const MEDALS = ["🥇", "🥈", "🥉"];
 const MODE_LABELS: Record<string, string> = {
   survival: "🏃 بقاء",
@@ -41,12 +51,14 @@ export default function Leaderboard() {
   const localUser = getOrCreateUser();
   const myName = dbUser?.username ?? localUser.displayName;
 
-  const [tab, setTab] = useState<"weekly" | "alltime" | "daily">("weekly");
+  const [tab, setTab] = useState<"weekly" | "alltime" | "daily" | "ranked">("weekly");
   const [category, setCategory] = useState("all");
   const [entries, setEntries] = useState<ScoreEntry[]>([]);
   const [dailyEntries, setDailyEntries] = useState<DailyEntry[]>([]);
+  const [rankedEntries, setRankedEntries] = useState<RankedEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [dailyError, setDailyError] = useState<string | null>(null);
+  const [rankedError, setRankedError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const today = new Date().toISOString().slice(0, 10);
@@ -73,6 +85,27 @@ export default function Leaderboard() {
           setLoading(false);
         }
       })();
+    } else if (tab === "ranked") {
+      setRankedError(null);
+      (async () => {
+        try {
+          const result = await supabase.from("users")
+            .select("id, username, display_name, country, total_points, total_wins, avatar_url")
+            .gt("total_points", 0)
+            .order("total_points", { ascending: false })
+            .order("total_wins", { ascending: false })
+            .limit(50);
+          if (result.error) {
+            setRankedError(friendlyErrorText(result.error));
+          } else {
+            setRankedEntries((result.data ?? []) as RankedEntry[]);
+          }
+        } catch (e) {
+          setRankedError(friendlyErrorText(e));
+        } finally {
+          setLoading(false);
+        }
+      })();
     } else {
       const fn = tab === "weekly" ? getWeeklyLeaderboard : getAllTimeLeaderboard;
       fn(category).then(data => {
@@ -87,7 +120,7 @@ export default function Leaderboard() {
   // When user has scores but is outside the visible top, fetch their global rank.
   const [globalRank, setGlobalRank] = useState<number | null>(null);
   useEffect(() => {
-    if (isGuest || !myName || tab === "daily") { setGlobalRank(null); return; }
+    if (isGuest || !myName || tab === "daily" || tab === "ranked") { setGlobalRank(null); return; }
     if (myRank > 0) { setGlobalRank(null); return; }
     let cancelled = false;
     const fn = tab === "weekly" ? getMyWeeklyRank : getMyAllTimeRank;
@@ -124,19 +157,19 @@ export default function Leaderboard() {
       <div className="flex-1 overflow-y-auto flex flex-col">
         {/* Tabs */}
         <div className="flex gap-1 p-3 bg-card/50 border-b border-border/30">
-          {(["weekly", "alltime", "daily"] as const).map(t => (
+          {(["weekly", "alltime", "ranked", "daily"] as const).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${tab === t ? "gradient-gold text-background" : "text-muted-foreground hover:text-foreground"}`}
             >
-              {t === "weekly" ? "هذا الأسبوع" : t === "alltime" ? "كل الوقت" : "📅 اليوم"}
+              {t === "weekly" ? "هذا الأسبوع" : t === "alltime" ? "كل الوقت" : t === "ranked" ? "🏆 المصنّف" : "📅 اليوم"}
             </button>
           ))}
         </div>
 
-        {/* Category filter (hidden for daily tab) */}
-        {tab !== "daily" && (
+        {/* Category filter (only for weekly/alltime) */}
+        {tab !== "daily" && tab !== "ranked" && (
           <div className="flex gap-2 px-3 py-2 overflow-x-auto border-b border-border/30 no-scrollbar">
             {categories.map(c => (
               <button
@@ -176,7 +209,7 @@ export default function Leaderboard() {
             </div>
           </div>
         )}
-        {!isGuest && myRank <= 0 && globalRank && tab !== "daily" && (
+        {!isGuest && myRank <= 0 && globalRank && tab !== "daily" && tab !== "ranked" && (
           <div className="mx-3 mt-3 bg-card border border-border/40 rounded-xl px-4 py-2.5 flex items-center gap-3">
             <span className="text-lg font-black text-primary">#{globalRank}</span>
             <div className="flex-1">
@@ -264,8 +297,91 @@ export default function Leaderboard() {
           </div>
         )}
 
+        {/* Ranked tab — by total_points */}
+        {tab === "ranked" && (
+          <div className="p-3 space-y-2 flex-1">
+            <div className="text-center py-1">
+              <p className="text-xs text-muted-foreground">🏆 ترتيب حسب مجموع النقاط — {rankedEntries.length} لاعب</p>
+            </div>
+            {loading ? (
+              <SkeletonLeaderboard rows={6} />
+            ) : rankedError ? (
+              <div className="text-center py-14">
+                <p className="text-4xl mb-4">⚠️</p>
+                <p className="text-foreground font-bold">تعذّر تحميل التصنيف</p>
+                <p className="text-xs text-muted-foreground mt-1 px-6 break-all">{rankedError}</p>
+                <button onClick={() => setRefreshKey(k => k + 1)}
+                  className="mt-4 px-5 py-2 rounded-xl border border-border text-sm text-muted-foreground hover:text-foreground">
+                  🔄 إعادة المحاولة
+                </button>
+              </div>
+            ) : rankedEntries.length === 0 ? (
+              <div className="text-center py-14">
+                <p className="text-5xl mb-4">🏆</p>
+                <p className="text-foreground font-bold">لا يوجد متصدرون مصنّفون بعد</p>
+                <p className="text-xs text-muted-foreground mt-1 px-6">العب الوضع المصنّف لتظهر هنا</p>
+                <button onClick={() => navigate("/ranked")}
+                  className="mt-5 px-6 py-2.5 rounded-xl gradient-gold text-background font-bold text-sm hover:opacity-90">
+                  ابدأ مباراة مصنّفة
+                </button>
+              </div>
+            ) : (
+              rankedEntries.map((e, i) => {
+                const isMe = e.id === dbUser?.id;
+                const name = e.display_name || e.username || "لاعب";
+                return (
+                  <div key={e.id}
+                    className={`flex items-center gap-3 p-3.5 rounded-2xl border transition-all ${
+                      i === 0 ? "bg-yellow-500/10 border-yellow-500/30" :
+                      i === 1 ? "bg-slate-400/10 border-slate-400/20" :
+                      i === 2 ? "bg-orange-700/10 border-orange-700/20" :
+                      isMe ? "bg-secondary/10 border-secondary/30" :
+                      "bg-card border-border"
+                    }`}
+                  >
+                    <div className="w-9 text-center shrink-0">
+                      {i < 3 ? <span className="text-2xl">{MEDALS[i]}</span>
+                        : <span className="text-lg font-black text-muted-foreground">#{i + 1}</span>}
+                    </div>
+                    {e.avatar_url ? (
+                      <img src={e.avatar_url} alt="" className="w-10 h-10 rounded-full object-cover shrink-0 border border-border" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-sm font-black"
+                        style={{
+                          background: i === 0 ? "linear-gradient(135deg,#d97706,#f59e0b)"
+                            : i === 1 ? "linear-gradient(135deg,#94a3b8,#cbd5e1)"
+                            : i === 2 ? "linear-gradient(135deg,#92400e,#d97706)"
+                            : "hsl(var(--muted))",
+                          color: i < 3 ? "black" : "hsl(var(--muted-foreground))",
+                        }}
+                      >
+                        {name.charAt(0)}
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-bold truncate ${isMe ? "text-secondary" : "text-foreground"}`}>
+                        {name}{isMe && <span className="text-xs text-secondary mr-1">(أنت)</span>}
+                      </p>
+                      <div className="flex items-center gap-1 mt-0.5">
+                        {e.country && <span className="text-xs">{getCountryFlag(e.country)}</span>}
+                        <span className="text-xs text-muted-foreground">🏆 {e.total_wins ?? 0} انتصار</span>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className={`text-lg font-black ${i === 0 ? "text-yellow-400" : i === 1 ? "text-slate-300" : i === 2 ? "text-orange-500" : "text-primary"}`}>
+                        {e.total_points.toLocaleString()}
+                      </p>
+                      <p className="text-xs text-muted-foreground">نقطة</p>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+
         {/* List */}
-        {tab !== "daily" && <div className="p-3 space-y-2 flex-1">
+        {tab !== "daily" && tab !== "ranked" && <div className="p-3 space-y-2 flex-1">
           {loading ? (
             <SkeletonLeaderboard rows={8} />
           ) : entries.length === 0 ? (
@@ -341,7 +457,10 @@ export default function Leaderboard() {
         </div>}
 
         <p className="text-center text-xs text-muted-foreground pb-5 px-4">
-          {tab === "weekly" ? "🔄 يُعاد الترتيب كل أسبوع" : tab === "alltime" ? "🏆 أفضل النتائج عبر كل الأوقات" : "📅 يُعاد تحدي اليوم كل منتصف ليل"}
+          {tab === "weekly" ? "🔄 يُعاد الترتيب كل أسبوع"
+            : tab === "alltime" ? "🏆 أفضل النتائج عبر كل الأوقات"
+            : tab === "ranked" ? "🏆 ترتيب اللاعبين حسب مجموع النقاط"
+            : "📅 يُعاد تحدي اليوم كل منتصف ليل"}
         </p>
       </div>
       </div>

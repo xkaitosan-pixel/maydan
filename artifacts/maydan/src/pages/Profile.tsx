@@ -50,6 +50,7 @@ export default function Profile() {
 
   // Sent challenges
   const [myChallenges, setMyChallenges] = useState<DbChallenge[] | null>(null);
+  const [selectedChallenge, setSelectedChallenge] = useState<DbChallenge | null>(null);
 
   // Friends
   const [friends, setFriends] = useState<Friend[] | null>(null);
@@ -301,9 +302,9 @@ export default function Profile() {
                 ))}
               </div>
 
-              {/* 12 avatars grid */}
+              {/* 8 avatars grid per style (32 total across 4 tabs) */}
               <div className="grid grid-cols-4 gap-2">
-                {Array.from({ length: 12 }, (_, i) => i + 1).map(seed => {
+                {Array.from({ length: 8 }, (_, i) => i + 1).map(seed => {
                   const url = buildDicebearUrl(activeStyle, seed);
                   const isSelected = selectedAvatar === url;
                   return (
@@ -580,7 +581,7 @@ export default function Profile() {
                   return (
                     <button
                       key={ch.id}
-                      onClick={() => navigate(`/results/${ch.id}/creator`)}
+                      onClick={() => setSelectedChallenge(ch)}
                       className="w-full flex items-center gap-3 p-3 rounded-xl border border-border/40 bg-background hover:border-primary/40 transition-colors text-right"
                     >
                       <span className="text-2xl">{cat?.icon ?? "🎯"}</span>
@@ -779,6 +780,91 @@ export default function Profile() {
           </button>
         </div>
       </div>
+
+      {/* Challenge details modal */}
+      {selectedChallenge && (() => {
+        const ch = selectedChallenge;
+        const cat = getCategoryById(ch.category);
+        const cs = ch.creator_score ?? 0;
+        const os = ch.opponent_score ?? 0;
+        const isCreator = ch.creator_id === dbUser?.id;
+        const myScore = isCreator ? cs : os;
+        const oppScore = isCreator ? os : cs;
+        const oppName = isCreator ? (ch.opponent_name || "بانتظار خصم") : ch.creator_name;
+        const completed = ch.status === "completed";
+        let badge: { icon: string; text: string; color: string };
+        if (!completed) badge = { icon: "⏳", text: "قيد الانتظار", color: "#a78bfa" };
+        else if (myScore > oppScore) badge = { icon: "🏆", text: "فوز", color: "#22c55e" };
+        else if (myScore < oppScore) badge = { icon: "💔", text: "خسارة", color: "#ef4444" };
+        else badge = { icon: "🤝", text: "تعادل", color: "#f59e0b" };
+        const dateStr = ch.created_at ? new Date(ch.created_at).toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" }) : "";
+        return (
+          <div
+            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 modal-enter"
+            onClick={() => setSelectedChallenge(null)}
+          >
+            <div
+              className="bg-card border border-border rounded-2xl p-6 w-full max-w-sm space-y-4 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-black">تفاصيل التحدي</h3>
+                <button onClick={() => setSelectedChallenge(null)} className="text-muted-foreground hover:text-foreground text-xl">✕</button>
+              </div>
+
+              <div className="flex items-center justify-center gap-2 py-2">
+                <span className="text-2xl">{cat?.icon ?? "🎯"}</span>
+                <span className="text-sm font-bold">{cat?.name ?? ch.category}</span>
+              </div>
+
+              {/* Players + scores */}
+              <div className="flex items-center justify-around">
+                <div className="flex flex-col items-center gap-1.5">
+                  <div className="w-14 h-14 rounded-full bg-secondary/20 flex items-center justify-center text-xl font-black border border-border">
+                    {(dbUser?.display_name || dbUser?.username || "أ").charAt(0)}
+                  </div>
+                  <p className="text-xs font-bold truncate max-w-[80px]">أنت</p>
+                  <p className="text-2xl font-black text-primary">{completed ? myScore : "—"}</p>
+                </div>
+                <span className="text-xl text-muted-foreground">VS</span>
+                <div className="flex flex-col items-center gap-1.5">
+                  <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center text-xl font-black border border-border">
+                    {(oppName || "?").charAt(0)}
+                  </div>
+                  <p className="text-xs font-bold truncate max-w-[80px]">{oppName}</p>
+                  <p className="text-2xl font-black text-primary">{completed ? oppScore : "—"}</p>
+                </div>
+              </div>
+
+              <div
+                className="text-center py-2.5 rounded-xl font-black text-sm"
+                style={{ background: badge.color + "22", color: badge.color, border: `1px solid ${badge.color}55` }}
+              >
+                {badge.icon} {badge.text}
+              </div>
+
+              {dateStr && (
+                <p className="text-xs text-center text-muted-foreground">📅 {dateStr}</p>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => { setSelectedChallenge(null); navigate(`/create?category=${ch.category}`); }}
+                  className="flex-1 h-11 rounded-xl gradient-gold text-background font-bold text-sm hover:opacity-90"
+                >
+                  ⚔️ تحدّ مجدداً
+                </button>
+                <button
+                  onClick={() => setSelectedChallenge(null)}
+                  className="flex-1 h-11 rounded-xl border border-border text-muted-foreground font-bold text-sm bg-card hover:bg-card/80"
+                >
+                  إغلاق
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

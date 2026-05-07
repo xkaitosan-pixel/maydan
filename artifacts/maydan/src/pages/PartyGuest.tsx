@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { supabase } from "@/lib/supabase";
 import { Question } from "@/lib/questions";
 import { fetchSeededQuestions } from "@/lib/questionService";
+import { shuffleQuestion } from "@/lib/shuffle";
 import QuestionImage from "@/components/QuestionImage";
 import { playSound } from "@/lib/sound";
 
@@ -194,7 +195,8 @@ export default function PartyGuest() {
     setMyId(data.id);
 
     const qs = await getPartyQuestions(room.code, room.category || "mix", room.total_questions || 10);
-    setPartyQs(qs);
+    // Deterministic shuffle by q.id so host + all guests see identical option order
+    setPartyQs(qs.map((q) => shuffleQuestion(q, q.id)));
 
     // Seed lastSeen so the first poll doesn't immediately fire a duplicate transition
     lastSeenRef.current = { status: "lobby", qIdx: 0 };

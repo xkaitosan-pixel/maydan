@@ -2,6 +2,7 @@ import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react
 import { useLocation } from "wouter";
 import { CATEGORIES, getCategoryById, Question } from "@/lib/questions";
 import { fetchGameQuestions } from "@/lib/questionService";
+import { shuffleQuestion } from "@/lib/shuffle";
 import QuestionImage from "@/components/QuestionImage";
 import CategoryCard from "@/components/CategoryCard";
 import { recordSurvivalGame, recordCategoryAnswers, getSurvivalRank, getAvailablePowerCards, useSkipCard, useTimeCard, getOrCreateUser, addLeaderboardEntry } from "@/lib/storage";
@@ -81,7 +82,8 @@ export default function Survival() {
   }, [currentQ?.id]);
 
   async function startGame() {
-    const pool = await fetchGameQuestions(selectedCategory);
+    const rawPool = await fetchGameQuestions(selectedCategory);
+    const pool = rawPool.map((q) => shuffleQuestion(q));
     if (!pool.length) return;
     questionPoolRef.current = pool;
     const first = pool[0];

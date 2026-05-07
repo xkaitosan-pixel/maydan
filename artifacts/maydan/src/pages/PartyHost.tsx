@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { supabase } from "@/lib/supabase";
 import { CATEGORIES, Question } from "@/lib/questions";
 import { fetchSeededQuestions } from "@/lib/questionService";
+import { shuffleQuestion } from "@/lib/shuffle";
 import QuestionImage from "@/components/QuestionImage";
 import { playSound } from "@/lib/sound";
 import { QRCodeSVG } from "qrcode.react";
@@ -235,8 +236,10 @@ export default function PartyHost() {
     if (err) { setError("خطأ في إنشاء الغرفة: " + err.message); setCreating(false); return; }
 
     const qs = await getPartyQuestions(code, category, questionCount);
-    setPartyQs(qs);
-    partyQsRef.current = qs;
+    // Deterministic shuffle by q.id so host + all guests see identical option order
+    const sq = qs.map((q) => shuffleQuestion(q, q.id));
+    setPartyQs(sq);
+    partyQsRef.current = sq;
     setRoomCode(code);
 
     // Realtime subscriptions
