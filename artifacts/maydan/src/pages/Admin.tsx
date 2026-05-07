@@ -252,6 +252,450 @@ function QuestionModal({
   );
 }
 
+// ─── Store Manager Section ────────────────────────────────────────────────────
+type StoreItem = {
+  id: string;
+  name: string;
+  type: "frame" | "title" | "powercard";
+  price: number;
+  css_effect: string | null;
+  icon: string | null;
+  is_premium: boolean;
+  is_visible: boolean;
+  created_at?: string;
+};
+
+const TYPE_LABEL: Record<StoreItem["type"], string> = {
+  frame: "🖼️ إطار",
+  title: "🏷️ لقب",
+  powercard: "🃏 بطاقة قوة",
+};
+
+function emptyDraft(): Omit<StoreItem, "id" | "created_at"> {
+  return {
+    name: "",
+    type: "frame",
+    price: 100,
+    css_effect: "",
+    icon: "✨",
+    is_premium: false,
+    is_visible: true,
+  };
+}
+
+function StoreManager() {
+  const [items, setItems] = useState<StoreItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [info, setInfo] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<Partial<StoreItem>>({});
+
+  const [draft, setDraft] = useState(emptyDraft());
+  const [adding, setAdding] = useState(false);
+
+  useEffect(() => { fetchItems(); }, []);
+
+  async function fetchItems() {
+    setLoading(true);
+    setErr("");
+    const { data, error } = await supabase
+      .from("store_items")
+      .select("*")
+      .order("type")
+      .order("price");
+    if (error) {
+      setErr(
+        error.code === "42P01" || /relation .* does not exist/i.test(error.message)
+          ? "جدول store_items غير موجود. شغّل سكريبت SQL لإنشائه أولاً."
+          : error.message,
+      );
+      setItems([]);
+    } else {
+      setItems((data ?? []) as StoreItem[]);
+    }
+    setLoading(false);
+  }
+
+  function flash(msg: string, isErr = false) {
+    if (isErr) { setErr(msg); setInfo(""); }
+    else { setInfo(msg); setErr(""); }
+    setTimeout(() => { setInfo(""); }, 2500);
+  }
+
+  async function addItem() {
+    setErr("");
+    const name = draft.name.trim();
+    if (!name) { setErr("أدخل اسم العنصر"); return; }
+    if (draft.price < 0) { setErr("السعر يجب أن يكون 0 أو أكثر"); return; }
+    setAdding(true);
+    const { data, error } = await supabase
+      .from("store_items")
+      .insert({
+        name,
+        type: draft.type,
+        price: Math.round(draft.price),
+        css_effect: draft.css_effect?.trim() || null,
+        icon: draft.icon?.trim() || null,
+        is_premium: draft.is_premium,
+        is_visible: draft.is_visible,
+      })
+      .select()
+      .single();
+    setAdding(false);
+    if (error) { flash(error.message, true); return; }
+    setItems((prev) => [...prev, data as StoreItem]);
+    setDraft(emptyDraft());
+    flash(`✅ تمت إضافة "${name}"`);
+  }
+
+  function startEdit(item: StoreItem) {
+    setEditId(item.id);
+    setEditDraft({ ...item });
+  }
+  function cancelEdit() { setEditId(null); setEditDraft({}); }
+
+  async function saveEdit() {
+    if (!editId) return;
+    const d = editDraft;
+    if (!d.name?.trim()) { flash("الاسم مطلوب", true); return; }
+    setBusyId(editId);
+    const { error } = await supabase
+      .from("store_items")
+      .update({
+        name: d.name.trim(),
+        type: d.type,
+        price: Math.round(Number(d.price ?? 0)),
+        css_effect: (d.css_effect ?? "").trim() || null,
+        icon: (d.icon ?? "").trim() || null,
+        is_premium: !!d.is_premium,
+        is_visible: !!d.is_visible,
+      })
+      .eq("id", editId);
+    setBusyId(null);
+    if (error) { flash(error.message, true); return; }
+    setItems((prev) => prev.map((x) => (x.id === editId ? { ...(x as StoreItem), ...(d as StoreItem) } : x)));
+    cancelEdit();
+    flash("✅ تم حفظ التعديلات");
+  }
+
+  async function toggleVisible(item: StoreItem) {
+    setBusyId(item.id);
+    const { error } = await supabase
+      .from("store_items")
+      .update({ is_visible: !item.is_visible })
+      .eq("id", item.id);
+    setBusyId(null);
+    if (error) { flash(error.message, true); return; }
+    setItems((prev) => prev.map((x) => (x.id === item.id ? { ...x, is_visible: !item.is_visible } : x)));
+  }
+
+  async function deleteItem(item: StoreItem) {
+    if (!confirm(`حذف "${item.name}" نهائياً؟`)) return;
+    setBusyId(item.id);
+    const { error } = await supabase.from("store_items").delete().eq("id", item.id);
+    setBusyId(null);
+    if (error) { flash(error.message, true); return; }
+    setItems((prev) => prev.filter((x) => x.id !== item.id));
+    flash(`🗑️ تم حذف "${item.name}"`);
+  }
+
+  return (
+    <div className="rounded-2xl border border-amber-500/30 overflow-hidden" style={{ background: "hsl(40 30% 8%)" }}>
+      <div className="px-5 py-4 border-b border-amber-500/20 flex items-center gap-3" style={{ background: "hsl(40 30% 10%)" }}>
+        <span className="text-xl">🛍️</span>
+        <h2 className="text-white font-bold">إدارة المتجر</h2>
+        <span className="mr-auto text-xs px-2 py-0.5 rounded-full bg-amber-900/50 text-amber-300">
+          {items.length} عنصر
+        </span>
+        <button
+          onClick={fetchItems}
+          className="text-xs px-3 py-1 rounded-lg border border-white/15 text-white/70 hover:border-white/30"
+        >
+          🔄 تحديث
+        </button>
+      </div>
+
+      <div className="p-5 space-y-5">
+        {/* Add new item */}
+        <div className="rounded-xl border border-white/10 p-4 space-y-3" style={{ background: "hsl(220 20% 12%)" }}>
+          <p className="text-sm text-white/70 font-bold">➕ إضافة عنصر جديد</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">الاسم (عربي) *</label>
+              <input
+                value={draft.name}
+                onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+                placeholder="إطار ذهبي متوهج"
+                className="w-full px-3 py-2 rounded-lg text-sm text-white border border-white/10"
+                style={{ background: "hsl(220 20% 16%)" }}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">النوع</label>
+              <select
+                value={draft.type}
+                onChange={(e) => setDraft((d) => ({ ...d, type: e.target.value as StoreItem["type"] }))}
+                className="w-full px-3 py-2 rounded-lg text-sm text-white border border-white/10"
+                style={{ background: "hsl(220 20% 16%)" }}
+              >
+                <option value="frame">🖼️ إطار (frame)</option>
+                <option value="title">🏷️ لقب (title)</option>
+                <option value="powercard">🃏 بطاقة قوة (powercard)</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">السعر بالعملات 🪙</label>
+              <input
+                type="number"
+                min={0}
+                value={draft.price}
+                onChange={(e) => setDraft((d) => ({ ...d, price: Number(e.target.value) }))}
+                className="w-full px-3 py-2 rounded-lg text-sm text-white border border-white/10"
+                style={{ background: "hsl(220 20% 16%)" }}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">الأيقونة (إيموجي)</label>
+              <input
+                value={draft.icon ?? ""}
+                onChange={(e) => setDraft((d) => ({ ...d, icon: e.target.value }))}
+                placeholder="✨"
+                className="w-full px-3 py-2 rounded-lg text-sm text-white border border-white/10"
+                style={{ background: "hsl(220 20% 16%)" }}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-xs text-white/50 mb-1 block">CSS effect (اختياري)</label>
+              <input
+                value={draft.css_effect ?? ""}
+                onChange={(e) => setDraft((d) => ({ ...d, css_effect: e.target.value }))}
+                placeholder="border: 3px solid #f59e0b; box-shadow: 0 0 18px #f59e0bcc;"
+                dir="ltr"
+                className="w-full px-3 py-2 rounded-lg text-xs text-white font-mono border border-white/10"
+                style={{ background: "hsl(220 20% 16%)" }}
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="flex items-center gap-2 text-sm text-white/80 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={draft.is_premium}
+                onChange={(e) => setDraft((d) => ({ ...d, is_premium: e.target.checked }))}
+              />
+              👑 للأعضاء المميزين فقط
+            </label>
+            <label className="flex items-center gap-2 text-sm text-white/80 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={draft.is_visible}
+                onChange={(e) => setDraft((d) => ({ ...d, is_visible: e.target.checked }))}
+              />
+              👁️ ظاهر في المتجر
+            </label>
+            <button
+              onClick={addItem}
+              disabled={adding}
+              className="mr-auto px-5 py-2 rounded-xl font-bold text-sm text-black disabled:opacity-50"
+              style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}
+            >
+              {adding ? "..." : "💾 حفظ"}
+            </button>
+          </div>
+        </div>
+
+        {/* Status */}
+        {err && <p className="text-red-400 text-xs">⚠️ {err}</p>}
+        {info && <p className="text-green-400 text-xs">{info}</p>}
+
+        {/* Items table */}
+        <div className="rounded-xl border border-white/10 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" style={{ minWidth: 720 }}>
+              <thead>
+                <tr style={{ background: "hsl(220 20% 14%)" }}>
+                  <th className="px-3 py-2 text-right text-white/40 font-medium w-12">أيقونة</th>
+                  <th className="px-3 py-2 text-right text-white/40 font-medium">الاسم</th>
+                  <th className="px-3 py-2 text-right text-white/40 font-medium">النوع</th>
+                  <th className="px-3 py-2 text-right text-white/40 font-medium">السعر</th>
+                  <th className="px-3 py-2 text-right text-white/40 font-medium hidden md:table-cell">CSS</th>
+                  <th className="px-3 py-2 text-right text-white/40 font-medium">حالة</th>
+                  <th className="px-3 py-2 text-right text-white/40 font-medium w-32">إجراءات</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {loading ? (
+                  <tr><td colSpan={7} className="px-4 py-8 text-center text-white/40 text-sm">جاري التحميل...</td></tr>
+                ) : items.length === 0 ? (
+                  <tr><td colSpan={7} className="px-4 py-8 text-center text-white/40 text-sm">لا توجد عناصر بعد</td></tr>
+                ) : items.map((it) => {
+                  const isEditing = editId === it.id;
+                  if (isEditing) {
+                    return (
+                      <tr key={it.id} style={{ background: "hsl(220 20% 16%)" }}>
+                        <td className="px-3 py-2">
+                          <input
+                            value={editDraft.icon ?? ""}
+                            onChange={(e) => setEditDraft((d) => ({ ...d, icon: e.target.value }))}
+                            className="w-12 px-2 py-1 rounded text-sm text-white border border-white/10 text-center"
+                            style={{ background: "hsl(220 20% 12%)" }}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            value={editDraft.name ?? ""}
+                            onChange={(e) => setEditDraft((d) => ({ ...d, name: e.target.value }))}
+                            className="w-full px-2 py-1 rounded text-sm text-white border border-white/10"
+                            style={{ background: "hsl(220 20% 12%)" }}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <select
+                            value={editDraft.type ?? "frame"}
+                            onChange={(e) => setEditDraft((d) => ({ ...d, type: e.target.value as StoreItem["type"] }))}
+                            className="px-2 py-1 rounded text-xs text-white border border-white/10"
+                            style={{ background: "hsl(220 20% 12%)" }}
+                          >
+                            <option value="frame">إطار</option>
+                            <option value="title">لقب</option>
+                            <option value="powercard">بطاقة</option>
+                          </select>
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="number"
+                            value={editDraft.price ?? 0}
+                            onChange={(e) => setEditDraft((d) => ({ ...d, price: Number(e.target.value) }))}
+                            className="w-20 px-2 py-1 rounded text-sm text-white border border-white/10"
+                            style={{ background: "hsl(220 20% 12%)" }}
+                          />
+                        </td>
+                        <td className="px-3 py-2 hidden md:table-cell">
+                          <input
+                            value={editDraft.css_effect ?? ""}
+                            onChange={(e) => setEditDraft((d) => ({ ...d, css_effect: e.target.value }))}
+                            dir="ltr"
+                            className="w-full px-2 py-1 rounded text-xs text-white font-mono border border-white/10"
+                            style={{ background: "hsl(220 20% 12%)" }}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs text-white/70 flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={!!editDraft.is_premium}
+                                onChange={(e) => setEditDraft((d) => ({ ...d, is_premium: e.target.checked }))}
+                              />
+                              👑
+                            </label>
+                            <label className="text-xs text-white/70 flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={!!editDraft.is_visible}
+                                onChange={(e) => setEditDraft((d) => ({ ...d, is_visible: e.target.checked }))}
+                              />
+                              👁️
+                            </label>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={saveEdit}
+                              disabled={busyId === it.id}
+                              className="px-2 py-1 rounded text-xs text-green-300 border border-green-500/30 hover:border-green-500/60"
+                            >
+                              💾
+                            </button>
+                            <button
+                              onClick={cancelEdit}
+                              className="px-2 py-1 rounded text-xs text-white/60 border border-white/10 hover:border-white/30"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+                  return (
+                    <tr key={it.id} style={{ background: it.is_visible ? "hsl(220 20% 11%)" : "hsl(220 20% 8%)", opacity: it.is_visible ? 1 : 0.55 }}>
+                      <td className="px-3 py-2 text-center text-2xl">{it.icon || "✨"}</td>
+                      <td className="px-3 py-2">
+                        <span className="text-white/90 text-sm">{it.name}</span>
+                        {it.is_premium && <span className="block text-[10px] text-yellow-400 mt-0.5">👑 بريميوم</span>}
+                      </td>
+                      <td className="px-3 py-2 text-white/60 text-xs whitespace-nowrap">{TYPE_LABEL[it.type] ?? it.type}</td>
+                      <td className="px-3 py-2 text-amber-300 text-sm font-bold whitespace-nowrap">{it.price.toLocaleString()} 🪙</td>
+                      <td className="px-3 py-2 hidden md:table-cell">
+                        <code className="text-[10px] text-white/40 font-mono break-all line-clamp-2 block max-w-[220px]" dir="ltr">
+                          {it.css_effect || "—"}
+                        </code>
+                      </td>
+                      <td className="px-3 py-2">
+                        <button
+                          onClick={() => toggleVisible(it)}
+                          disabled={busyId === it.id}
+                          className={`text-xs px-2 py-1 rounded ${it.is_visible ? "bg-green-900/40 text-green-300" : "bg-white/5 text-white/40"}`}
+                          title="تبديل الظهور"
+                        >
+                          {it.is_visible ? "👁️ ظاهر" : "🚫 مخفي"}
+                        </button>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex gap-1.5">
+                          <button
+                            onClick={() => startEdit(it)}
+                            className="px-2 py-1 rounded text-xs text-white/70 border border-white/10 hover:border-white/30"
+                            title="تعديل"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            onClick={() => deleteItem(it)}
+                            disabled={busyId === it.id}
+                            className="px-2 py-1 rounded text-xs text-red-400 border border-red-500/15 hover:border-red-500/40"
+                            title="حذف"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <details className="text-xs text-white/40">
+          <summary className="cursor-pointer hover:text-white/70">📜 سكريبت SQL لإنشاء جدول store_items</summary>
+          <pre dir="ltr" className="mt-2 p-3 rounded-lg bg-black/40 overflow-x-auto text-[11px] text-white/60 font-mono whitespace-pre">{`create table if not exists public.store_items (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null,
+  type        text not null check (type in ('frame','title','powercard')),
+  price       integer not null default 0,
+  css_effect  text,
+  icon        text,
+  is_premium  boolean not null default false,
+  is_visible  boolean not null default true,
+  created_at  timestamptz not null default now()
+);
+alter table public.store_items enable row level security;
+create policy "store_items read for all"
+  on public.store_items for select using (true);
+-- Writes are intended to be performed by admins via service role.`}</pre>
+        </details>
+      </div>
+    </div>
+  );
+}
+
 // ─── Admins Manager Section ───────────────────────────────────────────────────
 function AdminsManager() {
   const [admins, setAdmins] = useState<AdminRecord[]>([]);
@@ -387,6 +831,9 @@ export default function Admin() {
   // Modal state: null = closed, "add" = new question, EditableQ = editing existing
   const [modalMode, setModalMode] = useState<"add" | "edit" | null>(null);
   const [modalInitial, setModalInitial] = useState<Partial<EditableQ>>({});
+
+  // Top-level tab
+  const [activeTab, setActiveTab] = useState<"questions" | "store">("questions");
 
   const userEmail = session?.user?.email ?? "";
 
@@ -579,6 +1026,71 @@ export default function Admin() {
       </div>
 
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-5">
+        {/* Top-level tabs */}
+        <div className="flex gap-2 border-b border-white/10 pb-1">
+          {([
+            { id: "questions", label: "📚 الأسئلة" },
+            { id: "store",     label: "🛍️ المتجر" },
+          ] as const).map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={`px-4 py-2 rounded-t-xl text-sm font-bold transition-colors ${
+                activeTab === t.id
+                  ? "bg-amber-500/15 text-amber-300 border border-amber-500/30 border-b-transparent"
+                  : "text-white/50 hover:text-white border border-transparent"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === "store" ? (
+          <>
+            <StoreManager />
+            <div className="h-10" />
+          </>
+        ) : (
+          <QuestionsTab
+            status={status} loading={loading} saving={saving}
+            questions={questions} filtered={filtered}
+            search={search} setSearch={setSearch}
+            filterCat={filterCat} setFilterCat={setFilterCat}
+            filterDiff={filterDiff} setFilterDiff={setFilterDiff}
+            loadQuestions={loadQuestions}
+            openAdd={openAdd} openEdit={openEdit} deleteQuestion={deleteQuestion}
+            isSuperAdmin={isSuperAdmin}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Questions Tab (extracted from main Admin component body) ────────────────
+function QuestionsTab(props: {
+  status: string;
+  loading: boolean;
+  saving: boolean;
+  questions: EditableQ[];
+  filtered: EditableQ[];
+  search: string; setSearch: (s: string) => void;
+  filterCat: string; setFilterCat: (s: string) => void;
+  filterDiff: string; setFilterDiff: (s: string) => void;
+  loadQuestions: () => void;
+  openAdd: () => void;
+  openEdit: (q: EditableQ) => void;
+  deleteQuestion: (e: React.MouseEvent, id: number) => void;
+  isSuperAdmin: boolean;
+}) {
+  const {
+    status, loading, saving, questions, filtered,
+    search, setSearch, filterCat, setFilterCat, filterDiff, setFilterDiff,
+    loadQuestions, openAdd, openEdit, deleteQuestion, isSuperAdmin,
+  } = props;
+  return (
+    <div className="space-y-5">
         {/* Status */}
         {status && (
           <div
@@ -809,7 +1321,6 @@ export default function Admin() {
         {isSuperAdmin && <AdminsManager />}
 
         <div className="h-10" />
-      </div>
     </div>
   );
 }
