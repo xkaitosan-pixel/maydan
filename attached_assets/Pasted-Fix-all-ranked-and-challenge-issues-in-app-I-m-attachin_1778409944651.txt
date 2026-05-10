@@ -1,0 +1,150 @@
+Fix all ranked and challenge issues in ميدان app.
+I'm attaching reference screenshots from another app - use them as visual reference only.
+
+═══════════════════════════════
+FIX 1 - RANKED MODE COMPLETE REWRITE:
+═══════════════════════════════
+
+The ranked mode has timing and sync issues.
+Rewrite it using server-side timing:
+
+HOW IT SHOULD WORK:
+1. Both players matched → 3 second countdown (3,2,1,GO!)
+   Both see same countdown synced via Supabase
+
+2. Questions: use seeded shuffle with match ID as seed
+   BOTH players must get IDENTICAL questions in IDENTICAL order
+   Use: questions.sort(() => seededRandom(matchId) - 0.5)
+
+3. Each question: 10 seconds timer
+   Timer starts from server timestamp stored in ranked_matches:
+   question_start_time = Date.now() (stored in Supabase)
+   Both players calculate remaining time as:
+   timeLeft = 10 - ((Date.now() - question_start_time) / 1000)
+   This ensures BOTH have same timer regardless of network
+
+4. After player answers:
+   - Highlight their answer (green=correct, red=wrong)
+   - Show points earned: +10, +7, etc based on speed:
+     answered in second 1-2: +10 pts
+     answered in second 3-4: +8 pts
+     answered in second 5-6: +6 pts
+     answered in second 7-8: +4 pts
+     answered in second 9-10: +2 pts
+     wrong answer: 0 pts
+   - Show "في انتظار الخصم..." if opponent hasn't answered
+   - Auto advance when BOTH answered OR 10 seconds passed
+
+5. Between questions (1.5 seconds):
+   Show mini scoreboard:
+   [Your avatar] [Your score] vs [Opponent score] [Their avatar]
+   Both players see this simultaneously
+
+6. After all questions:
+   - Calculate winner by total points
+   - Winner gets +20 ranked points to their global score
+   - Loser loses -5 ranked points (never below 0)
+   - Show result screen with breakdown
+
+SYNC MECHANISM:
+- Store in ranked_matches table:
+  * current_question_index
+  * question_start_time (Unix timestamp)
+  * player1_answers: JSONB array
+  * player2_answers: JSONB array
+  * status: 'countdown' | 'playing' | 'finished'
+- Both players poll every 500ms for opponent answers
+- Use question_start_time from DB for timer (not local)
+
+Add these columns to ranked_matches:
+ALTER TABLE ranked_matches ADD COLUMN IF NOT EXISTS 
+  question_start_time BIGINT DEFAULT 0;
+ALTER TABLE ranked_matches ADD COLUMN IF NOT EXISTS 
+  player1_answers JSONB DEFAULT '[]';
+ALTER TABLE ranked_matches ADD COLUMN IF NOT EXISTS 
+  player2_answers JSONB DEFAULT '[]';
+ALTER TABLE ranked_matches ADD COLUMN IF NOT EXISTS
+  current_question_index INT DEFAULT 0;
+ALTER TABLE ranked_matches ADD COLUMN IF NOT EXISTS
+  countdown_start BIGINT DEFAULT 0;
+
+═══════════════════════════════
+FIX 2 - RANKED LEADERBOARD:
+═══════════════════════════════
+
+Replace current leaderboard with ONE simple ranked leaderboard:
+- Single list, no category filter
+- Sorted by ranked_points DESC
+- Show: rank number, flag, avatar, username, points, wins
+- Weekly season tab + All time tab
+- "أنت في المركز #X" shown at bottom
+- Top 3 get special styling (gold/silver/bronze)
+
+═══════════════════════════════
+FIX 3 - CHALLENGE (1v1 via link) WRONG RESULTS:
+═══════════════════════════════
+
+The winner calculation is wrong.
+Fix in db.ts completeDbChallenge():
+
+1. When opponent finishes, compare scores correctly:
+   creator_score = number of correct answers by creator
+   opponent_score = number of correct answers by opponent
+   winner = whoever has HIGHER score
+   If equal = draw
+
+2. Fix the winner field in challenges table:
+   winner = 'creator' if creator_score > opponent_score
+   winner = 'opponent' if opponent_score > creator_score  
+   winner = 'draw' if equal
+
+3. Fix Results.tsx to show correct winner:
+   If currentUser is creator → compare creator_score vs opponent_score
+   If currentUser is opponent → compare opponent_score vs creator_score
+   Higher score = winner, show 🏆
+
+4. Fix the challenge result modal in profile:
+   Same logic - show correct winner based on scores
+
+═══════════════════════════════
+FIX 4 - SHARE CARD RTL/ARABIC TEXT:
+═══════════════════════════════
+
+The share card PNG has unreadable Arabic text.
+Fix ShareCard.tsx:
+
+1. Add dir="rtl" to the card container div
+2. Add font-family: 'Tajawal', Arial, sans-serif to all text
+3. Make sure text-align: right for Arabic content
+4. Increase font sizes for readability in PNG:
+   - Player name: 18px bold
+   - Stats: 14px
+   - Score: 24px bold
+5. Add explicit unicode-bidi: embed to text elements
+6. Make background solid (no gradients that interfere)
+7. Test with html2canvas:
+   html2canvas(cardRef.current, {
+     scale: 3,
+     useCORS: true,
+     allowTaint: false,
+     backgroundColor: '#0D0D1A',
+     logging: false,
+     onclone: (doc) => {
+       doc.querySelectorAll('*').forEach(el => {
+         el.style.fontFamily = 'Arial, sans-serif';
+       });
+     }
+   })
+
+Push to GitHub.
+Also run this SQL:
+ALTER TABLE ranked_matches ADD COLUMN IF NOT EXISTS 
+  question_start_time BIGINT DEFAULT 0;
+ALTER TABLE ranked_matches ADD COLUMN IF NOT EXISTS 
+  player1_answers JSONB DEFAULT '[]';
+ALTER TABLE ranked_matches ADD COLUMN IF NOT EXISTS 
+  player2_answers JSONB DEFAULT '[]';
+ALTER TABLE ranked_matches ADD COLUMN IF NOT EXISTS
+  current_question_index INT DEFAULT 0;
+ALTER TABLE ranked_matches ADD COLUMN IF NOT EXISTS
+  countdown_start BIGINT DEFAULT 0;

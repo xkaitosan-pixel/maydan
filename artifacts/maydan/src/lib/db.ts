@@ -167,6 +167,7 @@ export interface DbChallenge {
   opponent_answers: string | null; // JSON array
   question_count: number;
   created_at: string;
+  winner?: "creator" | "opponent" | "draw" | null;
 }
 
 export async function createDbChallenge(params: {
@@ -227,6 +228,13 @@ export async function completeDbChallenge(id: string, params: {
   opponent_answers: (number | null)[];
   opponent_score: number;
 }): Promise<void> {
+  // Read creator_score so we can persist a deterministic "winner" field.
+  const existing = await getDbChallenge(id);
+  const creatorScore = existing?.creator_score ?? 0;
+  const winner: "creator" | "opponent" | "draw" =
+    params.opponent_score > creatorScore ? "opponent" :
+    params.opponent_score < creatorScore ? "creator" : "draw";
+
   // Guard against race: only the FIRST opponent to finish writes their result.
   // Any subsequent attempts will match zero rows because status is no longer "pending".
   const { error } = await supabase
@@ -236,6 +244,7 @@ export async function completeDbChallenge(id: string, params: {
       opponent_name: params.opponent_name,
       opponent_answers: JSON.stringify(params.opponent_answers),
       opponent_score: params.opponent_score,
+      winner,
       status: "completed",
     })
     .eq("id", id)

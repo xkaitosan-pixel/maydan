@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { supabase } from "@/lib/supabase";
 import { CATEGORIES, Question } from "@/lib/questions";
@@ -23,8 +23,10 @@ type Phase =
   | "matched"
   | "playing"
   | "q_result"
-  | "finished"
-  | "practice";
+  | "scoreboard"
+  | "finished";
+
+type AnswerEntry = { ans: number | null; pts: number; ms: number };
 
 interface RankedMatch {
   id: string;
@@ -34,31 +36,34 @@ interface RankedMatch {
   player2_name: string;
   category: string;
   status: string;
-  current_question: number;
+  current_question_index: number;
+  question_start_time: number | null;
+  countdown_start: number | null;
   player1_score: number;
   player2_score: number;
+  player1_answers: AnswerEntry[];
+  player2_answers: AnswerEntry[];
   winner_id: string | null;
 }
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
-const QUESTION_TIME = 10;
-const RESULT_DELAY = 1500;
+const QUESTION_TIME_MS = 10000;
+const COUNTDOWN_MS = 3000;
+const SCOREBOARD_MS = 2500;
 const MATCH_QUESTIONS = 10;
 const SEARCH_TIMEOUT = 60;
-const MEDALS = ["🥇", "🥈", "🥉"];
+const POLL_MS = 500;
 
-function seededShuffle<T>(arr: T[], seed: string): T[] {
-  let hash = 0;
-  for (const c of seed) hash = Math.imul(hash ^ c.charCodeAt(0), 0x9e3779b9);
-  const result = [...arr];
-  for (let i = result.length - 1; i > 0; i--) {
-    hash = Math.imul(hash ^ (hash >>> 16), 0x45d9f3b);
-    hash = Math.imul(hash ^ (hash >>> 16), 0x45d9f3b);
-    const j = Math.abs(hash) % (i + 1);
-    [result[i], result[j]] = [result[j], result[i]];
-  }
-  return result;
+// Speed → points: 1–2s=10, 3–4s=8, 5–6s=6, 7–8s=4, 9–10s=2 (per spec)
+function pointsForElapsedMs(elapsedMs: number, correct: boolean): number {
+  if (!correct) return 0;
+  const s = Math.max(1, Math.min(10, Math.ceil(elapsedMs / 1000)));
+  if (s <= 2) return 10;
+  if (s <= 4) return 8;
+  if (s <= 6) return 6;
+  if (s <= 8) return 4;
+  return 2;
 }
 
 async function getMatchQuestions(matchId: string, category: string) {
@@ -82,40 +87,32 @@ export default function RankedMode() {
   const [match, setMatch] = useState<RankedMatch | null>(null);
   const [matchQs, setMatchQs] = useState<Question[]>([]);
   const [currentQIdx, setCurrentQIdx] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(QUESTION_TIME);
+  const [timeLeft, setTimeLeft] = useState(10);
   const [selected, setSelected] = useState<number | null>(null);
-  const [qResult, setQResult] = useState<{ p1Ans: number | null; p2Ans: number | null; p1Pts: number; p2Pts: number } | null>(null);
+  const [qResult, setQResult] = useState<{ p1Pts: number; p2Pts: number } | null>(null);
   const [myTotalScore, setMyTotalScore] = useState(0);
   const [oppTotalScore, setOppTotalScore] = useState(0);
-  const [answerTime, setAnswerTime] = useState(0);
   const [winner, setWinner] = useState<"me" | "opponent" | "draw" | null>(null);
   const [countdown, setCountdown] = useState(3);
   const [showReward, setShowReward] = useState<{ xp: number; coins: number } | null>(null);
   const [newAchievements, setNewAchievements] = useState<string[]>([]);
   const [rewardSummary, setRewardSummary] = useState<{ xp: number; coins: number; achievements: number } | null>(null);
-  const [myCombo, setMyCombo] = useState(0);
-  const [oppCombo, setOppCombo] = useState(0);
   const [oppCountry, setOppCountry] = useState<string | null>(null);
   const [oppAvatar, setOppAvatar] = useState<string | null>(null);
 
-  function comboMultiplier(c: number): number {
-    if (c >= 10) return 2.5;
-    if (c >= 6) return 2;
-    if (c >= 3) return 1.5;
-    return 1;
-  }
-
   const searchIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollSearchRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollMatchRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const matchRef = useRef<RankedMatch | null>(null);
   const myIdRef = useRef(myId);
   const myNameRef = useRef(myName);
-  const currentQIdxRef = useRef(0);
-  const matchQsRef = useRef<Question[]>([]);
   const phaseRef = useRef<Phase>("select_cats");
-  const questionStartRef = useRef(Date.now());
+  const matchQsRef = useRef<Question[]>([]);
+  const submittedQRef = useRef<number>(-1);     // last qIdx for which I already wrote my answer
+  const advancedFromRef = useRef<number>(-1);   // last qIdx that p1 already advanced past
+  const displayedQIdxRef = useRef<number>(-1);  // qIdx currently shown to the user
+  const finishedRef = useRef(false);
 
   useEffect(() => {
     myIdRef.current = myId;
@@ -125,21 +122,33 @@ export default function RankedMode() {
   useEffect(() => {
     loadMyPoints();
     return () => cleanup();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadMyPoints() {
+    if (!myId) return;
     const { data } = await supabase
       .from("ranked_queue")
       .select("rank_points")
       .eq("user_id", myId)
-      .single();
+      .maybeSingle();
     if (data) setMyPoints(data.rank_points ?? 0);
+  }
+
+  function setPhaseSafe(p: Phase) {
+    phaseRef.current = p;
+    setPhase(p);
   }
 
   function cleanup() {
     if (searchIntervalRef.current) clearInterval(searchIntervalRef.current);
+    if (pollSearchRef.current) clearInterval(pollSearchRef.current);
+    if (pollMatchRef.current) clearInterval(pollMatchRef.current);
     if (timerRef.current) clearInterval(timerRef.current);
-    if (channelRef.current) supabase.removeChannel(channelRef.current);
+    searchIntervalRef.current = null;
+    pollSearchRef.current = null;
+    pollMatchRef.current = null;
+    timerRef.current = null;
   }
 
   // ── MATCHMAKING ──────────────────────────────────────────────────────────
@@ -156,12 +165,11 @@ export default function RankedMode() {
       ? selectedCats[Math.floor(Math.random() * selectedCats.length)]
       : "mix";
 
-    // Upsert into ranked_queue
     const { data: existing } = await supabase
       .from("ranked_queue")
       .select("id, rank_points")
       .eq("user_id", myId)
-      .single();
+      .maybeSingle();
 
     if (existing) {
       await supabase.from("ranked_queue").update({
@@ -180,16 +188,13 @@ export default function RankedMode() {
       });
     }
 
-    phaseRef.current = "searching";
-    setPhase("searching");
+    setPhaseSafe("searching");
     setSearchTimer(SEARCH_TIMEOUT);
     startSearching(category);
   }
 
   function startSearching(category: string) {
     let elapsed = 0;
-
-    // Countdown display
     if (searchIntervalRef.current) clearInterval(searchIntervalRef.current);
     searchIntervalRef.current = setInterval(() => {
       elapsed++;
@@ -200,9 +205,8 @@ export default function RankedMode() {
       }
     }, 1000);
 
-    // Poll for opponent
-    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-    pollIntervalRef.current = setInterval(async () => {
+    if (pollSearchRef.current) clearInterval(pollSearchRef.current);
+    pollSearchRef.current = setInterval(async () => {
       const found = await findOpponent(category);
       if (found) clearSearchTimers();
     }, 2000);
@@ -210,13 +214,12 @@ export default function RankedMode() {
 
   function clearSearchTimers() {
     if (searchIntervalRef.current) { clearInterval(searchIntervalRef.current); searchIntervalRef.current = null; }
-    if (pollIntervalRef.current)   { clearInterval(pollIntervalRef.current);   pollIntervalRef.current = null; }
+    if (pollSearchRef.current)     { clearInterval(pollSearchRef.current);     pollSearchRef.current = null; }
   }
 
   async function findOpponent(category: string): Promise<boolean> {
     if (phaseRef.current !== "searching") return true;
 
-    // Find another waiting player
     const { data: opponents } = await supabase
       .from("ranked_queue")
       .select("*")
@@ -228,8 +231,34 @@ export default function RankedMode() {
     if (!opponents || opponents.length === 0) return false;
     const opp = opponents[0];
 
-    // Create the match
+    // Atomic claim: only succeed if the row is still 'waiting'. Conditional
+    // UPDATE is the cheapest cross-DB-safe way to prevent two clients from
+    // creating duplicate matches for the same opponent.
+    const { data: claimed } = await supabase
+      .from("ranked_queue")
+      .update({ status: "matched" })
+      .eq("user_id", opp.user_id)
+      .eq("status", "waiting")
+      .select()
+      .maybeSingle();
+    if (!claimed) return false; // someone else grabbed them
+
+    // Claim self too — guards against the symmetric case where both sides race.
+    const { data: claimedSelf } = await supabase
+      .from("ranked_queue")
+      .update({ status: "matched" })
+      .eq("user_id", myIdRef.current)
+      .eq("status", "waiting")
+      .select()
+      .maybeSingle();
+    if (!claimedSelf) {
+      // Roll back opp claim so they can match again
+      await supabase.from("ranked_queue").update({ status: "waiting" }).eq("user_id", opp.user_id);
+      return false;
+    }
+
     const chosenCategory = opp.preferred_categories?.includes(category) ? category : "mix";
+    const now = Date.now();
     const { data: newMatch, error } = await supabase
       .from("ranked_matches")
       .insert({
@@ -239,30 +268,35 @@ export default function RankedMode() {
         player2_name: opp.username,
         category: chosenCategory,
         status: "active",
-        current_question: 0,
+        current_question_index: 0,
+        question_start_time: null,
+        countdown_start: now,
         player1_score: 0,
         player2_score: 0,
+        player1_answers: [],
+        player2_answers: [],
         winner_id: null,
       })
       .select()
       .single();
 
-    if (error || !newMatch) return false;
+    if (error || !newMatch) {
+      console.error("create ranked_match failed", error);
+      // best-effort rollback
+      await supabase.from("ranked_queue").update({ status: "waiting" }).in("user_id", [myIdRef.current, opp.user_id]);
+      return false;
+    }
 
-    // Mark both as matched
-    await supabase.from("ranked_queue").update({ status: "matched" }).in("user_id", [myIdRef.current, opp.user_id]);
-
-    await startMatch(newMatch as RankedMatch, "p1");
+    await startMatch(newMatch as RankedMatch);
     return true;
   }
 
   async function cancelSearch() {
     await supabase.from("ranked_queue").update({ status: "cancelled" }).eq("user_id", myId);
-    phaseRef.current = "select_cats";
-    setPhase("select_cats");
+    setPhaseSafe("select_cats");
   }
 
-  // For player2: poll for a match created for them
+  // p2 polls for a match created for them
   useEffect(() => {
     if (phase !== "searching") return;
     const interval = setInterval(async () => {
@@ -276,287 +310,300 @@ export default function RankedMode() {
         .limit(1);
       if (data && data.length > 0) {
         clearInterval(interval);
-        await startMatch(data[0] as RankedMatch, "p2");
+        clearSearchTimers();
+        await startMatch(data[0] as RankedMatch);
       }
-    }, 2000);
+    }, 1500);
     return () => clearInterval(interval);
   }, [phase, myId]);
 
   // ── MATCH SETUP ──────────────────────────────────────────────────────────
 
-  async function startMatch(m: RankedMatch, role: "p1" | "p2") {
-    clearSearchTimers();
+  async function startMatch(m: RankedMatch) {
     matchRef.current = m;
     setMatch(m);
+    submittedQRef.current = -1;
+    advancedFromRef.current = -1;
+    displayedQIdxRef.current = -1;
+    finishedRef.current = false;
+
     const qs = await getMatchQuestions(m.id, m.category);
-    // Deterministic shuffle by q.id so both players see identical option order
     const sq = qs.map((q) => shuffleQuestion(q, q.id));
     matchQsRef.current = sq;
     setMatchQs(sq);
-    setMyCombo(0);
-    setOppCombo(0);
 
-    // Fetch opponent country/avatar for the in-match scoreboard
-    const oppId = role === "p1" ? m.player2_id : m.player1_id;
+    const oppId = m.player1_id === myIdRef.current ? m.player2_id : m.player1_id;
     if (oppId) {
-      supabase.from("users").select("country, avatar_url").eq("id", oppId).single()
+      supabase.from("users").select("country, avatar_url").eq("id", oppId).maybeSingle()
         .then(({ data }) => {
           if (data) { setOppCountry(data.country ?? null); setOppAvatar(data.avatar_url ?? null); }
         });
     }
 
     playMatchFound();
-    phaseRef.current = "matched";
-    setPhase("matched");
-
-    // Realtime subscription
-    const channel = supabase
-      .channel("ranked-match:" + m.id)
-      .on("postgres_changes", {
-        event: "UPDATE",
-        schema: "public",
-        table: "ranked_matches",
-        filter: `id=eq.${m.id}`,
-      }, (payload) => handleMatchUpdate(payload.new as RankedMatch))
-      .subscribe();
-    channelRef.current = channel;
-
-    // 3-second countdown then start
-    let cd = 3;
-    setCountdown(cd);
-    const cdInterval = setInterval(() => {
-      cd--;
-      setCountdown(cd);
-      if (cd <= 0) {
-        clearInterval(cdInterval);
-        currentQIdxRef.current = 0;
-        setCurrentQIdx(0);
-        phaseRef.current = "playing";
-        setPhase("playing");
-        questionStartRef.current = Date.now();
-        startQuestionTimer(0);
-      }
-    }, 1000);
+    setPhaseSafe("matched");
+    runCountdown(m);
+    startMatchPolling();
   }
 
-  function handleMatchUpdate(updated: RankedMatch) {
-    matchRef.current = updated;
-    setMatch(updated);
-
-    // If question advanced by player1
-    if (updated.current_question > currentQIdxRef.current && phaseRef.current === "playing") {
-      // Move to next question
-      const nextIdx = updated.current_question;
-      currentQIdxRef.current = nextIdx;
-      setCurrentQIdx(nextIdx);
-      if (timerRef.current) clearInterval(timerRef.current);
-      setSelected(null);
-      setQResult(null);
-      phaseRef.current = "playing";
-      setPhase("playing");
-      questionStartRef.current = Date.now();
-      startQuestionTimer(nextIdx);
-    }
-
-    if (updated.status === "finished") {
-      if (timerRef.current) clearInterval(timerRef.current);
-      const isPlayer1 = updated.player1_id === myIdRef.current;
-      const myScore = isPlayer1 ? updated.player1_score : updated.player2_score;
-      const oppScore = isPlayer1 ? updated.player2_score : updated.player1_score;
-      setMyTotalScore(myScore);
-      setOppTotalScore(oppScore);
-      const w = updated.winner_id === myIdRef.current ? "me" : updated.winner_id ? "opponent" : "draw";
-      setWinner(w);
-      if (w === "me") playGameOver();
-      else if (w === "opponent") playWrong();
-      phaseRef.current = "finished";
-      setPhase("finished");
-    }
-  }
-
-  // ── GAME LOGIC ────────────────────────────────────────────────────────────
-
-  function startQuestionTimer(qIdx: number) {
-    setTimeLeft(QUESTION_TIME);
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 3 && prev > 0) playSound("countdown");
-        else if (prev <= 4 && prev > 0) playTick();
-        if (prev <= 1) {
-          clearInterval(timerRef.current!);
-          handleTimeout(qIdx);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  }
-
-  async function handleTimeout(qIdx: number) {
-    if (phaseRef.current !== "playing") return;
-    await submitAnswer(null, qIdx, 0);
-  }
-
-  async function handleAnswer(idx: number, qIdx: number) {
-    if (phaseRef.current !== "playing" || selected !== null) return;
-    if (timerRef.current) clearInterval(timerRef.current);
-
-    const elapsed = Math.floor((Date.now() - questionStartRef.current) / 1000);
-    const pts = Math.max(1, QUESTION_TIME - elapsed);
-
-    const q = matchQsRef.current[qIdx];
-    const correct = idx === q?.correct;
-    const earnedPts = correct ? pts : 0;
-
-    if (correct) playCorrect();
-    else playWrong();
-
-    setSelected(idx);
-    setAnswerTime(elapsed + 1);
-    await submitAnswer(idx, qIdx, earnedPts);
-  }
-
-  async function submitAnswer(ans: number | null, qIdx: number, pts: number) {
-    if (!matchRef.current) return;
-    const m = matchRef.current;
-    const isP1 = m.player1_id === myIdRef.current;
-    const field = isP1 ? "player1_score" : "player2_score";
-    const newScore = (isP1 ? m.player1_score : m.player2_score) + pts;
-    const signalField = "winner_id";
-
-    // Signal our answer
-    const signal = isP1 ? `p1:${ans ?? -1}:${qIdx}` : `p2:${ans ?? -1}:${qIdx}`;
-    await supabase.from("ranked_matches").update({
-      [field]: newScore,
-      [signalField]: signal,
-    }).eq("id", m.id);
-
-    // Poll for opponent's answer then advance
-    waitForBothAndAdvance(qIdx, ans, pts, newScore, isP1);
-  }
-
-  async function waitForBothAndAdvance(qIdx: number, myAns: number | null, myPts: number, myNewScore: number, isP1: boolean) {
-    phaseRef.current = "q_result";
-    // Wait up to 3 seconds for opponent, then advance
-    const start = Date.now();
-    const interval = setInterval(async () => {
-      const { data } = await supabase.from("ranked_matches").select("*").eq("id", matchRef.current!.id).single();
-      if (!data) { clearInterval(interval); return; }
-      const current = data as RankedMatch;
-
-      const oppSignal = isP1 ? current.winner_id?.startsWith("p2:") : current.winner_id?.startsWith("p1:");
-      const oppQSignal = current.winner_id?.endsWith(`:${qIdx}`);
-      const bothAnswered = oppSignal && oppQSignal;
-      const timedOut = Date.now() - start > 3000;
-
-      if (bothAnswered || timedOut) {
+  function runCountdown(m: RankedMatch) {
+    const start = m.countdown_start ?? Date.now();
+    const tick = () => {
+      const elapsed = Date.now() - start;
+      const left = Math.max(0, Math.ceil((COUNTDOWN_MS - elapsed) / 1000));
+      setCountdown(left);
+      if (elapsed >= COUNTDOWN_MS) {
         clearInterval(interval);
-        // Parse opponent's answer from signal
-        let oppAns: number | null = null;
-        let oppPts = 0;
-        const parts = current.winner_id?.split(":") ?? [];
-        if (parts.length >= 2) {
-          const rawAns = parseInt(parts[1]);
-          oppAns = rawAns === -1 ? null : rawAns;
-          const q = matchQsRef.current[qIdx];
-          if (q && oppAns !== null && oppAns === q.correct) {
-            // We don't know opp's exact timing so just show their score delta
-            const oppField = isP1 ? current.player2_score : current.player1_score;
-            const prevOppScore = isP1 ? matchRef.current!.player2_score : matchRef.current!.player1_score;
-            oppPts = oppField - prevOppScore;
-          }
-        }
-
-        const p1Ans = isP1 ? myAns : oppAns;
-        const p2Ans = isP1 ? oppAns : myAns;
-        const p1Pts = isP1 ? myPts : oppPts;
-        const p2Pts = isP1 ? oppPts : myPts;
-
-        setQResult({ p1Ans, p2Ans, p1Pts, p2Pts });
-        setMatch(current);
-        matchRef.current = current;
-
-        setMyTotalScore(myNewScore);
-        setOppTotalScore(isP1 ? current.player2_score : current.player1_score);
-
-        // Update combos based on outcome
-        const myPtsThisQ = isP1 ? p1Pts : p2Pts;
-        const oppPtsThisQ = isP1 ? p2Pts : p1Pts;
-        if (myPtsThisQ > 0) {
-          setMyCombo((c) => {
-            const next = c + 1;
-            if (next === 3 || next === 6 || next === 10) playSound("combo", next);
-            return next;
-          });
-        } else {
-          setMyCombo(0);
-        }
-        setOppCombo((c) => (oppPtsThisQ > 0 ? c + 1 : 0));
-        setPhase("q_result");
-
-        // After result delay, advance
-        setTimeout(async () => {
-          const nextIdx = qIdx + 1;
-          if (nextIdx >= MATCH_QUESTIONS) {
-            // Game over
-            await finishMatch(isP1, current, myNewScore);
-          } else {
-            // Only player1 advances the question
-            if (isP1) {
-              await supabase.from("ranked_matches").update({
-                current_question: nextIdx,
-                winner_id: null,
-              }).eq("id", matchRef.current!.id);
-            }
-            currentQIdxRef.current = nextIdx;
-            setCurrentQIdx(nextIdx);
-            setSelected(null);
-            setQResult(null);
-            phaseRef.current = "playing";
-            setPhase("playing");
-            questionStartRef.current = Date.now();
-            startQuestionTimer(nextIdx);
-          }
-        }, RESULT_DELAY);
+        hostStartFirstQuestion();
+        // Both clients will pick up question 0 on the next pollTick.
       }
-    }, 500);
+    };
+    tick();
+    const interval = setInterval(tick, 200);
   }
 
-  async function finishMatch(isP1: boolean, current: RankedMatch, myFinalScore: number) {
-    const oppFinalScore = isP1 ? current.player2_score : current.player1_score;
-    let winnerId: string | null = null;
-    if (myFinalScore > oppFinalScore) winnerId = myIdRef.current;
-    else if (oppFinalScore > myFinalScore) winnerId = isP1 ? current.player2_id : current.player1_id;
+  // Called only by the host (P1) at the very end of countdown to publish the
+  // first authoritative question_start_time. Both clients then react to that
+  // change via pollTick → showQuestion(0).
+  async function hostStartFirstQuestion() {
+    if (!matchRef.current) return;
+    if (matchRef.current.player1_id !== myIdRef.current) return;
+    const now = Date.now();
+    await supabase.from("ranked_matches").update({
+      current_question_index: 0,
+      question_start_time: now,
+    }).eq("id", matchRef.current.id);
+    matchRef.current = { ...matchRef.current, current_question_index: 0, question_start_time: now };
+  }
 
-    // Update match
+  // Move the local UI to question `qIdx`. Idempotent.
+  function showQuestion(qIdx: number) {
+    displayedQIdxRef.current = qIdx;
+    submittedQRef.current = -1;
+    setSelected(null);
+    setQResult(null);
+    setCurrentQIdx(qIdx);
+    setPhaseSafe("playing");
+  }
+
+  // ── Polling loop (single 500ms poller) ────────────────────────────────────
+  function startMatchPolling() {
+    if (pollMatchRef.current) clearInterval(pollMatchRef.current);
+    pollMatchRef.current = setInterval(pollTick, POLL_MS);
+  }
+
+  async function pollTick() {
+    if (!matchRef.current || finishedRef.current) return;
+    const { data } = await supabase
+      .from("ranked_matches")
+      .select("*")
+      .eq("id", matchRef.current.id)
+      .maybeSingle();
+    if (!data) return;
+    const cur = data as RankedMatch;
+    matchRef.current = cur;
+    setMatch(cur);
+
+    if (cur.status === "finished") {
+      handleFinished(cur);
+      return;
+    }
+
+    const serverQIdx = cur.current_question_index ?? 0;
+    const startedAt = cur.question_start_time ?? 0;
+
+    // Wait for host to publish question_start_time before rendering anything.
+    if (startedAt <= 0) return;
+
+    // ── 1. SERVER ADVANCED to a new question → swap local UI ───────────────
+    if (serverQIdx > displayedQIdxRef.current) {
+      showQuestion(serverQIdx);
+      // fall through to evaluate timer/answers for the new index
+    }
+
+    // From here on, operate on the displayed (== server) index.
+    const qIdx = displayedQIdxRef.current;
+    if (qIdx < 0) return;
+
+    const isP1 = cur.player1_id === myIdRef.current;
+    const p1Ans = (cur.player1_answers ?? [])[qIdx];
+    const p2Ans = (cur.player2_answers ?? [])[qIdx];
+    const bothAnswered = !!p1Ans && !!p2Ans;
+    const elapsed = Date.now() - startedAt;
+    const timedOut = elapsed >= QUESTION_TIME_MS + 500;
+
+    // ── 2. Visible countdown ───────────────────────────────────────────────
+    if (phaseRef.current === "playing") {
+      const left = Math.max(0, Math.ceil((QUESTION_TIME_MS - elapsed) / 1000));
+      setTimeLeft(left);
+      if (left <= 3 && left > 0) playTick();
+    }
+
+    // ── 3. Auto-submit null on timeout ────────────────────────────────────
+    if (
+      phaseRef.current === "playing" &&
+      submittedQRef.current !== qIdx &&
+      timedOut
+    ) {
+      await writeMyAnswer(null, qIdx, 0, QUESTION_TIME_MS);
+    }
+
+    // ── 4. Both answered → q_result, then scoreboard ──────────────────────
+    if (phaseRef.current === "playing" && bothAnswered) {
+      setQResult({ p1Pts: p1Ans?.pts ?? 0, p2Pts: p2Ans?.pts ?? 0 });
+      setMyTotalScore(isP1 ? cur.player1_score : cur.player2_score);
+      setOppTotalScore(isP1 ? cur.player2_score : cur.player1_score);
+      setPhaseSafe("q_result");
+      const lockedIdx = qIdx;
+      setTimeout(() => {
+        if (phaseRef.current === "q_result" && displayedQIdxRef.current === lockedIdx) {
+          setPhaseSafe("scoreboard");
+        }
+      }, 1500);
+    }
+
+    // ── 5. Host: advance the question on the server ───────────────────────
+    if (
+      isP1 &&
+      cur.status === "active" &&
+      advancedFromRef.current < qIdx &&
+      (bothAnswered || timedOut)
+    ) {
+      advancedFromRef.current = qIdx;
+      setTimeout(() => advanceQuestionOnServer(qIdx), SCOREBOARD_MS + 1500);
+    }
+  }
+
+  // Host-only. Pure server-side advance — local UI re-syncs via pollTick.
+  async function advanceQuestionOnServer(fromIdx: number) {
+    if (!matchRef.current || finishedRef.current) return;
+    const nextIdx = fromIdx + 1;
+
+    if (nextIdx >= MATCH_QUESTIONS) {
+      await finishMatch();
+      return;
+    }
+
+    const now = Date.now();
+    await supabase.from("ranked_matches").update({
+      current_question_index: nextIdx,
+      question_start_time: now,
+    }).eq("id", matchRef.current.id);
+  }
+
+  // ── Submitting answers ───────────────────────────────────────────────────
+
+  async function writeMyAnswer(ans: number | null, qIdx: number, pts: number, ms: number) {
+    if (!matchRef.current) return;
+    if (submittedQRef.current === qIdx) return;
+    submittedQRef.current = qIdx;
+
+    const isP1 = matchRef.current.player1_id === myIdRef.current;
+    const field = isP1 ? "player1_answers" : "player2_answers";
+    const scoreField = isP1 ? "player1_score" : "player2_score";
+
+    const arr: AnswerEntry[] = [...((matchRef.current[field] as AnswerEntry[]) ?? [])];
+    while (arr.length < qIdx) arr.push({ ans: null, pts: 0, ms: 0 });
+    arr[qIdx] = { ans, pts, ms };
+
+    const newScore = ((matchRef.current[scoreField] as number) ?? 0) + pts;
+
+    const { data, error } = await supabase
+      .from("ranked_matches")
+      .update({
+        [field]: arr,
+        [scoreField]: newScore,
+      })
+      .eq("id", matchRef.current.id)
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      console.warn("writeMyAnswer error", error);
+      return;
+    }
+    if (data) {
+      matchRef.current = data as RankedMatch;
+      setMatch(data as RankedMatch);
+      setMyTotalScore(isP1 ? (data as RankedMatch).player1_score : (data as RankedMatch).player2_score);
+    }
+  }
+
+  function handleAnswer(idx: number) {
+    if (phaseRef.current !== "playing" || selected !== null || !matchRef.current) return;
+    const m = matchRef.current;
+    const qIdx = m.current_question_index ?? 0;
+    const startedAt = m.question_start_time ?? Date.now();
+    const elapsed = Date.now() - startedAt;
+    const q = matchQsRef.current[qIdx];
+    const correct = !!q && idx === q.correct;
+    const pts = pointsForElapsedMs(elapsed, correct);
+    setSelected(idx);
+    if (correct) playCorrect(); else playWrong();
+    void writeMyAnswer(idx, qIdx, pts, elapsed);
+  }
+
+  // ── Finish ───────────────────────────────────────────────────────────────
+
+  async function finishMatch() {
+    if (!matchRef.current || finishedRef.current) return;
+    finishedRef.current = true;
+    const m = matchRef.current;
+    const myFinalScore = (m.player1_id === myIdRef.current) ? m.player1_score : m.player2_score;
+    const oppFinalScore = (m.player1_id === myIdRef.current) ? m.player2_score : m.player1_score;
+    let winnerId: string | null = null;
+    if (m.player1_score > m.player2_score) winnerId = m.player1_id;
+    else if (m.player2_score > m.player1_score) winnerId = m.player2_id;
+
     await supabase.from("ranked_matches").update({
       status: "finished",
       winner_id: winnerId,
-    }).eq("id", matchRef.current!.id);
-
-    // Update rank points
-    const won = winnerId === myIdRef.current;
-    const draw = winnerId === null;
-    const delta = won ? 20 : draw ? 0 : -5;
-    if (delta !== 0) {
-      const { data } = await supabase.from("ranked_queue").select("rank_points").eq("user_id", myIdRef.current).single();
-      if (data) {
-        const newPts = Math.max(0, (data.rank_points ?? 0) + delta);
-        await supabase.from("ranked_queue").update({ rank_points: newPts }).eq("user_id", myIdRef.current);
-        setMyPoints(newPts);
-      }
-    }
+    }).eq("id", m.id);
 
     setMyTotalScore(myFinalScore);
     setOppTotalScore(oppFinalScore);
-    setWinner(won ? "me" : draw ? "draw" : "opponent");
-    if (won) playGameOver();
-    else if (!draw) playWrong();
-    phaseRef.current = "finished";
-    setPhase("finished");
+    handleFinished({ ...m, status: "finished", winner_id: winnerId });
+  }
 
-    // Award XP, coins and season points for authenticated users
+  function handleFinished(cur: RankedMatch) {
+    if (phaseRef.current === "finished") return;
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (pollMatchRef.current) clearInterval(pollMatchRef.current);
+    pollMatchRef.current = null;
+    finishedRef.current = true;
+
+    const isP1 = cur.player1_id === myIdRef.current;
+    const myScore = isP1 ? cur.player1_score : cur.player2_score;
+    const oppScore = isP1 ? cur.player2_score : cur.player1_score;
+    setMyTotalScore(myScore);
+    setOppTotalScore(oppScore);
+
+    const w: "me" | "opponent" | "draw" =
+      cur.winner_id === myIdRef.current ? "me" :
+      cur.winner_id ? "opponent" : "draw";
+    setWinner(w);
+    if (w === "me") playGameOver();
+    else if (w === "opponent") playWrong();
+    setPhaseSafe("finished");
+
+    const won = w === "me";
+    const draw = w === "draw";
+    const delta = won ? 20 : draw ? 0 : -5;
+    if (delta !== 0) {
+      supabase.from("ranked_queue")
+        .select("rank_points")
+        .eq("user_id", myIdRef.current)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data) {
+            const newPts = Math.max(0, (data.rank_points ?? 0) + delta);
+            supabase.from("ranked_queue").update({ rank_points: newPts }).eq("user_id", myIdRef.current).then(() => {
+              setMyPoints(newPts);
+            });
+          }
+        });
+    }
+
     if (dbUser?.id) {
       const xpGain    = won ? XP_REWARDS.win_ranked : (draw ? 15 : 5);
       const coinGain  = won ? COIN_REWARDS.win_ranked : 0;
@@ -572,7 +619,7 @@ export default function RankedMode() {
         seasonDelta: won ? 20 : draw ? 5 : 0,
         progressUpdates: {
           total_games:       1,
-          total_correct:     myFinalScore,
+          total_correct:     myScore,
           ranked_wins:       won ? 1 : 0,
           consecutive_wins:  won ? 1 : 0,
         },
@@ -589,7 +636,6 @@ export default function RankedMode() {
       }).catch(() => {});
     }
 
-    // Today-stats roll-up (works for guests too)
     if (won) recordTodayWin(); else if (!draw) recordTodayLoss();
     recordTodayXP(won ? XP_REWARDS.win_ranked : (draw ? 15 : 5));
   }
@@ -598,10 +644,10 @@ export default function RankedMode() {
 
   const myRank = getRankInfo(myPoints);
   const currentQ = matchQs[currentQIdx] ?? null;
-  const timerPct = (timeLeft / QUESTION_TIME) * 100;
-  const isDanger = timeLeft <= 3;
   const isP1 = match?.player1_id === myId;
   const opponentName = isP1 ? match?.player2_name : match?.player1_name;
+  const isDanger = timeLeft <= 3;
+  const timerPct = (timeLeft / 10) * 100;
 
   // ── SELECT CATEGORIES ────────────────────────────────────────────────────
   if (phase === "select_cats") {
@@ -674,9 +720,9 @@ export default function RankedMode() {
           <div className="bg-card border border-border rounded-2xl p-4 text-sm space-y-1.5">
             <p className="font-bold text-center mb-2">⚡ قواعد التحدي</p>
             <p className="text-muted-foreground">• 10 أسئلة · 10 ثوانٍ لكل سؤال</p>
-            <p className="text-muted-foreground">• الإجابة أسرع = نقاط أكثر (10→1)</p>
-            <p className="text-muted-foreground">• السؤال ينتهي عندما يجيب كلا اللاعبين</p>
-            <p className="text-muted-foreground">• انقطاع الخصم = فوز تلقائي بعد 30 ثانية</p>
+            <p className="text-muted-foreground">• الإجابة أسرع = نقاط أكثر (10/8/6/4/2)</p>
+            <p className="text-muted-foreground">• ينتقل السؤال بعد إجابة كلا اللاعبين أو انتهاء الوقت</p>
+            <p className="text-muted-foreground">• فوز: +20 · تعادل: 0 · خسارة: -5</p>
           </div>
         </div>
 
@@ -749,7 +795,36 @@ export default function RankedMode() {
     );
   }
 
-  // ── PLAYING ───────────────────────────────────────────────────────────────
+  // ── SCOREBOARD (between questions) ───────────────────────────────────────
+  if (phase === "scoreboard" && match) {
+    const myS = isP1 ? match.player1_score : match.player2_score;
+    const oppS = isP1 ? match.player2_score : match.player1_score;
+    return (
+      <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-6 gap-6 text-center">
+        <div className="fade-in-up space-y-5 w-full max-w-sm">
+          <p className="text-xs text-muted-foreground font-bold">السؤال {currentQIdx + 1}/{MATCH_QUESTIONS}</p>
+          <h2 className="text-lg font-black text-primary">📊 النتيجة الحالية</h2>
+          <div className="bg-card border border-border rounded-2xl p-5 flex justify-around">
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground mb-1">أنت</p>
+              <p className="text-4xl font-black text-primary">{myS}</p>
+              <p className="text-xs text-muted-foreground mt-1 truncate">{myName}</p>
+            </div>
+            <div className="text-3xl font-black text-muted-foreground self-center">vs</div>
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground mb-1">الخصم</p>
+              <p className="text-4xl font-black text-secondary">{oppS}</p>
+              <p className="text-xs text-muted-foreground mt-1 truncate">{opponentName}</p>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">السؤال التالي خلال لحظات...</p>
+          <div className="w-6 h-6 mx-auto border-2 border-primary/40 border-t-primary rounded-full animate-spin" />
+        </div>
+      </div>
+    );
+  }
+
+  // ── PLAYING / Q_RESULT ───────────────────────────────────────────────────
   if ((phase === "playing" || phase === "q_result") && currentQ && match) {
     const myFlag = dbUser?.country ? getCountryFlag(dbUser.country) : "";
     const oppFlag = oppCountry ? getCountryFlag(oppCountry) : "";
@@ -759,9 +834,7 @@ export default function RankedMode() {
     return (
       <div className="min-h-screen gradient-hero flex flex-col">
         <header className="p-3 border-b border-border/30 space-y-2">
-          {/* Both players row */}
           <div className="flex items-center gap-2">
-            {/* Me */}
             <div className="flex-1 flex items-center gap-2 bg-card/60 rounded-xl p-2 border border-primary/20">
               {myAvatar ? (
                 <img src={myAvatar} alt="" className="w-9 h-9 rounded-full border-2 border-primary object-cover shrink-0" />
@@ -775,19 +848,10 @@ export default function RankedMode() {
                   {myFlag && <span className="text-xs">{myFlag}</span>}
                   <p className="text-[11px] font-bold truncate">{myName}</p>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <p className="text-lg font-black text-primary leading-none">{myScoreVal}</p>
-                  {myCombo >= 3 && (
-                    <span className="px-1 rounded text-[9px] font-black text-white"
-                      style={{ background: myCombo >= 10 ? "#dc2626" : myCombo >= 6 ? "#7c3aed" : "#0ea5e9" }}>
-                      🔥{myCombo}×{comboMultiplier(myCombo)}
-                    </span>
-                  )}
-                </div>
+                <p className="text-lg font-black text-primary leading-none">{myScoreVal}</p>
               </div>
             </div>
 
-            {/* VS + question counter */}
             <div className="text-center px-1 shrink-0">
               <p className="text-[9px] text-muted-foreground">{currentQIdx + 1}/{MATCH_QUESTIONS}</p>
               <span className={`text-lg font-black tabular-nums ${isDanger && phase === "playing" ? "timer-danger" : "text-foreground"}`}>
@@ -795,7 +859,6 @@ export default function RankedMode() {
               </span>
             </div>
 
-            {/* Opponent */}
             <div className="flex-1 flex items-center gap-2 bg-card/60 rounded-xl p-2 border border-secondary/20 flex-row-reverse text-right">
               {oppAvatar ? (
                 <img src={oppAvatar} alt="" className="w-9 h-9 rounded-full border-2 border-secondary object-cover shrink-0" />
@@ -809,23 +872,14 @@ export default function RankedMode() {
                   {oppFlag && <span className="text-xs">{oppFlag}</span>}
                   <p className="text-[11px] font-bold truncate">{opponentName}</p>
                 </div>
-                <div className="flex items-center gap-1.5 flex-row-reverse">
-                  <p className="text-lg font-black text-secondary leading-none">{oppScoreVal}</p>
-                  {oppCombo >= 3 && (
-                    <span className="px-1 rounded text-[9px] font-black text-white"
-                      style={{ background: oppCombo >= 10 ? "#dc2626" : oppCombo >= 6 ? "#7c3aed" : "#0ea5e9" }}>
-                      🔥{oppCombo}×{comboMultiplier(oppCombo)}
-                    </span>
-                  )}
-                </div>
+                <p className="text-lg font-black text-secondary leading-none">{oppScoreVal}</p>
               </div>
             </div>
           </div>
 
-          {/* Timer bar */}
           {phase === "playing" && (
             <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-              <div className="h-full rounded-full transition-all duration-1000 ease-linear"
+              <div className="h-full rounded-full transition-all duration-500 ease-linear"
                 style={{ width: `${timerPct}%`, background: isDanger ? "#dc2626" : "linear-gradient(90deg,#7c3aed,#8b5cf6)" }} />
             </div>
           )}
@@ -840,7 +894,9 @@ export default function RankedMode() {
             <div className={`py-3 rounded-2xl text-center font-black ${selected === currentQ.correct ? "bg-green-500/20 border border-green-500/40 text-green-400" : "bg-red-500/20 border border-red-500/40 text-red-400"}`}>
               {selected === currentQ.correct
                 ? `🎉 صحيح! +${isP1 ? qResult.p1Pts : qResult.p2Pts} نقاط`
-                : `❌ خطأ. الإجابة: ${["أ","ب","ج","د"][currentQ.correct]}`}
+                : selected === null
+                  ? `⏱ انتهى الوقت. الإجابة: ${["أ","ب","ج","د"][currentQ.correct]}`
+                  : `❌ خطأ. الإجابة: ${["أ","ب","ج","د"][currentQ.correct]}`}
             </div>
           )}
 
@@ -859,7 +915,7 @@ export default function RankedMode() {
               return (
                 <button
                   key={idx}
-                  onClick={() => handleAnswer(idx, currentQIdx)}
+                  onClick={() => handleAnswer(idx)}
                   disabled={phase === "q_result" || selected !== null}
                   className={cls}
                 >
@@ -936,7 +992,6 @@ export default function RankedMode() {
           <p className="text-xs text-muted-foreground mt-1">المجموع: {myPoints} نقطة · {myRank.icon} {myRank.label}</p>
         </div>
 
-        {/* Reward summary */}
         {!isGuest && (
           <div className="w-full max-w-sm rounded-2xl p-4 border border-yellow-500/20"
             style={{ background: "linear-gradient(135deg,rgba(217,119,6,0.1),rgba(139,92,246,0.1))" }}>
@@ -971,8 +1026,8 @@ export default function RankedMode() {
             playerName={dbUser?.username || getOrCreateUser().displayName || "لاعب ميدان"}
             avatarUrl={dbUser?.avatar_url ?? null}
             countryCode={dbUser?.country ?? null}
-            score={isP1 ? match!.player1_score : match!.player2_score}
-            total={Math.max((isP1 ? match!.player1_score : match!.player2_score), (isP1 ? match!.player2_score : match!.player1_score), 1)}
+            score={myTotalScore}
+            total={Math.max(myTotalScore, oppTotalScore, 1)}
             xpEarned={rewardSummary?.xp ?? 0}
             coinsEarned={rewardSummary?.coins ?? 0}
             category="مصنّف"
@@ -983,7 +1038,7 @@ export default function RankedMode() {
         </div>
 
         <div className="flex gap-3">
-          <button onClick={() => { cleanup(); setPhase("select_cats"); setMatch(null); setSelected(null); setQResult(null); setCurrentQIdx(0); }}
+          <button onClick={() => { cleanup(); setMatch(null); setSelected(null); setQResult(null); setCurrentQIdx(0); finishedRef.current = false; setPhaseSafe("select_cats"); }}
             className="px-6 py-3 rounded-xl font-bold text-background"
             style={{ background: "linear-gradient(135deg,#7c3aed,#8b5cf6)" }}>
             تحدٍّ جديد

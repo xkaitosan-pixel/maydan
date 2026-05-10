@@ -66,16 +66,33 @@ export default function ShareCard({
   }
 
   async function captureCanvas(): Promise<HTMLCanvasElement> {
+    const FONT_STACK =
+      "'Tajawal','Cairo','Noto Naskh Arabic','Segoe UI',Arial,sans-serif";
     const opts = {
       backgroundColor: "#0D0D1A",
-      scale: 2,
+      scale: 3,
       useCORS: true,
       allowTaint: false,
       foreignObjectRendering: false,
       logging: false,
       imageTimeout: 4000,
+      onclone: (clonedDoc: Document) => {
+        // Force RTL + a known Arabic-capable font on every captured node so
+        // html2canvas doesn't fall back to Times/serif (which renders Arabic
+        // letters disconnected and reversed inside the screenshot).
+        const card = clonedDoc.querySelector('[data-share-card="root"]') as HTMLElement | null;
+        if (!card) return;
+        card.setAttribute("dir", "rtl");
+        card.style.fontFamily = FONT_STACK;
+        card.style.unicodeBidi = "embed";
+        const all = card.querySelectorAll<HTMLElement>("*");
+        all.forEach((el) => {
+          el.style.fontFamily = FONT_STACK;
+          el.style.unicodeBidi = "embed";
+        });
+      },
     } as const;
-    const canvas = await html2canvas(cardRef.current!, opts);
+    const canvas = await html2canvas(cardRef.current!, opts as Parameters<typeof html2canvas>[1]);
     // Probe taint: if reading pixels throws, redo with avatars hidden
     try {
       canvas.getContext("2d")!.getImageData(0, 0, 1, 1);
@@ -155,20 +172,24 @@ export default function ShareCard({
       <div
         ref={cardRef}
         dir="rtl"
+        data-share-card="root"
         className="mx-auto rounded-2xl overflow-hidden border-2 relative"
         style={{
-          width: 400,
+          width: 440,
           maxWidth: "100%",
-          minHeight: 300,
-          background:
+          minHeight: 320,
+          background: "#0D0D1A",
+          backgroundImage:
             "linear-gradient(135deg, #1a0b2e 0%, #0D0D1A 50%, #2a1810 100%)",
           borderColor: "rgba(217,119,6,0.45)",
           boxShadow:
             "0 10px 40px rgba(124,58,237,0.25), 0 0 0 1px rgba(217,119,6,0.15) inset",
-          padding: 18,
+          padding: 20,
           color: "#f5f5f5",
           fontFamily:
-            "'Tajawal', 'Cairo', system-ui, -apple-system, sans-serif",
+            "'Tajawal', 'Cairo', 'Noto Naskh Arabic', 'Segoe UI', Arial, sans-serif",
+          unicodeBidi: "embed",
+          direction: "rtl",
         }}
       >
         {/* Decorative gradient blob */}
@@ -210,10 +231,10 @@ export default function ShareCard({
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 22 }}>⚔️</span>
+            <span style={{ fontSize: 26 }}>⚔️</span>
             <span
               style={{
-                fontSize: 22,
+                fontSize: 26,
                 fontWeight: 900,
                 color: "#f59e0b",
                 letterSpacing: "-0.02em",
@@ -224,13 +245,13 @@ export default function ShareCard({
           </div>
           <span
             style={{
-              fontSize: 11,
+              fontSize: 13,
               fontWeight: 700,
               color: "#c4b5fd",
               background: "rgba(124,58,237,0.18)",
               border: "1px solid rgba(124,58,237,0.4)",
               borderRadius: 999,
-              padding: "3px 10px",
+              padding: "4px 12px",
             }}
           >
             {modeLabel}
@@ -283,11 +304,11 @@ export default function ShareCard({
           <div style={{ flex: 1, minWidth: 0 }}>
             <p
               style={{
-                fontSize: 16,
+                fontSize: 19,
                 fontWeight: 900,
                 color: "#fff",
                 margin: 0,
-                lineHeight: 1.2,
+                lineHeight: 1.25,
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -296,7 +317,7 @@ export default function ShareCard({
               {playerName || "لاعب ميدان"}
             </p>
             {flag && (
-              <span style={{ fontSize: 18, lineHeight: 1 }}>{flag}</span>
+              <span style={{ fontSize: 20, lineHeight: 1 }}>{flag}</span>
             )}
           </div>
         </div>
@@ -339,7 +360,7 @@ export default function ShareCard({
         >
           <p
             style={{
-              fontSize: 13,
+              fontSize: 15,
               fontWeight: 700,
               color: "#fcd34d",
               margin: 0,
@@ -350,7 +371,7 @@ export default function ShareCard({
           </p>
           <span
             style={{
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: 700,
               color: "#94a3b8",
               letterSpacing: "0.04em",
@@ -421,12 +442,12 @@ function Stat({
         minWidth: 0,
       }}
     >
-      <span style={{ fontSize: 16, lineHeight: 1 }}>{icon}</span>
+      <span style={{ fontSize: 18, lineHeight: 1 }}>{icon}</span>
       <span
         style={{
-          fontSize: 12,
+          fontSize: 14,
           color: "#cbd5e1",
-          fontWeight: 600,
+          fontWeight: 700,
           flexShrink: 0,
         }}
       >
@@ -434,7 +455,7 @@ function Stat({
       </span>
       <span
         style={{
-          fontSize: small ? 12 : 14,
+          fontSize: small ? 14 : 16,
           fontWeight: 900,
           color: valueColor,
           marginInlineStart: "auto",
