@@ -2,11 +2,11 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/AuthContext";
 import {
-  FRAMES, TITLES, POWER_CARD_ITEMS,
+  FRAMES, POWER_CARD_ITEMS,
   parseAchievementsData, purchaseItem,
 } from "@/lib/gamification";
 
-type Tab = "frames" | "titles" | "power_cards";
+type Tab = "frames" | "power_cards";
 
 export default function Store() {
   const [, navigate] = useLocation();
@@ -20,7 +20,6 @@ export default function Store() {
   const aData    = parseAchievementsData(dbUser.achievements);
   const coins    = dbUser.coins ?? 0;
   const frame    = aData.avatar_frame;
-  const title    = dbUser.rank_title ?? null;
   const powerBag = aData.power_cards_store;
 
   async function buy(itemType: Parameters<typeof purchaseItem>[1], itemId: string, cost: number) {
@@ -40,7 +39,6 @@ export default function Store() {
 
   const tabs: { key: Tab; label: string; icon: string }[] = [
     { key: "frames",      label: "الإطارات",    icon: "🖼️" },
-    { key: "titles",      label: "الألقاب",     icon: "📛" },
     { key: "power_cards", label: "بطاقات القوة", icon: "🃏" },
   ];
 
@@ -134,45 +132,6 @@ export default function Store() {
                   style={canAfford ? { background: "linear-gradient(135deg,#d97706,#f59e0b)" } : {}}
                 >
                   {buying === f.id ? "⌛" : "شراء"}
-                </button>
-              )}
-            </div>
-          );
-        })}
-
-        {/* TITLES TAB */}
-        {tab === "titles" && TITLES.map((t) => {
-          const owned     = title === t.name;
-          const canAfford = coins >= t.cost;
-          return (
-            <div
-              key={t.id}
-              className="rounded-2xl p-4 border border-white/10 flex items-center gap-4"
-              style={{ background: "hsl(220 20% 12%)" }}
-            >
-              <div
-                className="flex-1 px-3 py-2 rounded-xl border border-purple-500/20 text-center"
-                style={{ background: "rgba(139,92,246,0.08)" }}
-              >
-                <p className="text-sm font-black text-purple-300">{t.name}</p>
-              </div>
-              <p className="text-xs text-muted-foreground">🪙 {t.cost}</p>
-              {owned ? (
-                <span className="text-xs px-3 py-2 rounded-xl font-bold bg-green-500/10 text-green-400 border border-green-500/20">
-                  مفعّل ✓
-                </span>
-              ) : (
-                <button
-                  onClick={() => buy("title", t.id, t.cost)}
-                  disabled={!canAfford || buying === t.id}
-                  className={`text-xs px-3 py-2 rounded-xl font-bold transition-all ${
-                    canAfford
-                      ? "text-background hover:opacity-90"
-                      : "bg-white/5 text-muted-foreground border border-white/10 cursor-not-allowed"
-                  }`}
-                  style={canAfford ? { background: "linear-gradient(135deg,#d97706,#f59e0b)" } : {}}
-                >
-                  {buying === t.id ? "⌛" : "شراء"}
                 </button>
               )}
             </div>

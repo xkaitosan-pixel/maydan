@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { getCountryFlag } from "@/lib/countryUtils";
 import { SkeletonLeaderboard } from "@/components/Skeleton";
 import { friendlyErrorText } from "@/lib/errors";
+import { ACHIEVEMENTS, parseAchievementsData } from "@/lib/gamification";
 
 interface RankedEntry {
   id: string;
@@ -15,6 +16,17 @@ interface RankedEntry {
   season_points: number | null;
   total_wins: number | null;
   avatar_url: string | null;
+  achievements: unknown;
+}
+
+// Pick the most prestigious unlocked badge (highest XP reward) for an entry.
+function getTopBadge(achievements: unknown): { icon: string; title: string } | null {
+  const ad = parseAchievementsData(achievements);
+  if (!ad.unlocked || ad.unlocked.length === 0) return null;
+  const owned = ACHIEVEMENTS.filter((a) => ad.unlocked.includes(a.id));
+  if (owned.length === 0) return null;
+  owned.sort((a, b) => b.xp - a.xp);
+  return { icon: owned[0].icon, title: owned[0].title };
 }
 
 const MEDALS = ["🥇", "🥈", "🥉"];
@@ -40,7 +52,7 @@ export default function Leaderboard() {
       try {
         const result = await supabase
           .from("users")
-          .select("id, username, display_name, country, total_points, season_points, total_wins, avatar_url")
+          .select("id, username, display_name, country, total_points, season_points, total_wins, avatar_url, achievements")
           .gt(sortField, 0)
           .order(sortField, { ascending: false })
           .order("total_wins", { ascending: false })
@@ -198,9 +210,23 @@ export default function Leaderboard() {
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-bold truncate ${isMe ? "text-secondary" : "text-foreground"}`}>
-                        {name}{isMe && <span className="text-xs text-secondary mr-1">(أنت)</span>}
-                      </p>
+                      <div className="flex items-center gap-1.5">
+                        {(() => {
+                          const badge = getTopBadge(e.achievements);
+                          return badge ? (
+                            <span
+                              title={badge.title}
+                              className="text-base shrink-0"
+                              aria-label={badge.title}
+                            >
+                              {badge.icon}
+                            </span>
+                          ) : null;
+                        })()}
+                        <p className={`text-sm font-bold truncate ${isMe ? "text-secondary" : "text-foreground"}`}>
+                          {name}{isMe && <span className="text-xs text-secondary mr-1">(أنت)</span>}
+                        </p>
+                      </div>
                       <div className="flex items-center gap-1 mt-0.5">
                         {e.country && <span className="text-xs">{getCountryFlag(e.country)}</span>}
                         <span className="text-xs text-muted-foreground">🏆 {e.total_wins ?? 0} انتصار</span>

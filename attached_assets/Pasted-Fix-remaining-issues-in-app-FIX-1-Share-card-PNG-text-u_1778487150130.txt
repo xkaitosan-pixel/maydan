@@ -1,0 +1,95 @@
+Fix remaining issues in ميدان app:
+
+FIX 1 - Share card PNG text unreadable:
+Fix ShareCard.tsx for better PNG capture:
+1. Use simple solid colors, no CSS variables
+2. All text must use explicit color values (#ffffff or #D4AF37)
+3. Add dir="rtl" to main container
+4. Font: Arial or sans-serif (not Tajawal - not captured by html2canvas)
+5. Increase all font sizes by 20%
+6. html2canvas options:
+   scale: 3,
+   backgroundColor: '#0D0D1A',
+   onclone: (doc) => {
+     doc.querySelectorAll('*').forEach(el => {
+       el.style.fontFamily = 'Arial, sans-serif';
+       el.style.direction = 'rtl';
+     });
+   }
+7. Make card 400x280px with clear sections
+
+FIX 2 - Challenge result wrong winner:
+In Results.tsx and challenge modal in Profile.tsx:
+Fix winner calculation:
+- Fetch challenge from Supabase by challenge ID
+- creator_score vs opponent_score
+- Higher score = winner
+- If current user is creator: 
+  win if creator_score > opponent_score
+- If current user is opponent:
+  win if opponent_score > creator_score
+- Show 🏆 next to winner's score
+- Show correct "فزت!" or "خسرت!" message
+
+FIX 3 - Store management in admin:
+Add "🛍️ المتجر" tab in /admin:
+- List all items from store_items table
+- Add new item:
+  * Name (Arabic)
+  * Type: frame/title/powercard
+  * Price in coins
+  * Icon emoji
+  * Premium only toggle
+  * CSS effect text (for frames)
+- Edit existing items inline
+- Delete with confirmation
+- Toggle visibility
+
+FIX 4 - Replace titles with badges system:
+Remove purchased titles from store.
+Add earned badges system:
+
+Badges earned automatically:
+- "الفارس" 🏇 - win 10 challenges
+- "البرق" ⚡ - win 5 ranked matches
+- "المحترق" 🔥 - 7 day streak
+- "العبقري" 🧠 - answer 50 correct in a row
+- "سيد الميدان" 👑 - reach level 6
+- "الموسوعة" 🌍 - play all categories
+- "المضيف" 🏟️ - host 5 party rooms
+- "المحارب" ⚔️ - win 25 challenges total
+- "البطل" 🥇 - top 3 in weekly leaderboard
+- "الماسة" 💎 - premium subscriber
+
+Show badges on profile page under "شاراتي"
+Show main badge next to username in leaderboard
+Check and award badges after every game
+
+FIX 5 - Ranked leaderboard single list:
+Replace current leaderboard with simple ranked tab:
+- One list sorted by ranked_points DESC
+- No category filter
+- Show: rank, flag, avatar, username, points, wins
+- Weekly + All time tabs only
+- "أنت في المركز #X" at bottom
+- Gold/silver/bronze for top 3
+
+FIX 6 - Challenge result modal in profile:
+When tapping ANY challenge in تحدياتي:
+Show modal popup with:
+- Both player avatars and names
+- Both scores clearly: "8 ✓ vs 6 ✓"
+- Winner highlighted with 🏆
+- Category and date
+- "تحدي مجدداً" button → goes to /create
+- "إغلاق" button
+Never navigate away from profile page
+
+FIX 7 - Daily challenge show answers after finish:
+After completing daily challenge:
+Show collapsible section "الإجابات الصحيحة":
+- Each question with correct answer highlighted green
+- User's wrong answers highlighted red
+- This is shown AFTER completion only (no cheating)
+
+Push to GitHub.

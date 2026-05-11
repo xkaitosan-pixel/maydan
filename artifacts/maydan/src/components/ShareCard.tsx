@@ -26,10 +26,22 @@ export interface ShareCardProps {
 }
 
 const MODE_LABEL: Record<ShareCardProps["gameMode"], string> = {
-  challenge: "⚔️ تحدي",
-  survival: "🏃 وضع البقاء",
-  ranked: "🏆 المتصدرون",
-  daily: "📅 تحدي اليوم",
+  challenge: "تحدي",
+  survival: "وضع البقاء",
+  ranked: "المتصدرون",
+  daily: "تحدي اليوم",
+};
+
+// Single source of truth — all colors are explicit hex literals so html2canvas
+// never has to resolve a CSS variable.
+const C = {
+  bg: "#0D0D1A",
+  panel: "#1A1A2E",
+  text: "#FFFFFF",
+  muted: "#B8B8C8",
+  gold: "#D4AF37",
+  goldStrong: "#F59E0B",
+  purple: "#A78BFA",
 };
 
 export default function ShareCard({
@@ -66,29 +78,21 @@ export default function ShareCard({
   }
 
   async function captureCanvas(): Promise<HTMLCanvasElement> {
-    const FONT_STACK =
-      "'Tajawal','Cairo','Noto Naskh Arabic','Segoe UI',Arial,sans-serif";
     const opts = {
-      backgroundColor: "#0D0D1A",
+      backgroundColor: C.bg,
       scale: 3,
       useCORS: true,
       allowTaint: false,
       foreignObjectRendering: false,
       logging: false,
       imageTimeout: 4000,
-      onclone: (clonedDoc: Document) => {
-        // Force RTL + a known Arabic-capable font on every captured node so
-        // html2canvas doesn't fall back to Times/serif (which renders Arabic
-        // letters disconnected and reversed inside the screenshot).
-        const card = clonedDoc.querySelector('[data-share-card="root"]') as HTMLElement | null;
-        if (!card) return;
-        card.setAttribute("dir", "rtl");
-        card.style.fontFamily = FONT_STACK;
-        card.style.unicodeBidi = "embed";
-        const all = card.querySelectorAll<HTMLElement>("*");
-        all.forEach((el) => {
-          el.style.fontFamily = FONT_STACK;
-          el.style.unicodeBidi = "embed";
+      onclone: (doc: Document) => {
+        // html2canvas can render Arabic correctly with Arial; custom webfonts
+        // (Tajawal) often fail because the font face isn't fetched into the
+        // cloned document. Force Arial + dir=rtl on every node.
+        doc.querySelectorAll<HTMLElement>("*").forEach((el) => {
+          el.style.fontFamily = "Arial, sans-serif";
+          el.style.direction = "rtl";
         });
       },
     } as const;
@@ -126,7 +130,6 @@ export default function ShareCard({
       const fileName = `maydan-${gameMode}-${score}-${Date.now()}.png`;
       const file = new File([blob], fileName, { type: "image/png" });
 
-      // Try Web Share API first (mobile)
       const nav = navigator as Navigator & {
         canShare?: (data: ShareData) => boolean;
       };
@@ -143,13 +146,11 @@ export default function ShareCard({
           });
           return;
         } catch (shareErr) {
-          // User cancelled or share failed — fall through to download
           if ((shareErr as Error)?.name === "AbortError") return;
           console.warn("[ShareCard] Web Share failed, falling back to download", shareErr);
         }
       }
 
-      // Desktop / unsupported: download
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.download = fileName;
@@ -168,78 +169,38 @@ export default function ShareCard({
 
   return (
     <div className="space-y-3 fade-in-up">
-      {/* ── Capturable card (400x300 logical, scaled by html2canvas) ── */}
+      {/* ── Capturable card: 400x280, all explicit colors, Arial via onclone ── */}
       <div
         ref={cardRef}
         dir="rtl"
-        data-share-card="root"
-        className="mx-auto rounded-2xl overflow-hidden border-2 relative"
+        className="mx-auto rounded-2xl overflow-hidden border-2"
         style={{
-          width: 440,
+          width: 400,
+          height: 280,
           maxWidth: "100%",
-          minHeight: 320,
-          background: "#0D0D1A",
-          backgroundImage:
-            "linear-gradient(135deg, #1a0b2e 0%, #0D0D1A 50%, #2a1810 100%)",
-          borderColor: "rgba(217,119,6,0.45)",
-          boxShadow:
-            "0 10px 40px rgba(124,58,237,0.25), 0 0 0 1px rgba(217,119,6,0.15) inset",
-          padding: 20,
-          color: "#f5f5f5",
-          fontFamily:
-            "'Tajawal', 'Cairo', 'Noto Naskh Arabic', 'Segoe UI', Arial, sans-serif",
-          unicodeBidi: "embed",
+          backgroundColor: C.bg,
+          borderColor: C.gold,
+          padding: 16,
+          color: C.text,
+          fontFamily: "Arial, sans-serif",
           direction: "rtl",
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+          boxSizing: "border-box",
         }}
       >
-        {/* Decorative gradient blob */}
-        <div
-          style={{
-            position: "absolute",
-            top: -40,
-            left: -40,
-            width: 160,
-            height: 160,
-            borderRadius: "50%",
-            background:
-              "radial-gradient(circle, rgba(217,119,6,0.35), transparent 70%)",
-            pointerEvents: "none",
-          }}
-        />
-        <div
-          style={{
-            position: "absolute",
-            bottom: -50,
-            right: -50,
-            width: 180,
-            height: 180,
-            borderRadius: "50%",
-            background:
-              "radial-gradient(circle, rgba(124,58,237,0.3), transparent 70%)",
-            pointerEvents: "none",
-          }}
-        />
-
-        {/* Brand row */}
+        {/* Top: brand + mode */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            marginBottom: 10,
-            position: "relative",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 26 }}>⚔️</span>
-            <span
-              style={{
-                fontSize: 26,
-                fontWeight: 900,
-                color: "#f59e0b",
-                letterSpacing: "-0.02em",
-              }}
-            >
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 22 }}>⚔️</span>
+            <span style={{ fontSize: 22, fontWeight: 900, color: C.goldStrong }}>
               ميدان
             </span>
           </div>
@@ -247,11 +208,10 @@ export default function ShareCard({
             style={{
               fontSize: 13,
               fontWeight: 700,
-              color: "#c4b5fd",
-              background: "rgba(124,58,237,0.18)",
-              border: "1px solid rgba(124,58,237,0.4)",
+              color: C.gold,
+              backgroundColor: C.panel,
               borderRadius: 999,
-              padding: "4px 12px",
+              padding: "4px 10px",
             }}
           >
             {modeLabel}
@@ -264,8 +224,6 @@ export default function ShareCard({
             display: "flex",
             alignItems: "center",
             gap: 10,
-            marginBottom: 12,
-            position: "relative",
           }}
         >
           {avatarUrl ? (
@@ -276,8 +234,8 @@ export default function ShareCard({
               style={{
                 width: 44,
                 height: 44,
-                borderRadius: "50%",
-                border: "2px solid #f59e0b",
+                borderRadius: 22,
+                border: `2px solid ${C.gold}`,
                 objectFit: "cover",
               }}
             />
@@ -286,16 +244,15 @@ export default function ShareCard({
               style={{
                 width: 44,
                 height: 44,
-                borderRadius: "50%",
-                background:
-                  "linear-gradient(135deg,#7c3aed,#d97706)",
+                borderRadius: 22,
+                backgroundColor: C.panel,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: 18,
+                fontSize: 19,
                 fontWeight: 900,
-                color: "#fff",
-                border: "2px solid #f59e0b",
+                color: C.text,
+                border: `2px solid ${C.gold}`,
               }}
             >
               {(playerName || "م").charAt(0)}
@@ -306,9 +263,9 @@ export default function ShareCard({
               style={{
                 fontSize: 19,
                 fontWeight: 900,
-                color: "#fff",
+                color: C.text,
                 margin: 0,
-                lineHeight: 1.25,
+                lineHeight: 1.2,
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -317,64 +274,67 @@ export default function ShareCard({
               {playerName || "لاعب ميدان"}
             </p>
             {flag && (
-              <span style={{ fontSize: 20, lineHeight: 1 }}>{flag}</span>
+              <span style={{ fontSize: 17 }}>{flag}</span>
             )}
+          </div>
+          <div style={{ textAlign: "left" }}>
+            <p
+              style={{
+                fontSize: 28,
+                fontWeight: 900,
+                color: C.gold,
+                margin: 0,
+                lineHeight: 1,
+              }}
+            >
+              {score}
+            </p>
+            <p style={{ fontSize: 11, color: C.muted, margin: 0 }}>
+              من {total}
+            </p>
           </div>
         </div>
 
-        {/* Stats grid */}
+        {/* Stats row */}
         <div
           style={{
-            background: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 14,
-            padding: 12,
+            backgroundColor: C.panel,
+            borderRadius: 12,
+            padding: 10,
             display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: "8px 14px",
-            position: "relative",
+            gridTemplateColumns: "1fr 1fr 1fr",
+            gap: 8,
           }}
         >
-          <Stat icon="🏆" label="النتيجة" value={`${score}/${total}`} valueColor="#f59e0b" />
-          <Stat icon="⭐" label="XP مكتسب" value={`+${xpEarned}`} valueColor="#c4b5fd" />
-          <Stat icon="🪙" label="قروش" value={`+${coinsEarned}`} valueColor="#fbbf24" />
-          <Stat icon="📊" label="الفئة" value={category} valueColor="#fff" small />
-          <Stat
-            icon={levelIcon}
-            label="المستوى"
-            value={level}
-            valueColor="#a78bfa"
-            colSpan={2}
-          />
+          <Stat icon="⭐" label="XP" value={`+${xpEarned}`} color={C.purple} />
+          <Stat icon="🪙" label="قروش" value={`+${coinsEarned}`} color={C.gold} />
+          <Stat icon={levelIcon} label={level} value={category} color={C.text} small />
         </div>
 
         {/* Tagline + URL */}
         <div
           style={{
-            marginTop: 12,
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            position: "relative",
+            marginTop: "auto",
           }}
         >
           <p
             style={{
-              fontSize: 15,
+              fontSize: 14,
               fontWeight: 700,
-              color: "#fcd34d",
+              color: C.gold,
               margin: 0,
-              fontStyle: "italic",
             }}
           >
-            "تحداني إذا تجرأ! 😏"
+            تحداني إذا تجرأ! 😏
           </p>
           <span
             style={{
               fontSize: 12,
               fontWeight: 700,
-              color: "#94a3b8",
-              letterSpacing: "0.04em",
+              color: C.muted,
             }}
           >
             {SITE_URL}
@@ -421,50 +381,42 @@ function Stat({
   icon,
   label,
   value,
-  valueColor = "#fff",
+  color = "#FFFFFF",
   small = false,
-  colSpan = 1,
 }: {
   icon: string;
   label: string;
   value: string;
-  valueColor?: string;
+  color?: string;
   small?: boolean;
-  colSpan?: number;
 }) {
   return (
     <div
       style={{
-        gridColumn: colSpan === 2 ? "span 2" : undefined,
         display: "flex",
+        flexDirection: "column",
         alignItems: "center",
-        gap: 8,
+        gap: 2,
         minWidth: 0,
+        textAlign: "center",
       }}
     >
-      <span style={{ fontSize: 18, lineHeight: 1 }}>{icon}</span>
+      <span style={{ fontSize: 16, lineHeight: 1 }}>{icon}</span>
       <span
         style={{
-          fontSize: 14,
-          color: "#cbd5e1",
-          fontWeight: 700,
-          flexShrink: 0,
-        }}
-      >
-        {label}:
-      </span>
-      <span
-        style={{
-          fontSize: small ? 14 : 16,
+          fontSize: small ? 13 : 16,
           fontWeight: 900,
-          color: valueColor,
-          marginInlineStart: "auto",
+          color,
           whiteSpace: "nowrap",
           overflow: "hidden",
           textOverflow: "ellipsis",
+          maxWidth: "100%",
         }}
       >
         {value}
+      </span>
+      <span style={{ fontSize: 10, color: "#B8B8C8", fontWeight: 600 }}>
+        {label}
       </span>
     </div>
   );
