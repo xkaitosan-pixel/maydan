@@ -1,5 +1,4 @@
-import { useRef, useState } from "react";
-import html2canvas from "html2canvas";
+import { useState } from "react";
 import { getCountryFlag } from "@/lib/countryUtils";
 
 const SITE_URL = "maydanapp.com";
@@ -32,17 +31,155 @@ const MODE_LABEL: Record<ShareCardProps["gameMode"], string> = {
   daily: "تحدي اليوم",
 };
 
-// Single source of truth — all colors are explicit hex literals so html2canvas
-// never has to resolve a CSS variable.
-const C = {
-  bg: "#0D0D1A",
-  panel: "#1A1A2E",
-  text: "#FFFFFF",
-  muted: "#B8B8C8",
-  gold: "#D4AF37",
-  goldStrong: "#F59E0B",
-  purple: "#A78BFA",
-};
+// ── Direct Canvas image generator ────────────────────────────────────────────
+// Avoids html2canvas (which mis-renders Arabic + can't load cross-origin
+// avatars). Draws everything pixel-by-pixel onto an 800x560 canvas.
+async function loadImage(url: string): Promise<HTMLImageElement | null> {
+  try {
+    // SVG endpoints (DiceBear, etc.) need to be fetched as blob to bypass
+    // cross-origin canvas tainting in Safari.
+    if (url.includes("dicebear") || url.endsWith(".svg")) {
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          URL.revokeObjectURL(objectUrl);
+          resolve(img);
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          resolve(null);
+        };
+        img.src = objectUrl;
+      });
+    }
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = url;
+    });
+  } catch {
+    return null;
+  }
+}
+
+interface DrawCardArgs {
+  playerName: string;
+  avatarUrl?: string | null;
+  score: number;
+  total: number;
+  category: string;
+  level: string;
+}
+
+async function drawCard(args: DrawCardArgs): Promise<HTMLCanvasElement> {
+  const { playerName, avatarUrl, score, total, category, level } = args;
+  const canvas = document.createElement("canvas");
+  canvas.width = 800;
+  canvas.height = 560;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas;
+
+  // Background
+  ctx.fillStyle = "#0D0D1A";
+  ctx.fillRect(0, 0, 800, 560);
+
+  // Gold border
+  ctx.strokeStyle = "#D4AF37";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(10, 10, 780, 540);
+
+  // Avatar
+  if (avatarUrl) {
+    const img = await loadImage(avatarUrl);
+    if (img) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(400, 130, 60, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.drawImage(img, 340, 70, 120, 120);
+      ctx.restore();
+      ctx.strokeStyle = "#D4AF37";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(400, 130, 62, 0, Math.PI * 2);
+      ctx.stroke();
+    } else {
+      // Fallback colored circle with initial
+      ctx.fillStyle = "#9333ea";
+      ctx.beginPath();
+      ctx.arc(400, 130, 60, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 48px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText((playerName || "?").charAt(0), 400, 148);
+    }
+  } else {
+    ctx.fillStyle = "#9333ea";
+    ctx.beginPath();
+    ctx.arc(400, 130, 60, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 48px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText((playerName || "?").charAt(0), 400, 148);
+  }
+
+  // Centered text helper defaults
+  ctx.textAlign = "center";
+
+  // App name
+  ctx.fillStyle = "#D4AF37";
+  ctx.font = "bold 40px Arial";
+  ctx.fillText("⚔️ MAYDAN", 400, 230);
+
+  // Player name
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 32px Arial";
+  ctx.fillText(playerName || "لاعب", 400, 275);
+
+  // Score
+  ctx.fillStyle = "#D4AF37";
+  ctx.font = "bold 80px Arial";
+  ctx.fillText(`${score}/${total}`, 400, 370);
+
+  // Category
+  ctx.fillStyle = "#aaaaaa";
+  ctx.font = "26px Arial";
+  ctx.fillText(category || "", 400, 420);
+
+  // Level
+  ctx.fillStyle = "#aaaaaa";
+  ctx.font = "26px Arial";
+  ctx.fillText(level || "", 400, 460);
+
+  // Tagline
+  ctx.fillStyle = "#9333ea";
+  ctx.font = "bold 28px Arial";
+  ctx.fillText("تحداني إذا تجرأ! 😏", 400, 505);
+
+  // Website
+  ctx.fillStyle = "#666666";
+  ctx.font = "22px Arial";
+  ctx.fillText("maydanapp.com", 400, 540);
+
+  return canvas;
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
+      "image/png",
+    );
+  });
+}
 
 export default function ShareCard({
   playerName,
@@ -58,7 +195,6 @@ export default function ShareCard({
   gameMode,
   onDismiss,
 }: ShareCardProps) {
-  const cardRef = useRef<HTMLDivElement>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const flag = countryCode ? getCountryFlag(countryCode) : "";
   const modeLabel = MODE_LABEL[gameMode];
@@ -70,6 +206,7 @@ export default function ShareCard({
     `تحداني إذا تجرأ 😏\n` +
     `👉 ${SITE_URL}`;
 
+  // WhatsApp share = text + link only (no image attached)
   function shareWhatsApp() {
     window.open(
       `https://wa.me/?text=${encodeURIComponent(waMessage)}`,
@@ -77,55 +214,19 @@ export default function ShareCard({
     );
   }
 
-  async function captureCanvas(): Promise<HTMLCanvasElement> {
-    const opts = {
-      backgroundColor: C.bg,
-      scale: 3,
-      useCORS: true,
-      allowTaint: false,
-      foreignObjectRendering: false,
-      logging: false,
-      imageTimeout: 4000,
-      onclone: (doc: Document) => {
-        // html2canvas can render Arabic correctly with Arial; custom webfonts
-        // (Tajawal) often fail because the font face isn't fetched into the
-        // cloned document. Force Arial + dir=rtl on every node.
-        doc.querySelectorAll<HTMLElement>("*").forEach((el) => {
-          el.style.fontFamily = "Arial, sans-serif";
-          el.style.direction = "rtl";
-        });
-      },
-    } as const;
-    const canvas = await html2canvas(cardRef.current!, opts as Parameters<typeof html2canvas>[1]);
-    // Probe taint: if reading pixels throws, redo with avatars hidden
-    try {
-      canvas.getContext("2d")!.getImageData(0, 0, 1, 1);
-      return canvas;
-    } catch {
-      const imgs = cardRef.current!.querySelectorAll("img");
-      imgs.forEach((img) => (img.style.visibility = "hidden"));
-      try {
-        return await html2canvas(cardRef.current!, opts);
-      } finally {
-        imgs.forEach((img) => (img.style.visibility = ""));
-      }
-    }
-  }
-
-  function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
-    return new Promise((resolve, reject) => {
-      canvas.toBlob(
-        (b) => (b ? resolve(b) : reject(new Error("blob conversion failed"))),
-        "image/png",
-      );
-    });
-  }
-
+  // Image share = render canvas → PNG → Web Share API or download
   async function shareImage() {
-    if (!cardRef.current || isCapturing) return;
+    if (isCapturing) return;
     setIsCapturing(true);
     try {
-      const canvas = await captureCanvas();
+      const canvas = await drawCard({
+        playerName,
+        avatarUrl,
+        score,
+        total,
+        category,
+        level,
+      });
       const blob = await canvasToBlob(canvas);
       const fileName = `maydan-${gameMode}-${score}-${Date.now()}.png`;
       const file = new File([blob], fileName, { type: "image/png" });
@@ -167,182 +268,83 @@ export default function ShareCard({
     }
   }
 
+  // ── Visible HTML preview (NOT captured — Canvas above is the source of truth)
   return (
     <div className="space-y-3 fade-in-up">
-      {/* ── Capturable card: 400x280, all explicit colors, Arial via onclone ── */}
       <div
-        ref={cardRef}
         dir="rtl"
-        className="mx-auto rounded-2xl overflow-hidden border-2"
+        className="mx-auto rounded-2xl overflow-hidden border-2 max-w-[400px]"
         style={{
-          width: 400,
-          height: 280,
-          maxWidth: "100%",
-          backgroundColor: C.bg,
-          borderColor: C.gold,
+          backgroundColor: "#0D0D1A",
+          borderColor: "#D4AF37",
           padding: 16,
-          color: C.text,
+          color: "#FFFFFF",
           fontFamily: "Arial, sans-serif",
-          direction: "rtl",
           display: "flex",
           flexDirection: "column",
-          gap: 10,
-          boxSizing: "border-box",
+          alignItems: "center",
+          gap: 8,
+          textAlign: "center",
         }}
       >
-        {/* Top: brand + mode */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 22 }}>⚔️</span>
-            <span style={{ fontSize: 22, fontWeight: 900, color: C.goldStrong }}>
-              ميدان
-            </span>
-          </div>
-          <span
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt=""
             style={{
-              fontSize: 13,
-              fontWeight: 700,
-              color: C.gold,
-              backgroundColor: C.panel,
-              borderRadius: 999,
-              padding: "4px 10px",
+              width: 80,
+              height: 80,
+              borderRadius: 40,
+              border: "3px solid #D4AF37",
+              objectFit: "cover",
+            }}
+          />
+        ) : (
+          <div
+            style={{
+              width: 80,
+              height: 80,
+              borderRadius: 40,
+              backgroundColor: "#9333ea",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 36,
+              fontWeight: 900,
+              color: "#FFFFFF",
+              border: "3px solid #D4AF37",
             }}
           >
-            {modeLabel}
-          </span>
-        </div>
-
-        {/* Player row */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-          }}
-        >
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt=""
-              crossOrigin="anonymous"
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                border: `2px solid ${C.gold}`,
-                objectFit: "cover",
-              }}
-            />
-          ) : (
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                backgroundColor: C.panel,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 19,
-                fontWeight: 900,
-                color: C.text,
-                border: `2px solid ${C.gold}`,
-              }}
-            >
-              {(playerName || "م").charAt(0)}
-            </div>
-          )}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <p
-              style={{
-                fontSize: 19,
-                fontWeight: 900,
-                color: C.text,
-                margin: 0,
-                lineHeight: 1.2,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {playerName || "لاعب ميدان"}
-            </p>
-            {flag && (
-              <span style={{ fontSize: 17 }}>{flag}</span>
-            )}
+            {(playerName || "م").charAt(0)}
           </div>
-          <div style={{ textAlign: "left" }}>
-            <p
-              style={{
-                fontSize: 28,
-                fontWeight: 900,
-                color: C.gold,
-                margin: 0,
-                lineHeight: 1,
-              }}
-            >
-              {score}
-            </p>
-            <p style={{ fontSize: 11, color: C.muted, margin: 0 }}>
-              من {total}
-            </p>
-          </div>
-        </div>
-
-        {/* Stats row */}
-        <div
-          style={{
-            backgroundColor: C.panel,
-            borderRadius: 12,
-            padding: 10,
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr 1fr",
-            gap: 8,
-          }}
-        >
-          <Stat icon="⭐" label="XP" value={`+${xpEarned}`} color={C.purple} />
-          <Stat icon="🪙" label="قروش" value={`+${coinsEarned}`} color={C.gold} />
-          <Stat icon={levelIcon} label={level} value={category} color={C.text} small />
-        </div>
-
-        {/* Tagline + URL */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginTop: "auto",
-          }}
-        >
-          <p
-            style={{
-              fontSize: 14,
-              fontWeight: 700,
-              color: C.gold,
-              margin: 0,
-            }}
-          >
-            تحداني إذا تجرأ! 😏
+        )}
+        <p style={{ fontSize: 22, fontWeight: 900, color: "#D4AF37", margin: 0 }}>
+          ⚔️ MAYDAN
+        </p>
+        <p style={{ fontSize: 18, fontWeight: 900, color: "#FFFFFF", margin: 0 }}>
+          {playerName || "لاعب"} {flag}
+        </p>
+        <p style={{ fontSize: 44, fontWeight: 900, color: "#D4AF37", margin: "4px 0" }}>
+          {score}/{total}
+        </p>
+        <p style={{ fontSize: 14, color: "#aaaaaa", margin: 0 }}>
+          {category} · {modeLabel}
+        </p>
+        <p style={{ fontSize: 14, color: "#aaaaaa", margin: 0 }}>
+          {levelIcon} {level}
+        </p>
+        {(xpEarned > 0 || coinsEarned > 0) && (
+          <p style={{ fontSize: 12, color: "#A78BFA", margin: 0 }}>
+            +{xpEarned} XP · +{coinsEarned} 🪙
           </p>
-          <span
-            style={{
-              fontSize: 12,
-              fontWeight: 700,
-              color: C.muted,
-            }}
-          >
-            {SITE_URL}
-          </span>
-        </div>
+        )}
+        <p style={{ fontSize: 14, fontWeight: 700, color: "#9333ea", margin: 0 }}>
+          تحداني إذا تجرأ! 😏
+        </p>
+        <p style={{ fontSize: 11, color: "#666666", margin: 0 }}>{SITE_URL}</p>
       </div>
 
-      {/* ── Action buttons (NOT captured) ── */}
+      {/* Action buttons (NOT captured) */}
       <div className="grid grid-cols-2 gap-2 max-w-[400px] mx-auto">
         <button
           onClick={shareWhatsApp}
@@ -356,9 +358,7 @@ export default function ShareCard({
           onClick={shareImage}
           disabled={isCapturing}
           className="h-11 rounded-xl text-white font-bold flex items-center justify-center gap-2 text-sm hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-60"
-          style={{
-            background: "linear-gradient(135deg,#7c3aed,#d97706)",
-          }}
+          style={{ background: "linear-gradient(135deg,#7c3aed,#d97706)" }}
         >
           {isCapturing ? "جارٍ الحفظ..." : "🖼️ شارك الصورة"}
         </button>
@@ -373,51 +373,6 @@ export default function ShareCard({
           </button>
         </div>
       )}
-    </div>
-  );
-}
-
-function Stat({
-  icon,
-  label,
-  value,
-  color = "#FFFFFF",
-  small = false,
-}: {
-  icon: string;
-  label: string;
-  value: string;
-  color?: string;
-  small?: boolean;
-}) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        gap: 2,
-        minWidth: 0,
-        textAlign: "center",
-      }}
-    >
-      <span style={{ fontSize: 16, lineHeight: 1 }}>{icon}</span>
-      <span
-        style={{
-          fontSize: small ? 13 : 16,
-          fontWeight: 900,
-          color,
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          maxWidth: "100%",
-        }}
-      >
-        {value}
-      </span>
-      <span style={{ fontSize: 10, color: "#B8B8C8", fontWeight: 600 }}>
-        {label}
-      </span>
     </div>
   );
 }

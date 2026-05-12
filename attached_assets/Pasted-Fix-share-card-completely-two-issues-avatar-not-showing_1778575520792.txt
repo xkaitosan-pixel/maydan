@@ -1,0 +1,129 @@
+Fix share card completely - two issues: avatar not showing and unclear text.
+
+Complete rewrite of ShareCard.tsx using Canvas API directly:
+
+const drawCard = async () => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 800;
+  canvas.height = 560;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return canvas;
+  
+  // Background
+  ctx.fillStyle = '#0D0D1A';
+  ctx.fillRect(0, 0, 800, 560);
+  
+  // Gold border
+  ctx.strokeStyle = '#D4AF37';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(10, 10, 780, 540);
+  
+  // Helper to load SVG/image
+  const loadImage = async (url: string): Promise<HTMLImageElement | null> => {
+    try {
+      if (url.includes('dicebear') || url.endsWith('.svg')) {
+        const response = await fetch(url);
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => { URL.revokeObjectURL(objectUrl); resolve(img); };
+          img.onerror = () => resolve(null);
+          img.src = objectUrl;
+        });
+      } else {
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+    } catch {
+      return null;
+    }
+  };
+  
+  // Draw avatar
+  if (avatarUrl) {
+    const img = await loadImage(avatarUrl);
+    if (img) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(400, 130, 60, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.drawImage(img, 340, 70, 120, 120);
+      ctx.restore();
+      
+      // Gold circle border
+      ctx.strokeStyle = '#D4AF37';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(400, 130, 62, 0, Math.PI * 2);
+      ctx.stroke();
+    } else {
+      // Fallback colored circle
+      ctx.fillStyle = '#9333ea';
+      ctx.beginPath();
+      ctx.arc(400, 130, 60, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 48px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(playerName?.charAt(0) || '?', 400, 148);
+    }
+  }
+  
+  // App name
+  ctx.fillStyle = '#D4AF37';
+  ctx.font = 'bold 40px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText('⚔️ MAYDAN', 400, 230);
+  
+  // Player name
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 32px Arial';
+  ctx.fillText(playerName || 'لاعب', 400, 275);
+  
+  // Score
+  ctx.fillStyle = '#D4AF37';
+  ctx.font = 'bold 80px Arial';
+  ctx.fillText(`${score}/${total}`, 400, 370);
+  
+  // Category
+  ctx.fillStyle = '#aaaaaa';
+  ctx.font = '26px Arial';
+  ctx.fillText(category || '', 400, 420);
+  
+  // Level
+  ctx.fillStyle = '#aaaaaa';
+  ctx.font = '26px Arial';
+  ctx.fillText(level || '', 400, 460);
+  
+  // Tagline
+  ctx.fillStyle = '#9333ea';
+  ctx.font = 'bold 28px Arial';
+  ctx.fillText('تحداني إذا تجرأ! 😏', 400, 505);
+  
+  // Website
+  ctx.fillStyle = '#666666';
+  ctx.font = '22px Arial';
+  ctx.fillText('maydanapp.com', 400, 540);
+  
+  return canvas;
+};
+
+Use this drawCard() function for both:
+- "شارك الصورة" button → download PNG
+- "شارك على واتساب" → share text link only (no image)
+
+Also fix DailyChallenge answer reveal:
+After completing daily challenge show "الإجابات الصحيحة 📋":
+- Store user answers during game in useState array
+- After finish show each question with:
+  * Green highlight = correct answer
+  * Red highlight = user's wrong answer  
+  * ✅ if user was correct, ❌ + correct answer if wrong
+
+Push to GitHub.
