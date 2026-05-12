@@ -298,7 +298,7 @@ export default function Quiz() {
             </span>
           </div>
 
-          <div className="bg-card border border-border rounded-2xl p-5 mb-4 text-center slide-in">
+          <div className="glass-card p-5 mb-4 text-center slide-in">
             {currentQuestion.image_url && (
               <QuestionImage url={currentQuestion.image_url} maxHeight={200} className="mb-3" />
             )}

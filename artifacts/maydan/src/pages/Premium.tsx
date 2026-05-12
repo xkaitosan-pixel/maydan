@@ -14,6 +14,12 @@ const BENEFITS = [
   { icon: "🎁", text: "مكافآت حصرية وصندوق يومي مُضاعف" },
 ];
 
+const TESTIMONIALS = [
+  { name: "محمد", city: "الرياض", quote: "أفضل تطبيق عربي جربته! المنافسة ممتعة جداً." },
+  { name: "فاطمة", city: "دبي", quote: "مميز جداً، اشتركت في برو وما ندمت." },
+  { name: "أحمد", city: "القاهرة", quote: "التحديات اليومية أدمنت عليها، شكراً ميدان!" },
+];
+
 const FREE_LIMITS = [
   { icon: "⚔️", text: "10 تحديات يومياً فقط" },
   { icon: "🏃", text: "5 جولات وضع البقاء يومياً" },
@@ -51,7 +57,7 @@ export default function Premium() {
   }
 
   return (
-    <div className="min-h-screen gradient-hero flex flex-col">
+    <div className="min-h-screen gradient-hero particle-bg flex flex-col">
       <header className="p-4 flex items-center gap-3 border-b border-border/30">
         <button onClick={() => navigate("/")} className="text-muted-foreground hover:text-foreground text-xl">←</button>
         <h1 className="text-lg font-bold">ميدان برو 👑</h1>
@@ -64,13 +70,13 @@ export default function Premium() {
 
       <div className="flex-1 overflow-y-auto p-4 space-y-5 pb-8">
         {/* Hero */}
-        <div className="text-center py-4">
-          <div className="w-24 h-24 rounded-full mx-auto mb-4 flex items-center justify-center gold-glow"
+        <div className="text-center py-4 fade-in-up">
+          <div className="w-28 h-28 rounded-full mx-auto mb-4 flex items-center justify-center gold-glow"
             style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}>
-            <span className="text-5xl">👑</span>
+            <span className="text-6xl animate-bounce">👑</span>
           </div>
-          <h2 className="text-3xl font-black text-primary">ميدان برو</h2>
-          <p className="text-muted-foreground text-sm mt-1">الإصدار الكامل بلا قيود</p>
+          <h2 className="text-4xl font-black gradient-text">ميدان برو</h2>
+          <p className="text-muted-foreground text-sm mt-2">الإصدار الكامل بلا قيود</p>
         </div>
 
         {/* Free trial banner */}
@@ -99,7 +105,7 @@ export default function Premium() {
         )}
 
         {/* Benefits */}
-        <div className="bg-card border border-border rounded-2xl p-4">
+        <div className="glass-card lift-hover p-4">
           <p className="font-bold mb-3 text-sm">✨ مزايا برو</p>
           <div className="space-y-3">
             {BENEFITS.map((b) => (
@@ -114,8 +120,25 @@ export default function Premium() {
           </div>
         </div>
 
+        {/* Testimonials */}
+        <div className="glass-card lift-hover p-4">
+          <p className="font-bold mb-3 text-sm">💬 ماذا يقول المشتركون</p>
+          <div className="space-y-3">
+            {TESTIMONIALS.map((t) => (
+              <div
+                key={t.name}
+                className="rounded-xl p-3 border border-white/10"
+                style={{ background: "rgba(212,175,55,0.06)" }}
+              >
+                <p className="text-sm text-foreground leading-relaxed">"{t.quote}"</p>
+                <p className="text-xs text-primary mt-2 font-bold">— {t.name}، {t.city}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* Comparison */}
-        <div className="bg-card border border-border rounded-2xl p-4">
+        <div className="glass-card p-4">
           <p className="font-bold mb-3 text-sm text-muted-foreground">النسخة المجانية تحتوي على:</p>
           <div className="space-y-2.5">
             {FREE_LIMITS.map((f) => (
@@ -154,7 +177,7 @@ export default function Premium() {
             )}
             <button
               onClick={handleSubscribe}
-              className="w-full h-14 rounded-2xl text-background font-black text-lg gold-glow hover:opacity-90 transition-opacity"
+              className="w-full h-14 rounded-2xl text-background font-black text-lg gold-glow shine press-shrink"
               style={{ background: "linear-gradient(135deg,#d97706,#f59e0b,#eab308)" }}
             >
               👑 اشترك الآن — 19 ريال/شهر

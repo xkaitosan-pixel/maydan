@@ -1,0 +1,132 @@
+Complete UI/UX redesign for ميدان app.
+Make it look premium, modern and professional.
+
+═══════════════════════════════
+HOME SCREEN:
+═══════════════════════════════
+- Add gradient hero section at top with user info
+- Game mode cards: bigger, more visual, with gradient backgrounds
+- Each mode has unique color scheme:
+  * تحدي: orange to red gradient
+  * البقاء: red to dark red
+  * التجمعات: purple to blue
+  * اليوم: gold to orange
+  * المتصدرون: blue to purple
+- Add subtle animated background (moving particles or gradient)
+- XP bar more prominent with level badge
+- Stats row: cleaner with icons
+- Bottom nav: more polished with active animations
+
+═══════════════════════════════
+LOGIN SCREEN:
+═══════════════════════════════
+- Full screen dark background with animated particles
+- Logo centered with glow effect
+- "ميدان" text with gold gradient
+- Tagline: "من يسيطر على الميدان؟"
+- Google button: more prominent, white with shadow
+- Email login: cleaner form
+- Guest button: subtle, secondary style
+- Add feature highlights at bottom:
+  "⚔️ تحدى أصدقاءك" | "🏆 تصدر اللوحة" | "🎁 اكسب جوائز"
+
+═══════════════════════════════
+GAME SCREENS (Quiz/Survival/Ranked):
+═══════════════════════════════
+- Question card: glassmorphism effect
+  background: rgba(255,255,255,0.05)
+  border: 1px solid rgba(255,255,255,0.1)
+  backdrop-filter: blur(10px)
+  border-radius: 20px
+- Answer buttons: larger, more rounded (border-radius: 16px)
+- Timer: circular progress ring (not just bar)
+- Score display: more prominent
+- Lives (❤️): bigger and more visual
+- Combo multiplier: flashy animation
+
+═══════════════════════════════
+PROFILE PAGE:
+═══════════════════════════════
+- Cover photo area at top (gradient background)
+- Avatar: larger (100px) with level badge overlay
+- Stats in beautiful cards with icons
+- Achievements: grid layout with shine effect
+- Favorite categories: colorful cards
+- Friends list: cleaner avatars
+
+═══════════════════════════════
+LEADERBOARD:
+═══════════════════════════════
+- Top 3 on podium: 🥇🥈🥉 with special styling
+- Each row: avatar + flag + name + score + badge
+- Animated entrance for top 10
+- Your rank highlighted with gold border
+- Smooth tabs
+
+═══════════════════════════════
+PREMIUM PAGE:
+═══════════════════════════════
+- Make it look irresistible!
+- Dark background with gold accents
+- Crown animation at top 👑
+- Benefits list with checkmarks ✅
+- Price: big and clear "19 ريال/شهر"
+- "جرّب 3 أيام مجاناً" banner
+- Comparison table: مجاني vs بريميوم
+- Testimonials section (fake for now):
+  "أفضل تطبيق عربي! - محمد، الرياض"
+  "مميز جداً! - فاطمة، دبي"
+- Big gold CTA button with shine animation
+
+═══════════════════════════════
+GENERAL IMPROVEMENTS:
+═══════════════════════════════
+- Add micro-animations everywhere:
+  * Button press: scale down slightly
+  * Card hover: lift up with shadow
+  * Score update: bounce animation
+  * Achievement unlock: explosion effect
+- Improve dark/light mode contrast
+- Add smooth page transitions
+- Make all cards consistent (same border-radius, padding)
+- Typography: larger headings, better hierarchy
+- Color consistency throughout app
+
+CSS additions needed:
+.glass-card {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #D4AF37, #9333ea);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #D4AF37, #b8960e);
+  border: none;
+  border-radius: 14px;
+  font-weight: 700;
+  transition: all 0.2s;
+  box-shadow: 0 4px 15px rgba(212,175,55,0.3);
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(212,175,55,0.4);
+}
+
+.card-hover {
+  transition: all 0.3s ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.3);
+}
+
+Push to GitHub.
