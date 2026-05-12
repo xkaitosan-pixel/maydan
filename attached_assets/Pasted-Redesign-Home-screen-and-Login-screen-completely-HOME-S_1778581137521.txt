@@ -1,0 +1,103 @@
+Redesign Home screen and Login screen completely.
+
+═══════════════════════════════
+HOME SCREEN REDESIGN (Home.tsx):
+═══════════════════════════════
+
+1. Hero section at top:
+- Animated gradient background (dark navy + purple glow)
+- User avatar with gold ring + level badge
+- "أهلاً [name]! 👑" with gradient-text class
+- XP progress bar: gold, rounded, with glow
+- Coins balance with 🪙 icon
+- Streak fire counter 🔥
+
+2. Game mode cards - completely redesigned:
+Each card is a tall rounded card (border-radius: 20px)
+with unique gradient and icon:
+
+⚔️ تحدي:
+gradient: linear-gradient(135deg, #f97316, #dc2626)
+icon: large ⚔️ emoji (48px)
+subtitle: "تحدي صديق أو غريب"
+pending badge if challenges waiting
+
+🏃 وضع البقاء:
+gradient: linear-gradient(135deg, #dc2626, #7f1d1d)
+icon: 🏃 (48px)
+subtitle: "كم تصمد؟"
+show best score
+
+📺 التجمعات:
+gradient: linear-gradient(135deg, #7c3aed, #1d4ed8)
+icon: 📺 (48px)
+subtitle: "العب مع الجماعة"
+
+📅 تحدي اليوم:
+gradient: linear-gradient(135deg, #d97706, #b45309)
+icon: 📅 (48px)
+subtitle: "X لاعب لعب اليوم"
+show if completed ✅
+
+🏆 المتصدرون:
+gradient: linear-gradient(135deg, #1d4ed8, #7c3aed)
+icon: 🏆 (48px)
+subtitle: "تنافس أونلاين"
+show user rank
+
+3. Stats row below cards:
+3 glass cards showing:
+- انتصارات | هزائم | أفضل بقاء
+Each with icon and number
+
+4. Daily motivational message:
+Based on time of day (morning/afternoon/evening/night)
+Styled as a glass card with gradient border
+
+5. Remove any unnecessary elements
+Keep it clean and focused
+
+═══════════════════════════════
+LOGIN SCREEN REDESIGN (Auth.tsx):
+═══════════════════════════════
+
+1. Full screen with particle-bg class (animated background)
+
+2. Top section (40% of screen):
+- Large logo (140px)
+- "ميدان" in huge gradient-text (48px bold)
+- "من يسيطر على الميدان؟" subtitle (gold color, 18px)
+
+3. Middle section - login options:
+- Google button: white background, dark text, shadow
+  "تسجيل الدخول بـ Google 🔵"
+  Large (height: 56px), rounded-xl
+  
+- Divider: "أو"
+
+- Email input: glass-card style
+  dark background, gold border on focus
+  
+- Password input: same style
+  
+- "تسجيل الدخول" button: btn-primary-gold class
+  Full width, height 52px
+
+- "إنشاء حساب جديد" link
+
+- Divider: "أو"
+
+- Guest button: outline style (not filled)
+  "العب كضيف 👤"
+
+4. Bottom feature strip (3 items):
+⚔️ تحدى أصدقاءك
+🏆 تصدر اللوحة  
+🎁 اكسب جوائز
+
+Each as small pill with glass background
+
+5. Make it visually stunning - this is the first
+   impression users get!
+
+Push to GitHub.

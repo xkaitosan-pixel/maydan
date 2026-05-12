@@ -125,29 +125,29 @@ export default function Home() {
   const modes = [
     {
       id: "challenge", icon: "⚔️", label: "تحدي", sub: "تحدي صديق أو غريب",
-      gradient: "linear-gradient(135deg, #d97706, #f59e0b)",
+      gradient: "linear-gradient(135deg, #f97316, #dc2626)",
       onClick: () => canCreate ? navigate("/create") : undefined,
       disabled: !canCreate,
       badge: pendingChallenges > 0 ? pendingChallenges : undefined,
     },
     {
       id: "survival", icon: "🏃", label: "وضع البقاء", sub: "كم تصمد؟",
-      gradient: "linear-gradient(135deg, #dc2626, #ef4444)",
+      gradient: "linear-gradient(135deg, #dc2626, #7f1d1d)",
       onClick: () => navigate("/survival"),
     },
     {
       id: "party", icon: "📺", label: "وضع التجمعات", sub: "العب مع الجماعة",
-      gradient: "linear-gradient(135deg, #7c3aed, #8b5cf6)",
+      gradient: "linear-gradient(135deg, #7c3aed, #1d4ed8)",
       onClick: () => navigate("/party"),
     },
     {
       id: "daily", icon: "📅", label: "تحدي اليوم", sub: "5 أسئلة يومية",
-      gradient: "linear-gradient(135deg, #0c4a6e, #0369a1)",
+      gradient: "linear-gradient(135deg, #d97706, #b45309)",
       onClick: () => navigate("/daily"),
     },
     {
       id: "ranked", icon: "🏆", label: "المتصدرون", sub: "تنافس أونلاين",
-      gradient: "linear-gradient(135deg, #d97706, #ca8a04)",
+      gradient: "linear-gradient(135deg, #1d4ed8, #7c3aed)",
       onClick: () => navigate("/ranked"),
     },
   ];
@@ -168,7 +168,7 @@ export default function Home() {
                 { text: "سهرة معرفية 🌌", sub: "آخر فرصة للستريك اليوم" };
 
   return (
-    <div className="min-h-screen gradient-hero star-bg flex flex-col">
+    <div className="min-h-screen gradient-hero star-bg particle-bg flex flex-col">
       {milestone && <StreakMilestone days={milestone} onClose={() => setMilestone(null)} />}
       {seasonRewardMsg && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 rounded-full px-6 py-3 font-bold text-sm text-white shadow-xl bg-yellow-600 border border-yellow-500/50">
@@ -301,9 +301,10 @@ export default function Home() {
                           style={{ border: "3px solid hsl(var(--primary))" }} />
                         {isPremium && <span className="absolute -bottom-1 -right-1 text-base">👑</span>}
                       </div>
-                      <h2 className="text-xl md:text-2xl font-black text-foreground flex items-center justify-center gap-2 cursor-pointer" onClick={() => navigate("/profile")}>
-                        {dbUser?.country && <span>{getCountryFlag(dbUser.country)}</span>}
-                        أهلاً {googleDisplayName || displayName}! {isPremium ? "👑" : "⚔️"}
+                      <h2 className="text-2xl md:text-3xl font-black flex items-center justify-center gap-2 cursor-pointer" onClick={() => navigate("/profile")}>
+                        {dbUser?.country && <span className="text-foreground">{getCountryFlag(dbUser.country)}</span>}
+                        <span className="gradient-text">أهلاً {googleDisplayName || displayName}!</span>
+                        <span className="text-foreground">{isPremium ? "👑" : "⚔️"}</span>
                       </h2>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         {isPremium ? "عضو ميدان برو" : "مستعد للتحدي؟"}
@@ -349,11 +350,15 @@ export default function Home() {
 
                   {/* Time-of-day greeting */}
                   <div
-                    className="rounded-2xl px-4 py-3 border border-primary/20 flex items-center gap-3"
-                    style={{ background: "linear-gradient(135deg,rgba(217,119,6,0.10),rgba(124,58,237,0.10))" }}
+                    className="glass-card lift-hover px-4 py-3 flex items-center gap-3"
+                    style={{
+                      background:
+                        "linear-gradient(135deg,rgba(212,175,55,0.10),rgba(147,51,234,0.10))",
+                      borderImage: "linear-gradient(135deg,#D4AF37,#9333ea) 1",
+                    }}
                   >
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-black text-primary">{greeting.text}</p>
+                      <p className="text-sm font-black gradient-text">{greeting.text}</p>
                       <p className="text-[11px] text-muted-foreground mt-0.5">{greeting.sub}</p>
                     </div>
                   </div>
@@ -379,13 +384,14 @@ export default function Home() {
                   {/* Quick stats */}
                   <div className="grid grid-cols-4 gap-2">
                     {[
-                      { label: "الانتصارات", value: dbUser?.total_wins ?? localUser.wins },
-                      { label: "النقاط", value: dbUser?.total_points ?? 0 },
-                      { label: "أفضل بقاء", value: localUser.stats.survivalBest },
-                      { label: "الستريك", value: streak },
+                      { icon: "🏆", label: "الانتصارات", value: dbUser?.total_wins ?? localUser.wins },
+                      { icon: "⭐", label: "النقاط", value: dbUser?.total_points ?? 0 },
+                      { icon: "🏃", label: "أفضل بقاء", value: localUser.stats.survivalBest },
+                      { icon: "🔥", label: "الستريك", value: streak },
                     ].map((s) => (
-                      <div key={s.label} className="bg-card border border-border rounded-xl p-2 text-center card-hover">
-                        <p className="text-lg md:text-xl font-black text-primary">{s.value}</p>
+                      <div key={s.label} className="glass-card lift-hover p-2 text-center">
+                        <p className="text-base leading-none mb-0.5">{s.icon}</p>
+                        <p className="text-lg md:text-xl font-black gradient-text">{s.value}</p>
                         <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">{s.label}</p>
                       </div>
                     ))}
@@ -475,8 +481,12 @@ export default function Home() {
                         key={mode.id}
                         onClick={mode.onClick}
                         disabled={mode.disabled}
-                        className={`relative rounded-2xl p-4 md:p-6 text-center transition-all ${mode.disabled ? "opacity-50 cursor-not-allowed" : "hover:scale-[1.03] active:scale-[0.97]"}`}
-                        style={{ background: mode.gradient, border: "1px solid rgba(255,255,255,0.08)" }}
+                        className={`relative rounded-[20px] p-5 md:p-6 text-center press-shrink transition-all ${mode.disabled ? "opacity-50 cursor-not-allowed" : "hover:-translate-y-1 hover:shadow-2xl"}`}
+                        style={{
+                          background: mode.gradient,
+                          border: "1px solid rgba(255,255,255,0.12)",
+                          boxShadow: "0 8px 24px rgba(0,0,0,0.30)",
+                        }}
                       >
                         {mode.badge && (
                           <span
@@ -486,9 +496,14 @@ export default function Home() {
                             {mode.badge > 99 ? "99+" : mode.badge}
                           </span>
                         )}
-                        <span className="block text-3xl md:text-4xl mb-1.5">{mode.icon}</span>
-                        <p className="text-white font-black text-sm md:text-base leading-tight">{mode.label}</p>
-                        <p className="text-white/70 text-xs md:text-sm mt-0.5">{mode.sub}</p>
+                        <span
+                          className="block mb-2 drop-shadow-[0_2px_8px_rgba(0,0,0,0.4)]"
+                          style={{ fontSize: 48, lineHeight: 1 }}
+                        >
+                          {mode.icon}
+                        </span>
+                        <p className="text-white font-black text-base md:text-lg leading-tight">{mode.label}</p>
+                        <p className="text-white/80 text-xs md:text-sm mt-1">{mode.sub}</p>
                       </button>
                     ))}
                   </div>

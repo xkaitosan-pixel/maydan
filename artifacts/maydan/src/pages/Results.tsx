@@ -146,8 +146,8 @@ export default function Results() {
   let isWinner = false;
   let isTie = false;
   if (isCompleted && opponentScore !== null) {
-    if (myScore > opponentScore) { winnerText = "🎉 أنت الفائز!"; isWinner = true; }
-    else if (myScore < opponentScore) { winnerText = "😔 خسرت هذه المرة"; }
+    if (myScore > opponentScore) { winnerText = "🏆 فزت!"; isWinner = true; }
+    else if (myScore < opponentScore) { winnerText = "😔 خسرت!"; }
     else { winnerText = "🤝 تعادل!"; isTie = true; }
   }
 

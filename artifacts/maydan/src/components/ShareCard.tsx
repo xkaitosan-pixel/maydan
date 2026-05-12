@@ -134,40 +134,40 @@ async function drawCard(args: DrawCardArgs): Promise<HTMLCanvasElement> {
   // Centered text helper defaults
   ctx.textAlign = "center";
 
-  // App name
+  // App name (+20%)
   ctx.fillStyle = "#D4AF37";
-  ctx.font = "bold 40px Arial";
+  ctx.font = "bold 48px Arial";
   ctx.fillText("⚔️ MAYDAN", 400, 230);
 
-  // Player name
+  // Player name (+20%)
   ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 32px Arial";
-  ctx.fillText(playerName || "لاعب", 400, 275);
+  ctx.font = "bold 38px Arial";
+  ctx.fillText(playerName || "لاعب", 400, 278);
 
-  // Score
+  // Score (+20%)
   ctx.fillStyle = "#D4AF37";
-  ctx.font = "bold 80px Arial";
-  ctx.fillText(`${score}/${total}`, 400, 370);
+  ctx.font = "bold 96px Arial";
+  ctx.fillText(`${score}/${total}`, 400, 380);
 
-  // Category
+  // Category (+20%)
   ctx.fillStyle = "#aaaaaa";
-  ctx.font = "26px Arial";
-  ctx.fillText(category || "", 400, 420);
+  ctx.font = "31px Arial";
+  ctx.fillText(category || "", 400, 425);
 
-  // Level
+  // Level (+20%)
   ctx.fillStyle = "#aaaaaa";
-  ctx.font = "26px Arial";
-  ctx.fillText(level || "", 400, 460);
+  ctx.font = "31px Arial";
+  ctx.fillText(level || "", 400, 465);
 
-  // Tagline
+  // Tagline (+20%)
   ctx.fillStyle = "#9333ea";
-  ctx.font = "bold 28px Arial";
-  ctx.fillText("تحداني إذا تجرأ! 😏", 400, 505);
+  ctx.font = "bold 34px Arial";
+  ctx.fillText("تحداني إذا تجرأ! 😏", 400, 510);
 
-  // Website
+  // Website (+20%)
   ctx.fillStyle = "#666666";
-  ctx.font = "22px Arial";
-  ctx.fillText("maydanapp.com", 400, 540);
+  ctx.font = "26px Arial";
+  ctx.fillText("maydanapp.com", 400, 545);
 
   return canvas;
 }
