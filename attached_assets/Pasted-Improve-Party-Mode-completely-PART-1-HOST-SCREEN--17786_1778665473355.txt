@@ -1,0 +1,103 @@
+Improve Party Mode (وضع التجمعات) completely.
+
+═══════════════════════════════
+PART 1 - HOST SCREEN (TV/Desktop):
+═══════════════════════════════
+
+1. Lobby screen improvements:
+- Room code: huge digits (text-9xl) with gold glow
+- Animated "في انتظار اللاعبين..." text
+- Player list: grid of avatar chips with name
+  Each chip animates in when player joins
+- QR code: larger, in glass card with label
+- Settings panel: cleaner, collapsible
+- "ابدأ اللعبة 🚀" button: 
+  gold gradient, large, disabled until 2+ players
+  Shows player count "ابدأ (3 لاعبين)"
+
+2. Question screen (TV mode):
+- Question text: very large (text-4xl), centered
+- 4 answer boxes in 2x2 grid:
+  🔴 A - Red (#ef4444)
+  🔵 B - Blue (#3b82f6)  
+  🟡 C - Yellow (#f59e0b)
+  🟢 D - Green (#22c55e)
+- Each box shows letter + answer text
+- Timer: large circular timer centered at top
+- "X/Y أجابوا" counter with progress bar
+- Player count visible
+
+3. Answer reveal screen:
+- Correct answer box glows/pulses
+- Wrong boxes dim out
+- Bar chart showing how many picked each option
+- Top 3 players shown immediately
+- "السؤال التالي ←" button for host
+
+4. Leaderboard between questions:
+- Top 5 with avatars and scores
+- Animated rank changes
+- Gold/silver/bronze for top 3
+- countdown ring if auto-advance enabled
+
+5. Final podium screen:
+- 🥇🥈🥉 podium design
+- Confetti animation
+- Winner name large with crown 👑
+- Share results button
+
+═══════════════════════════════
+PART 2 - GUEST SCREEN (Phone):
+═══════════════════════════════
+
+1. Waiting room:
+- Show room code they joined
+- Animated "في انتظار بدء اللعبة..." 
+- List of other players joining (live)
+- Their avatar + nickname displayed prominently
+
+2. Answer screen:
+- 4 HUGE colored buttons filling screen:
+  🔴 A | 🔵 B
+  🟡 C | 🟢 D
+- Each button: min-height 38vh
+- Large letter only (A/B/C/D) - no text needed
+- Satisfying press animation (scale down + color pulse)
+- After answering: show "✓ تم الإجابة" overlay
+- Show combo streak if consecutive correct
+
+3. Result per question:
+- ✅ أجبت صح! +X نقطة
+- ❌ إجابة خاطئة
+- Show points earned with animation
+- Current rank: "أنت في المركز #X"
+
+4. Final screen:
+- Your final rank and score
+- Podium mention if top 3
+- "العب مرة أخرى" button
+
+═══════════════════════════════
+PART 3 - TECHNICAL IMPROVEMENTS:
+═══════════════════════════════
+
+1. Smoother sync:
+- Reduce polling interval to 1 second
+- Show "جاري التزامن..." indicator if lag detected
+
+2. Better error handling:
+- If connection lost: "انقطع الاتصال، جاري إعادة الاتصال..."
+- Auto-reconnect attempt every 3 seconds
+
+3. Sound effects in party mode:
+- Countdown: 3,2,1 beep sounds
+- Correct answer reveal: fanfare
+- Wrong answer: buzz
+- New player joining: join sound
+- Final winner: victory sound
+
+4. Auto-cleanup:
+- Delete room from Supabase after game ends
+- Clean up party_players after 1 hour
+
+Push to GitHub.

@@ -5,6 +5,7 @@ import { Question } from "@/lib/questions";
 import { fetchSeededQuestions } from "@/lib/questionService";
 import { shuffleQuestion } from "@/lib/shuffle";
 import QuestionImage from "@/components/QuestionImage";
+import CircularTimer from "@/components/CircularTimer";
 import { playSound } from "@/lib/sound";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -86,6 +87,8 @@ export default function PartyGuest() {
   const [errorMsg, setErrorMsg] = useState("");
   const [consecutiveCorrect, setConsecutiveCorrect] = useState(0);
   const [showStreakBanner, setShowStreakBanner] = useState(false);
+  const [connectionLost, setConnectionLost] = useState(false);
+  const consecutiveFailsRef = useRef(0);
 
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -140,6 +143,9 @@ export default function PartyGuest() {
         const { data: roomData } = await supabase
           .from("party_rooms").select("*").eq("code", code).single();
         if (!roomData) return;
+        // Connection healthy — clear any stale "lost" indicator
+        setConnectionLost(false);
+        consecutiveFailsRef.current = 0;
 
         const newStatus = roomData.status as string;
         const newQIdx = roomData.current_question as number;
@@ -155,8 +161,12 @@ export default function PartyGuest() {
         if (["waiting", "leaderboard", "finished", "reveal"].includes(phaseRef.current)) {
           fetchPlayers(code);
         }
-      } catch { /* network hiccup, ignore */ }
-    }, 1500);
+      } catch {
+        // Track consecutive failures so we can surface a "reconnecting" banner
+        consecutiveFailsRef.current += 1;
+        if (consecutiveFailsRef.current >= 3) setConnectionLost(true);
+      }
+    }, 1000);
   }
 
   // ── Step 1: look up room by code ─────────────────────────────────────────
@@ -299,6 +309,16 @@ export default function PartyGuest() {
       setPhase("finished");
       fetchPlayers(updatedRoom.code);
       playSound("gameover");
+      // Victory fanfare for top-3 finishers (deferred slightly to layer over gameover)
+      setTimeout(() => {
+        const me = allPlayers.find(p => p.id === myIdRef.current);
+        const myFinalRank =
+          [...allPlayers].sort((a, b) => b.score - a.score).findIndex(p => p.id === myIdRef.current) + 1;
+        if (me && myFinalRank >= 1 && myFinalRank <= 3) {
+          playSound("levelup");
+          setTimeout(() => playSound("achievement"), 500);
+        }
+      }, 400);
     }
     // "lobby" status → stay on waiting screen, nothing to do
   }
@@ -357,6 +377,16 @@ export default function PartyGuest() {
   const sorted = [...allPlayers].sort((a, b) => b.score - a.score);
   const myRank = sorted.findIndex(p => p.id === myId) + 1;
   const isCorrectAnswer = selected !== null && currentQ ? selected === currentQ.correct : false;
+
+  // ── Connection lost banner (shown across all phases) ─────────────────────
+  const ConnectionBanner = () => connectionLost ? (
+    <div className="fixed inset-x-0 top-2 z-[60] flex justify-center px-3 pointer-events-none">
+      <div className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-red-600/95 border border-red-400 shadow-2xl flex items-center gap-2 animate-pulse">
+        <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+        انقطع الاتصال — جاري إعادة الاتصال...
+      </div>
+    </div>
+  ) : null;
 
   // ── ENTER CODE ───────────────────────────────────────────────────────────
   if (phase === "enter_code") {
@@ -426,15 +456,26 @@ export default function PartyGuest() {
   if (phase === "waiting") {
     return (
       <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-6 gap-6 text-center">
+        <ConnectionBanner />
+        {/* Big room code chip */}
+        <div className="text-center">
+          <p className="text-[11px] text-muted-foreground uppercase tracking-widest">رمز الغرفة</p>
+          <p
+            className="text-6xl font-black tracking-[0.25em] tabular-nums gradient-text leading-none"
+            dir="ltr"
+            style={{ filter: "drop-shadow(0 0 18px rgba(245,158,11,0.55))" }}
+          >
+            {room?.code}
+          </p>
+        </div>
         <div className="fade-in-up">
           <div className="w-24 h-24 rounded-full bg-primary/10 border-4 border-primary flex items-center justify-center mx-auto mb-4 animate-pulse">
             <span className="text-4xl">⌛</span>
           </div>
-          <h1 className="text-2xl font-black text-primary">في انتظار بدء اللعبة</h1>
+          <h1 className="text-2xl font-black text-primary animate-pulse">في انتظار بدء اللعبة...</h1>
           <p className="text-muted-foreground text-sm mt-1">
             مرحباً <span className="text-foreground font-bold">{nickname}</span>!
           </p>
-          <p className="text-xs text-muted-foreground mt-1">الغرفة: <span className="font-bold text-primary">{room?.code}</span></p>
         </div>
         <div className="w-full max-w-sm">
           <p className="text-xs text-muted-foreground font-bold mb-3">اللاعبون ({allPlayers.length})</p>
@@ -489,23 +530,17 @@ export default function PartyGuest() {
         <div className="rp-medium flex flex-col flex-1 w-full">
         {/* Timer header */}
         <header className="p-4 border-b border-border/30">
-          <div className="flex justify-between items-center mb-2">
+          <div className="flex justify-between items-center gap-3">
             <div>
               <p className="text-xs text-muted-foreground">سؤال {currentQIdx + 1}/{partyQs.length}</p>
               <p className="text-sm font-black text-primary">{myScore} نقطة</p>
             </div>
-            <span className={`text-4xl font-black tabular-nums ${isDanger ? "timer-danger" : "text-primary"}`}>
-              {timeLeft}
-            </span>
-          </div>
-          <div className="h-3 bg-muted rounded-full overflow-hidden">
-            <div className="h-full rounded-full transition-all duration-500 ease-linear"
-              style={{
-                width: `${timerPct}%`,
-                background: isDanger
-                  ? "linear-gradient(90deg,#ef4444,#dc2626)"
-                  : "linear-gradient(90deg,#7c3aed,#8b5cf6)",
-              }} />
+            <CircularTimer
+              timeLeft={timeLeft}
+              totalTime={roomAnswerTime}
+              size={72}
+              strokeWidth={6}
+            />
           </div>
         </header>
 

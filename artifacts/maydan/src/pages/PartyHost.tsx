@@ -5,6 +5,7 @@ import { CATEGORIES, Question } from "@/lib/questions";
 import { fetchSeededQuestions } from "@/lib/questionService";
 import { shuffleQuestion } from "@/lib/shuffle";
 import QuestionImage from "@/components/QuestionImage";
+import CircularTimer from "@/components/CircularTimer";
 import { playSound } from "@/lib/sound";
 import { QRCodeSVG } from "qrcode.react";
 
@@ -137,7 +138,13 @@ export default function PartyHost() {
       if (answerPollRef.current) clearInterval(answerPollRef.current);
       if (autoAdvanceRef.current) clearInterval(autoAdvanceRef.current);
       if (codeRef.current) {
-        supabase.from("party_rooms").update({ status: "finished" }).eq("code", codeRef.current);
+        // Auto-cleanup: mark finished and remove the room + players from DB
+        const cleanupCode = codeRef.current;
+        supabase.from("party_rooms").update({ status: "finished" }).eq("code", cleanupCode).then(() => {
+          // Best-effort cleanup of stale rows so we don't leak rooms forever
+          supabase.from("party_players").delete().eq("room_code", cleanupCode);
+          supabase.from("party_rooms").delete().eq("code", cleanupCode);
+        });
       }
     };
   }, []);
@@ -208,7 +215,7 @@ export default function PartyHost() {
       if (phaseRef.current === "lobby" || phaseRef.current === "reveal" || phaseRef.current === "leaderboard") {
         fetchPlayers(code);
       }
-    }, 2000);
+    }, 1000);
   }
 
   // ── Create room ──────────────────────────────────────────────────────────
@@ -246,7 +253,11 @@ export default function PartyHost() {
     const channel = supabase
       .channel("host-room:" + code)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "party_players" },
-        () => fetchPlayers(code))
+        () => {
+          // Play a satisfying "join" sound on the TV when a new player arrives in the lobby
+          if (phaseRef.current === "lobby") playSound("coin");
+          fetchPlayers(code);
+        })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "party_players" },
         () => { if (phaseRef.current === "question" || phaseRef.current === "reveal" || phaseRef.current === "leaderboard") fetchPlayers(code); })
       .subscribe();
@@ -435,6 +446,14 @@ export default function PartyHost() {
     }
   }
 
+  // Play a victory fanfare when the game wraps up
+  useEffect(() => {
+    if (phase === "finished") {
+      playSound("levelup");
+      setTimeout(() => playSound("achievement"), 600);
+    }
+  }, [phase]);
+
   // ── Derived values ───────────────────────────────────────────────────────
   const currentQ = partyQs[currentQIdx] ?? null;
   const answeredCount = players.filter(p => p.answered_current).length;
@@ -581,7 +600,14 @@ export default function PartyHost() {
         {/* Big room code */}
         <div className="glass-card p-6 text-center" style={{ boxShadow: "0 12px 40px rgba(212,175,55,0.25), inset 0 0 32px rgba(212,175,55,0.08)", border: "1.5px solid rgba(212,175,55,0.4)" }}>
           <p className="text-xs text-muted-foreground uppercase tracking-widest mb-2">رمز الغرفة</p>
-          <p className="text-8xl font-black tracking-[0.2em] tabular-nums pulse-glow gradient-text" dir="ltr">{roomCode}</p>
+          <p
+            className="font-black tracking-[0.2em] tabular-nums pulse-glow gradient-text leading-none"
+            dir="ltr"
+            style={{
+              fontSize: "clamp(4rem, 18vw, 8rem)",
+              filter: "drop-shadow(0 0 24px rgba(245,158,11,0.55))",
+            }}
+          >{roomCode}</p>
           <p className="text-xs text-muted-foreground mt-3">وضع التجمعات ← انضم للغرفة</p>
           <div className="mt-3 flex gap-2 justify-center">
             <button
@@ -625,7 +651,7 @@ export default function PartyHost() {
             <div className="bg-white p-3 rounded-2xl shadow-2xl" style={{ boxShadow: "0 8px 28px rgba(212,175,55,0.35)" }}>
               <QRCodeSVG
                 value={`${window.location.origin}/party/guest?code=${roomCode}`}
-                size={140}
+                size={180}
                 level="M"
               />
             </div>
@@ -665,15 +691,24 @@ export default function PartyHost() {
           </div>
           {players.length === 0 ? (
             <div className="text-center py-10 text-muted-foreground">
-              <p className="text-4xl mb-3">⌛</p>
-              <p className="text-sm">في انتظار انضمام اللاعبين...</p>
-              <p className="text-xs mt-1 opacity-60">شارك رمز الغرفة مع الأصدقاء</p>
+              <p className="text-5xl mb-3 animate-bounce">⌛</p>
+              <p className="text-base font-bold animate-pulse">في انتظار اللاعبين...</p>
+              <p className="text-xs mt-2 opacity-70">شارك رمز الغرفة مع الأصدقاء 📱</p>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-2">
               {players.map((p, i) => (
-                <div key={p.id} className="flex items-center gap-2 bg-card border border-border rounded-xl px-3 py-2 fade-in-up">
-                  <span>{i < 3 ? MEDALS[i] : "🎮"}</span>
+                <div
+                  key={p.id}
+                  className="flex items-center gap-2 bg-card border border-border rounded-xl px-3 py-2 fade-in-up hover:border-primary/40 transition-colors"
+                  style={{ animationDelay: `${(i % 8) * 60}ms` }}
+                >
+                  <span
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-black text-background shrink-0"
+                    style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}
+                  >
+                    {i < 3 ? MEDALS[i] : (p.nickname.charAt(0) || "؟")}
+                  </span>
                   <span className="font-bold text-sm truncate">{p.nickname}</span>
                 </div>
               ))}
@@ -681,10 +716,16 @@ export default function PartyHost() {
           )}
         </div>
 
-        <button onClick={startGame} disabled={players.length === 0}
-          className="w-full h-14 rounded-2xl text-white font-black text-lg disabled:opacity-40 transition-opacity"
-          style={{ background: "linear-gradient(135deg,#7c3aed,#8b5cf6)" }}>
-          🚀 ابدأ اللعبة ({players.length} {players.length === 1 ? "لاعب" : "لاعبين"})
+        <button
+          onClick={startGame}
+          disabled={players.length < 1}
+          className="w-full h-16 rounded-2xl text-background font-black text-xl disabled:opacity-40 transition-all hover:opacity-90 active:scale-[0.98]"
+          style={{
+            background: "linear-gradient(135deg,#d97706,#f59e0b)",
+            boxShadow: players.length >= 1 ? "0 8px 28px rgba(245,158,11,0.4)" : "none",
+          }}
+        >
+          🚀 ابدأ اللعبة {players.length > 0 && `(${players.length} ${players.length === 1 ? "لاعب" : "لاعبين"})`}
         </button>
       </div>
     );
@@ -750,25 +791,13 @@ export default function PartyHost() {
               display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
               gap: 12,
             }}>
-              {/* Big timer */}
-              <div style={{
-                fontSize: "clamp(3rem, 8vw, 6rem)",
-                fontWeight: 900,
-                color: isDanger ? "#ef4444" : "hsl(45 85% 50%)",
-                fontVariantNumeric: "tabular-nums",
-                lineHeight: 1,
-              }}>
-                {timeLeft}
-              </div>
-              {/* Progress bar */}
-              <div style={{ width: "80%", height: 10, background: "hsl(220 15% 18%)", borderRadius: 99, overflow: "hidden" }}>
-                <div style={{
-                  height: "100%", borderRadius: 99,
-                  width: `${timerPct}%`,
-                  background: isDanger ? "linear-gradient(90deg,#ef4444,#dc2626)" : "linear-gradient(90deg,#d97706,#f59e0b)",
-                  transition: "width 0.5s linear",
-                }} />
-              </div>
+              {/* Big circular timer */}
+              <CircularTimer
+                timeLeft={timeLeft}
+                totalTime={answerTimeRef.current || 20}
+                size={140}
+                strokeWidth={10}
+              />
               {/* Answered count */}
               <div style={{
                 padding: "8px 20px", borderRadius: 12, fontWeight: 700, fontSize: "1rem",
@@ -831,23 +860,35 @@ export default function PartyHost() {
 
         {/* Header */}
         <header className="p-3 border-b border-border/30">
-          <div className="flex justify-between items-center mb-2">
-            <span className="text-xs text-muted-foreground font-bold px-2 py-1 bg-card rounded-lg">
+          <div className="flex justify-between items-center gap-2">
+            <span className="text-xs text-muted-foreground font-bold px-2 py-1 bg-card rounded-lg shrink-0">
               {currentQIdx + 1} / {partyQs.length}
             </span>
-            <span className={`text-4xl font-black tabular-nums ${isDanger ? "timer-danger" : "text-primary"}`}>
-              {timeLeft}
-            </span>
-            <span className={`text-xs px-2 py-1 rounded-lg font-bold ${answeredCount === players.length ? "bg-green-500/20 text-green-400 border border-green-500/30" : "bg-card text-muted-foreground"}`}>
+            <CircularTimer
+              timeLeft={timeLeft}
+              totalTime={answerTimeRef.current || 20}
+              size={88}
+              strokeWidth={7}
+            />
+            <span
+              className={`text-xs px-2 py-1 rounded-lg font-bold shrink-0 ${
+                players.length > 0 && answeredCount === players.length
+                  ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                  : "bg-card text-muted-foreground"
+              }`}
+            >
               {answeredCount}/{players.length} أجابوا
             </span>
           </div>
-          <div className="h-3 bg-muted rounded-full overflow-hidden">
-            <div className="h-full rounded-full transition-all duration-500 ease-linear"
+          {/* Slim answered-progress bar (replaces redundant timer bar) */}
+          <div className="h-1.5 bg-muted rounded-full overflow-hidden mt-2">
+            <div
+              className="h-full rounded-full transition-all duration-500 ease-linear"
               style={{
-                width: `${timerPct}%`,
-                background: isDanger ? "linear-gradient(90deg,#ef4444,#dc2626)" : "linear-gradient(90deg,#d97706,#f59e0b)",
-              }} />
+                width: `${players.length > 0 ? (answeredCount / players.length) * 100 : 0}%`,
+                background: "linear-gradient(90deg,#22c55e,#16a34a)",
+              }}
+            />
           </div>
         </header>
 
