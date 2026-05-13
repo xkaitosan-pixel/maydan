@@ -523,20 +523,21 @@ export default function PartyGuest() {
           )}
         </div>
 
-        {/* 4 big colored answer buttons */}
-        <div className="flex-1 p-4 grid grid-cols-2 gap-4">
+        {/* 4 HUGE colored answer buttons — fill screen, look at TV */}
+        <div className="flex-1 p-3 grid grid-cols-2 grid-rows-2 gap-3">
           {ANSWER_COLORS.map((color, idx) => (
             <button
               key={idx}
               onClick={() => handleAnswer(idx)}
               disabled={selected !== null}
-              className="rounded-2xl flex flex-col items-center justify-center gap-2 text-white font-black text-3xl transition-all active:scale-95 disabled:opacity-50"
+              className="rounded-3xl flex items-center justify-center text-white font-black transition-all active:scale-[0.94] disabled:opacity-40"
               style={{
                 background: `linear-gradient(135deg,${color.bg},${color.dark})`,
-                minHeight: "120px",
+                boxShadow: `0 10px 30px ${color.bg}55, inset 0 0 24px rgba(255,255,255,0.08)`,
+                border: "2px solid rgba(255,255,255,0.18)",
+                minHeight: "38vh",
               }}>
-              <span className="text-4xl">{color.emoji}</span>
-              <span className="text-2xl">{color.label}</span>
+              <span style={{ fontSize: "clamp(56px, 18vw, 120px)" }}>{color.emoji}</span>
             </button>
           ))}
         </div>

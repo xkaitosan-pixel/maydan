@@ -1,0 +1,109 @@
+Redesign remaining pages in ميدان app.
+
+═══════════════════════════════
+GAME SCREENS (Quiz.tsx, Survival.tsx, RankedMode.tsx):
+═══════════════════════════════
+
+1. Question card - glassmorphism:
+background: rgba(255,255,255,0.05)
+border: 1px solid rgba(255,255,255,0.15)
+backdrop-filter: blur(10px)
+border-radius: 20px
+padding: 24px
+box-shadow: 0 8px 32px rgba(0,0,0,0.3)
+
+2. Answer buttons - improved:
+border-radius: 16px
+height: 60px
+font-size: 16px font-weight: 600
+background: rgba(255,255,255,0.06)
+border: 1.5px solid rgba(255,255,255,0.15)
+transition: all 0.15s ease
+On press: scale(0.97)
+Correct: green gradient + glow
+Wrong: red gradient + glow
+
+3. Timer - circular ring:
+Replace linear bar with SVG circular timer
+Shows remaining seconds in center
+Color: green→yellow→red based on time left
+Pulse animation when < 5 seconds
+
+4. Lives display (Survival):
+❤️ hearts bigger (28px)
+Lost heart: grayscale + smaller
+Shake animation when life lost
+
+5. Score/combo display:
+Floating badge top right
+Combo: flash gold animation when increases
+
+═══════════════════════════════
+PROFILE PAGE (Profile.tsx):
+═══════════════════════════════
+
+1. Top section - cover area:
+Full width gradient banner (purple to dark)
+Avatar: 100px, centered, gold ring, level badge
+Name with gradient-text
+Country flag + username
+
+2. Stats cards - 4 in a row:
+Glass cards with icons:
+🏆 انتصارات | 📊 معدل | 🔥 ستريك | 🎮 مباريات
+
+3. Achievements section:
+Grid 3 columns
+Each achievement: glass card, icon, name
+Unlocked: gold glow border
+Locked: grayscale + lock icon
+
+4. Favorite categories:
+Colorful horizontal scroll cards
+Each with gradient matching category
+
+5. تحدياتي section:
+Cleaner list with status badges
+Win: green badge | Loss: red | Pending: yellow
+
+═══════════════════════════════
+LEADERBOARD (Leaderboard.tsx):
+═══════════════════════════════
+
+1. Top 3 podium:
+Special cards for rank 1,2,3:
+🥇 Gold background + crown
+🥈 Silver background  
+🥉 Bronze background
+Bigger avatars (56px vs 40px for rest)
+
+2. Each row:
+Glass card style
+Flag + avatar + name + badge + score
+Animated entrance (fade in with delay)
+Your row: gold border highlight
+
+3. Tabs: cleaner pill style tabs
+
+═══════════════════════════════
+PARTY MODE (PartyHost.tsx, PartyGuest.tsx):
+═══════════════════════════════
+
+1. Host lobby:
+Beautiful room code display:
+Large digits with glow effect
+QR code in glass card
+Player list: avatar chips with animation on join
+
+2. Question screen (TV mode):
+Larger text, more dramatic
+Category shown prominently
+Answer boxes: 4 colored blocks (red/blue/yellow/green)
+More TV-friendly spacing
+
+3. Guest answer screen:
+4 huge colored buttons filling screen
+No text needed (look at TV)
+Satisfying press animation
+
+Push to GitHub.

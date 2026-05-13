@@ -298,36 +298,40 @@ export default function Quiz() {
             </span>
           </div>
 
-          <div className="glass-card p-5 mb-4 text-center slide-in">
+          <div className="glass-card p-6 mb-4 text-center slide-in" style={{ boxShadow: "0 8px 32px rgba(0,0,0,0.3)" }}>
             {currentQuestion.image_url && (
               <QuestionImage url={currentQuestion.image_url} maxHeight={200} className="mb-3" />
             )}
-            <p className="text-lg font-bold leading-relaxed">{currentQuestion.question}</p>
+            <p className="text-xl font-bold leading-relaxed">{currentQuestion.question}</p>
           </div>
 
           <div key={`answers-${currentIndex}-${currentQuestion.id}`} className="grid grid-cols-1 gap-3 mb-4">
             {currentQuestion.options.map((option, idx) => {
-              const baseCls = "option-btn w-full p-4 rounded-xl text-right font-medium text-sm bg-card";
-              let cls = baseCls;
-              if (selectedOption !== null) {
-                if (showResult) {
-                  if (idx === currentQuestion.correct) cls = baseCls + " correct";
-                  else if (idx === selectedOption) cls = baseCls + " wrong";
-                } else if (idx === selectedOption) {
-                  cls = baseCls + " selected";
-                }
-              } else if (showResult && idx === currentQuestion.correct) {
-                cls = baseCls + " correct";
-              }
+              const isCorrect = showResult && idx === currentQuestion.correct;
+              const isWrongSelected = showResult && idx === selectedOption && idx !== currentQuestion.correct;
+              const isSelectedPending = !showResult && idx === selectedOption;
+              const style: React.CSSProperties = isCorrect
+                ? { background: "linear-gradient(135deg,#16a34a,#22c55e)", borderColor: "#22c55e", boxShadow: "0 0 22px rgba(34,197,94,0.55)", color: "#fff" }
+                : isWrongSelected
+                ? { background: "linear-gradient(135deg,#b91c1c,#ef4444)", borderColor: "#ef4444", boxShadow: "0 0 22px rgba(239,68,68,0.55)", color: "#fff" }
+                : isSelectedPending
+                ? { background: "rgba(212,175,55,0.15)", borderColor: "rgba(212,175,55,0.6)", color: "#fff" }
+                : { background: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.15)", color: "#fff" };
               return (
-                <button key={`${currentQuestion.id}-${idx}`} onClick={() => handleAnswer(idx)} disabled={showResult || isTransitioning} className={cls}>
+                <button
+                  key={`${currentQuestion.id}-${idx}`}
+                  onClick={() => handleAnswer(idx)}
+                  disabled={showResult || isTransitioning}
+                  className="press-shrink w-full text-right font-semibold text-base rounded-2xl border transition-all"
+                  style={{ ...style, height: 60, padding: "0 16px", borderWidth: 1.5 }}
+                >
                   <span className="flex items-center gap-3">
-                    <span className="w-7 h-7 rounded-full border border-current flex items-center justify-center text-xs font-bold shrink-0">
+                    <span className="w-8 h-8 rounded-full border border-current flex items-center justify-center text-xs font-bold shrink-0">
                       {["أ","ب","ج","د"][idx]}
                     </span>
                     <span className="flex-1">{option}</span>
-                    {showResult && idx === currentQuestion.correct && <span>✓</span>}
-                    {showResult && idx === selectedOption && idx !== currentQuestion.correct && <span>✗</span>}
+                    {isCorrect && <span className="text-xl">✓</span>}
+                    {isWrongSelected && <span className="text-xl">✗</span>}
                   </span>
                 </button>
               );

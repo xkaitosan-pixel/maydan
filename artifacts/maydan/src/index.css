@@ -674,3 +674,66 @@ html.light-mode .glass-card {
 @media (prefers-reduced-motion: reduce) {
   .frame-fire, .frame-electric, .frame-ice, .frame-rainbow { animation: none; }
 }
+
+/* ─── Game-screen utilities (shake, combo flash, podium, glass-row) ─── */
+@keyframes mdyShake {
+  0%, 100% { transform: translateX(0); }
+  20%      { transform: translateX(-4px) rotate(-3deg); }
+  40%      { transform: translateX(4px)  rotate(3deg);  }
+  60%      { transform: translateX(-3px) rotate(-2deg); }
+  80%      { transform: translateX(3px)  rotate(2deg);  }
+}
+.shake { animation: mdyShake 0.45s ease-in-out; }
+
+@keyframes mdyComboFlash {
+  0%   { transform: scale(1);    box-shadow: 0 0 0 rgba(212,175,55,0); }
+  40%  { transform: scale(1.18); box-shadow: 0 0 24px rgba(212,175,55,0.85); }
+  100% { transform: scale(1);    box-shadow: 0 0 0 rgba(212,175,55,0); }
+}
+.combo-flash { animation: mdyComboFlash 0.6s ease-out; }
+
+/* Glass row used in lists / leaderboard */
+.glass-row {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.10);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 16px;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.glass-row:hover { transform: translateY(-2px); border-color: rgba(255,255,255,0.18); }
+
+/* Podium glows for top-3 */
+.podium-1 {
+  background: linear-gradient(160deg, rgba(245,158,11,0.20), rgba(212,175,55,0.08));
+  border: 1.5px solid rgba(245,158,11,0.50);
+  box-shadow: 0 8px 28px rgba(245,158,11,0.30), inset 0 0 24px rgba(245,158,11,0.12);
+}
+.podium-2 {
+  background: linear-gradient(160deg, rgba(203,213,225,0.18), rgba(148,163,184,0.06));
+  border: 1.5px solid rgba(203,213,225,0.45);
+  box-shadow: 0 6px 22px rgba(148,163,184,0.25);
+}
+.podium-3 {
+  background: linear-gradient(160deg, rgba(217,119,6,0.18), rgba(146,64,14,0.06));
+  border: 1.5px solid rgba(217,119,6,0.45);
+  box-shadow: 0 6px 22px rgba(217,119,6,0.25);
+}
+
+/* Pulse glow used by room codes / hot scores */
+@keyframes mdyPulseGlow {
+  0%, 100% { text-shadow: 0 0 12px rgba(212,175,55,0.55), 0 0 28px rgba(212,175,55,0.25); }
+  50%      { text-shadow: 0 0 22px rgba(212,175,55,0.95), 0 0 48px rgba(147,51,234,0.40); }
+}
+.pulse-glow { animation: mdyPulseGlow 2s ease-in-out infinite; }
+
+/* Circular timer ring pulse when in danger */
+@keyframes mdyRingDanger {
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(239,68,68,0.6)); }
+  50%      { filter: drop-shadow(0 0 14px rgba(239,68,68,1));   }
+}
+.ring-danger { animation: mdyRingDanger 0.7s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .shake, .combo-flash, .pulse-glow, .ring-danger { animation: none !important; }
+}

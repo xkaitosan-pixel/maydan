@@ -579,9 +579,9 @@ export default function PartyHost() {
         </header>
 
         {/* Big room code */}
-        <div className="bg-card border-2 border-primary rounded-3xl p-6 text-center gold-glow">
-          <p className="text-xs text-muted-foreground uppercase tracking-widest mb-1">رمز الغرفة</p>
-          <p className="text-7xl font-black text-primary tracking-widest tabular-nums" dir="ltr">{roomCode}</p>
+        <div className="glass-card p-6 text-center" style={{ boxShadow: "0 12px 40px rgba(212,175,55,0.25), inset 0 0 32px rgba(212,175,55,0.08)", border: "1.5px solid rgba(212,175,55,0.4)" }}>
+          <p className="text-xs text-muted-foreground uppercase tracking-widest mb-2">رمز الغرفة</p>
+          <p className="text-8xl font-black tracking-[0.2em] tabular-nums pulse-glow gradient-text" dir="ltr">{roomCode}</p>
           <p className="text-xs text-muted-foreground mt-3">وضع التجمعات ← انضم للغرفة</p>
           <div className="mt-3 flex gap-2 justify-center">
             <button
@@ -621,8 +621,8 @@ export default function PartyHost() {
           </div>
 
           {/* QR Code */}
-          <div className="mt-4 flex flex-col items-center gap-2">
-            <div className="bg-white p-3 rounded-2xl shadow-lg">
+          <div className="mt-5 flex flex-col items-center gap-2">
+            <div className="bg-white p-3 rounded-2xl shadow-2xl" style={{ boxShadow: "0 8px 28px rgba(212,175,55,0.35)" }}>
               <QRCodeSVG
                 value={`${window.location.origin}/party/guest?code=${roomCode}`}
                 size={140}

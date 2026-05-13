@@ -526,10 +526,21 @@ export default function Survival() {
       <header className="p-4 border-b border-border/30 space-y-2">
         <div className="flex justify-between items-center">
           {/* Lives */}
-          <div className="flex gap-1">
-            {Array.from({ length: LIVES_START }).map((_, i) => (
-              <span key={i} className={`text-xl transition-all ${i < lives ? "" : "opacity-20 grayscale"}`}>❤️</span>
-            ))}
+          <div key={`lives-${lives}`} className="flex gap-1.5">
+            {Array.from({ length: LIVES_START }).map((_, i) => {
+              const lost = i >= lives;
+              const justLost = i === lives;
+              return (
+                <span
+                  key={i}
+                  className={`text-3xl transition-all ${
+                    lost ? "opacity-25 grayscale scale-90" : "drop-shadow-[0_0_6px_rgba(239,68,68,0.6)]"
+                  } ${justLost ? "shake" : ""}`}
+                >
+                  {lost ? "🖤" : "❤️"}
+                </span>
+              );
+            })}
           </div>
           {/* Score + question # + best */}
           <div className="text-center">

@@ -118,15 +118,20 @@ export default function Leaderboard() {
         </header>
 
         <div className="flex-1 overflow-y-auto flex flex-col">
-          {/* Tabs: weekly + all-time only */}
-          <div className="flex gap-1 p-3 bg-card/50 border-b border-border/30">
+          {/* Pill tabs */}
+          <div className="flex gap-2 p-3 border-b border-border/30">
             {(["weekly", "alltime"] as const).map(t => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${tab === t ? "gradient-gold text-background" : "text-muted-foreground hover:text-foreground"}`}
+                className={`flex-1 py-2.5 rounded-full text-sm font-bold transition-all press-shrink ${
+                  tab === t
+                    ? "btn-primary-gold"
+                    : "glass-card text-muted-foreground hover:text-foreground"
+                }`}
+                style={tab === t ? {} : { borderRadius: 9999 }}
               >
-                {t === "weekly" ? "هذا الأسبوع" : "كل الوقت"}
+                {t === "weekly" ? "🗓️ هذا الأسبوع" : "🏆 كل الوقت"}
               </button>
             ))}
           </div>
@@ -180,30 +185,30 @@ export default function Leaderboard() {
                 const isMe = e.id === dbUser?.id;
                 const name = e.display_name || e.username || "لاعب";
                 const score = (tab === "weekly" ? e.season_points : e.total_points) ?? 0;
+                const isPodium = i < 3;
+                const podiumCls = i === 0 ? "podium-1" : i === 1 ? "podium-2" : i === 2 ? "podium-3" : "";
+                const avatarSize = isPodium ? "w-14 h-14" : "w-10 h-10";
                 return (
                   <div key={e.id}
-                    className={`flex items-center gap-3 p-3.5 rounded-2xl border transition-all ${
-                      i === 0 ? "bg-yellow-500/10 border-yellow-500/30" :
-                      i === 1 ? "bg-slate-400/10 border-slate-400/20" :
-                      i === 2 ? "bg-orange-700/10 border-orange-700/20" :
-                      isMe ? "bg-secondary/10 border-secondary/30" :
-                      "bg-card border-border"
-                    }`}
+                    className={`flex items-center gap-3 p-3.5 fade-in-up ${
+                      isPodium ? podiumCls : "glass-row"
+                    } ${isMe && !isPodium ? "border-yellow-500/40" : ""}`}
+                    style={{ animationDelay: `${i * 40}ms`, ...(isMe && !isPodium ? { boxShadow: "0 0 0 1.5px rgba(212,175,55,0.5), 0 4px 18px rgba(212,175,55,0.18)" } : {}) }}
                   >
-                    <div className="w-9 text-center shrink-0">
-                      {i < 3 ? <span className="text-2xl">{MEDALS[i]}</span>
-                        : <span className="text-lg font-black text-muted-foreground">#{i + 1}</span>}
+                    <div className="w-10 text-center shrink-0">
+                      {isPodium ? <span className="text-3xl drop-shadow-[0_0_4px_rgba(0,0,0,0.5)]">{MEDALS[i]}</span>
+                        : <span className="text-base font-black text-muted-foreground">#{i + 1}</span>}
                     </div>
                     {e.avatar_url ? (
-                      <img src={e.avatar_url} alt="" className="w-10 h-10 rounded-full object-cover shrink-0 border border-border" />
+                      <img src={e.avatar_url} alt="" className={`${avatarSize} rounded-full object-cover shrink-0 border-2`} style={{ borderColor: isPodium ? (i === 0 ? "#f59e0b" : i === 1 ? "#cbd5e1" : "#d97706") : "rgba(255,255,255,0.15)" }} />
                     ) : (
-                      <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-sm font-black"
+                      <div className={`${avatarSize} rounded-full flex items-center justify-center shrink-0 font-black ${isPodium ? "text-base" : "text-sm"}`}
                         style={{
                           background: i === 0 ? "linear-gradient(135deg,#d97706,#f59e0b)"
                             : i === 1 ? "linear-gradient(135deg,#94a3b8,#cbd5e1)"
                             : i === 2 ? "linear-gradient(135deg,#92400e,#d97706)"
                             : "hsl(var(--muted))",
-                          color: i < 3 ? "black" : "hsl(var(--muted-foreground))",
+                          color: isPodium ? "black" : "hsl(var(--muted-foreground))",
                         }}
                       >
                         {name.charAt(0)}

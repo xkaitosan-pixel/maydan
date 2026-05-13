@@ -364,8 +364,8 @@ export default function Profile() {
                   </button>
                 </div>
               ) : (
-                <button onClick={() => setEditingName(true)} className="flex items-center gap-2 mx-auto text-foreground hover:text-primary transition-colors">
-                  <h2 className="text-xl font-black">{displayName || dbUser?.username || googleDisplayName}</h2>
+                <button onClick={() => setEditingName(true)} className="flex items-center gap-2 mx-auto hover:opacity-90 transition-opacity">
+                  <h2 className="text-3xl font-black gradient-text">{displayName || dbUser?.username || googleDisplayName}</h2>
                   <Edit2 className="w-4 h-4 text-muted-foreground" />
                 </button>
               )}
