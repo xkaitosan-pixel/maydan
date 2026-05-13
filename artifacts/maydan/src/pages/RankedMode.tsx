@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { supabase } from "@/lib/supabase";
 import { CATEGORIES, Question } from "@/lib/questions";
+import CircularTimer from "@/components/CircularTimer";
 import { shuffleQuestion } from "@/lib/shuffle";
 import { fetchSeededQuestions } from "@/lib/questionService";
 import { useAuth } from "@/lib/AuthContext";
@@ -852,11 +853,13 @@ export default function RankedMode() {
               </div>
             </div>
 
-            <div className="text-center px-1 shrink-0">
+            <div className="flex flex-col items-center px-1 shrink-0 gap-1">
               <p className="text-[9px] text-muted-foreground">{currentQIdx + 1}/{MATCH_QUESTIONS}</p>
-              <span className={`text-lg font-black tabular-nums ${isDanger && phase === "playing" ? "timer-danger" : "text-foreground"}`}>
-                {phase === "q_result" ? "✓" : `${timeLeft}s`}
-              </span>
+              {phase === "q_result" ? (
+                <span className="text-2xl font-black text-green-400">✓</span>
+              ) : (
+                <CircularTimer timeLeft={timeLeft} totalTime={10} size={56} strokeWidth={5} />
+              )}
             </div>
 
             <div className="flex-1 flex items-center gap-2 bg-card/60 rounded-xl p-2 border border-secondary/20 flex-row-reverse text-right">
@@ -877,12 +880,6 @@ export default function RankedMode() {
             </div>
           </div>
 
-          {phase === "playing" && (
-            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-              <div className="h-full rounded-full transition-all duration-500 ease-linear"
-                style={{ width: `${timerPct}%`, background: isDanger ? "#dc2626" : "linear-gradient(90deg,#7c3aed,#8b5cf6)" }} />
-            </div>
-          )}
         </header>
 
         <div key={`ranked-${currentQIdx}`} className="flex-1 flex flex-col justify-center p-4 gap-4">

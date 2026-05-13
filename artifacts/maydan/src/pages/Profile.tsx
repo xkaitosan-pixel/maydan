@@ -238,11 +238,24 @@ export default function Profile() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 max-w-md mx-auto w-full pb-8">
+      <div className="flex-1 overflow-y-auto max-w-md mx-auto w-full pb-8">
 
-        {/* Avatar + name */}
-        <div className="rounded-2xl border border-border/40 bg-card p-6 flex flex-col items-center gap-3 text-center">
-          <div className="relative">
+        {/* Cover hero banner */}
+        <div
+          className="relative w-full"
+          style={{
+            background: "linear-gradient(135deg, #1a1a3e 0%, #2d1b69 50%, #1a1a3e 100%)",
+            height: 160,
+          }}
+        >
+          <div className="absolute inset-0 particle-bg opacity-60" />
+        </div>
+
+        {/* Avatar + name card overlapping the banner */}
+        <div className="px-4 -mt-14 space-y-4">
+        <div className="rounded-2xl border border-border/40 bg-card p-6 pt-16 flex flex-col items-center gap-2 text-center relative">
+          {/* Avatar overlapping the banner */}
+          <div className="absolute -top-12 left-1/2 -translate-x-1/2">
             <div
               className="relative group cursor-pointer"
               onClick={() => {
@@ -256,28 +269,38 @@ export default function Profile() {
                 <img
                   src={dbUser.avatar_url}
                   alt={displayName}
-                  className="w-20 h-20 rounded-full border-2 border-yellow-500 object-cover bg-white"
+                  className="w-24 h-24 rounded-full border-4 border-yellow-500 object-cover bg-white shadow-[0_0_24px_rgba(245,158,11,0.55)]"
                 />
               ) : (
-                <div className="w-20 h-20 rounded-full border-2 border-yellow-500 bg-muted flex items-center justify-center text-3xl font-black">
+                <div className="w-24 h-24 rounded-full border-4 border-yellow-500 bg-muted flex items-center justify-center text-4xl font-black shadow-[0_0_24px_rgba(245,158,11,0.55)]">
                   {(displayName || googleDisplayName || "م").charAt(0)}
                 </div>
+              )}
+              {/* Level badge */}
+              {dbUser && (
+                <span className="absolute -bottom-1 -right-1 min-w-7 h-7 px-1.5 rounded-full text-[11px] font-black flex items-center justify-center shadow-lg border-2 border-card"
+                  style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)", color: "#000" }}>
+                  {dbUser.level}
+                </span>
               )}
               {!isGuest && (
                 <div className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                   <Camera className="w-5 h-5 text-white" />
                 </div>
               )}
+              {dbUser?.is_premium && (
+                <span className="absolute -top-1 -left-1 bg-yellow-500 rounded-full p-0.5">
+                  <Crown className="w-3.5 h-3.5 text-black" />
+                </span>
+              )}
             </div>
-            {dbUser?.is_premium && (
-              <span className="absolute -top-1 -left-1 bg-yellow-500 rounded-full p-0.5">
-                <Crown className="w-3.5 h-3.5 text-black" />
-              </span>
-            )}
-            {flagInfo && (
-              <span className="absolute -bottom-1 -right-1 text-xl">{flagInfo.flag}</span>
-            )}
           </div>
+          {flagInfo && (
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <span className="text-base">{flagInfo.flag}</span>
+              <span>@{dbUser?.username ?? "guest"}</span>
+            </div>
+          )}
 
           {/* Avatar editor */}
           {editingAvatar && !isGuest && (
@@ -365,11 +388,10 @@ export default function Profile() {
                 </div>
               ) : (
                 <button onClick={() => setEditingName(true)} className="flex items-center gap-2 mx-auto hover:opacity-90 transition-opacity">
-                  <h2 className="text-3xl font-black gradient-text">{displayName || dbUser?.username || googleDisplayName}</h2>
+                  <h2 className="text-2xl font-black gradient-text leading-tight">{displayName || dbUser?.username || googleDisplayName}</h2>
                   <Edit2 className="w-4 h-4 text-muted-foreground" />
                 </button>
               )}
-              <p className="text-xs text-muted-foreground mt-0.5">@{dbUser?.username}</p>
               {dbUser?.created_at && (
                 <p className="text-[11px] text-muted-foreground/70 mt-1">
                   📅 انضم في {new Date(dbUser.created_at).toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" })}
@@ -383,6 +405,10 @@ export default function Profile() {
             <span className="text-xs bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-2.5 py-1 rounded-full font-bold">ميدان برو 👑</span>
           )}
         </div>
+        </div>
+
+        {/* Spacer reset — content below picks up at p-4 */}
+        <div className="p-4 space-y-4">
 
         {/* XP & Level */}
         {dbUser && (
@@ -738,12 +764,12 @@ export default function Profile() {
           </div>
         )}
 
-        {/* Stats */}
-        <div className="grid grid-cols-2 gap-3">
-          <StatCard icon={<Trophy className="w-5 h-5 text-yellow-400" />} label="الانتصارات" value={dbUser?.total_wins ?? 0} />
-          <StatCard icon={<Target className="w-5 h-5 text-purple-400" />} label="نسبة الفوز" value={`${winRate}%`} />
-          <StatCard icon={<Zap className="w-5 h-5 text-orange-400" />} label="أطول سلسلة" value={dbUser?.longest_streak ?? 0} />
-          <StatCard icon={<Star className="w-5 h-5 text-blue-400" />} label="إجمالي المباريات" value={totalGames} />
+        {/* Stats — 4 glass cards in a row per spec */}
+        <div className="grid grid-cols-4 gap-2">
+          <StatCard emoji="🏆" label="انتصار" value={dbUser?.total_wins ?? 0} accent="#f59e0b" />
+          <StatCard emoji="📊" label="معدل" value={`${winRate}%`} accent="#a78bfa" />
+          <StatCard emoji="🔥" label="ستريك" value={dbUser?.longest_streak ?? 0} accent="#fb923c" />
+          <StatCard emoji="🎮" label="مباراة" value={totalGames} accent="#60a5fa" />
         </div>
 
         {/* Achievements preview */}
@@ -778,6 +804,7 @@ export default function Profile() {
             className="w-full h-12 rounded-xl border border-border text-muted-foreground font-bold bg-card hover:bg-card/80 transition-colors text-sm">
             {isGuest ? "تسجيل الدخول" : "تسجيل الخروج"}
           </button>
+        </div>
         </div>
       </div>
 
@@ -869,12 +896,15 @@ export default function Profile() {
   );
 }
 
-function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
+function StatCard({ emoji, label, value, accent }: { emoji: string; label: string; value: string | number; accent: string }) {
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-4 flex flex-col items-center gap-2 text-center">
-      {icon}
-      <span className="text-xl font-black">{value}</span>
-      <span className="text-xs text-muted-foreground">{label}</span>
+    <div
+      className="glass-card p-3 flex flex-col items-center gap-0.5 text-center"
+      style={{ borderColor: `${accent}55`, boxShadow: `0 4px 14px ${accent}22` }}
+    >
+      <span className="text-xl leading-none">{emoji}</span>
+      <span className="text-base font-black leading-tight" style={{ color: accent }}>{value}</span>
+      <span className="text-[10px] text-muted-foreground leading-tight">{label}</span>
     </div>
   );
 }

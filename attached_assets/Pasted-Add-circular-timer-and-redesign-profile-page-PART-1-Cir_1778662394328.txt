@@ -1,0 +1,93 @@
+Add circular timer and redesign profile page.
+
+═══════════════════════════════
+PART 1 - Circular Timer in all game modes:
+═══════════════════════════════
+
+Create a reusable CircularTimer component:
+src/components/CircularTimer.tsx
+
+Props: timeLeft, totalTime, size (default 80)
+
+Design:
+- SVG circle with stroke animation
+- Background circle: rgba(255,255,255,0.1)
+- Progress circle: 
+  * Green (#22c55e) when > 60% time left
+  * Yellow (#f59e0b) when 30-60%
+  * Red (#ef4444) when < 30%
+- Number in center: bold, white, large
+- Pulse animation when < 5 seconds
+- Smooth transition as time decreases
+
+Implementation:
+const circumference = 2 * Math.PI * radius;
+const strokeDashoffset = circumference - (timeLeft/totalTime) * circumference;
+
+<svg width={size} height={size} style={{transform: 'rotate(-90deg)'}}>
+  <circle cx={size/2} cy={size/2} r={radius}
+    fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="6"/>
+  <circle cx={size/2} cy={size/2} r={radius}
+    fill="none" stroke={color} strokeWidth="6"
+    strokeDasharray={circumference}
+    strokeDashoffset={strokeDashoffset}
+    strokeLinecap="round"
+    style={{transition: 'stroke-dashoffset 0.5s ease, stroke 0.3s ease'}}/>
+  <text x={size/2} y={size/2} 
+    textAnchor="middle" dominantBaseline="middle"
+    style={{transform: 'rotate(90deg)', transformOrigin: 'center'}}
+    fill="white" fontSize={size/3} fontWeight="bold">
+    {timeLeft}
+  </text>
+</svg>
+
+Replace linear timer bar with CircularTimer in:
+- Quiz.tsx
+- Survival.tsx  
+- RankedMode.tsx
+- DailyChallenge.tsx
+
+═══════════════════════════════
+PART 2 - Profile Page Redesign:
+═══════════════════════════════
+
+Complete redesign of Profile.tsx:
+
+1. Cover/Hero section:
+- Full width gradient banner:
+  background: linear-gradient(135deg, #1a1a3e, #2d1b69, #1a1a3e)
+  height: 160px
+- Avatar centered, 100px, gold ring border
+- Level badge overlay (bottom right of avatar)
+- Name with gradient-text class (24px bold)
+- Country flag + username below name
+- Edit profile button (pencil icon, top right)
+
+2. Stats row (4 cards):
+Glass cards in a row:
+🏆 [wins] انتصار
+📊 [winRate]% معدل  
+🔥 [streak] ستريك
+🎮 [games] مباراة
+
+3. Badges section "شاراتي 🏅":
+Horizontal scroll of earned badges
+Each badge: glass card, icon, name
+Unearned: grayscale + locked
+
+4. Favorite categories "فئاتي المفضلة":
+Horizontal scroll
+Colorful cards matching category gradients
+"تعديل" button at end
+
+5. تحدياتي section:
+Cleaner with status badges:
+- 🏆 فزت (green)
+- ❌ خسرت (red)
+- ⏳ انتظار (yellow)
+- 🤝 تعادل (blue)
+
+6. Settings link at bottom:
+"⚙️ الإعدادات" button
+
+Push to GitHub.

@@ -3,6 +3,7 @@ import { useLocation, useParams } from "wouter";
 import { getCategoryById, Question } from "@/lib/questions";
 import { fetchQuestionsByIds } from "@/lib/questionService";
 import QuestionImage from "@/components/QuestionImage";
+import CircularTimer from "@/components/CircularTimer";
 import { getChallenge, saveChallenge, getOrCreateUser, recordGamePlayed, recordCategoryAnswers, getAvailablePowerCards, useSkipCard, useTimeCard } from "@/lib/storage";
 import { completeDbChallenge } from "@/lib/db";
 import { playCorrect, playWrong, playTick } from "@/lib/sound";
@@ -268,16 +269,7 @@ export default function Quiz() {
             <span className="text-lg">{category?.icon}</span>
             <span className="text-xs text-muted-foreground">{category?.name}</span>
           </div>
-          <span className={`text-2xl font-black tabular-nums ${isTimerDanger ? "timer-danger" : ""}`}
-            style={!isTimerDanger ? { color: category?.gradientFrom || "hsl(45 85% 50%)" } : {}}>
-            {timeLeft}s
-          </span>
-        </div>
-        <div className="h-2 bg-muted rounded-full overflow-hidden">
-          <div className="h-full rounded-full transition-all duration-1000 ease-linear" style={{
-            width: `${timerPercent}%`,
-            background: isTimerDanger ? "hsl(0 70% 50%)" : `linear-gradient(90deg, ${category?.gradientFrom || "hsl(45 85% 50%)"}, ${category?.gradientTo || "hsl(270 60% 50%)"})`,
-          }} />
+          <CircularTimer timeLeft={timeLeft} totalTime={QUESTION_TIME} size={68} />
         </div>
         <div className="flex gap-1 justify-center mt-2">
           {questionIds.map((_, idx) => (

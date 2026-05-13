@@ -4,6 +4,7 @@ import { CATEGORIES, getCategoryById, Question } from "@/lib/questions";
 import { fetchGameQuestions } from "@/lib/questionService";
 import { shuffleQuestion } from "@/lib/shuffle";
 import QuestionImage from "@/components/QuestionImage";
+import CircularTimer from "@/components/CircularTimer";
 import CategoryCard from "@/components/CategoryCard";
 import { recordSurvivalGame, recordCategoryAnswers, getSurvivalRank, getAvailablePowerCards, useSkipCard, useTimeCard, getOrCreateUser, addLeaderboardEntry, canPlaySurvival, getRemainingSurvival, incrementSurvivalCount } from "@/lib/storage";
 import { fetchCategoryTree, type CategoryNode } from "@/lib/categoriesService";
@@ -550,23 +551,7 @@ export default function Survival() {
             </p>
           </div>
           {/* Timer */}
-          <span
-            className={`text-2xl font-black tabular-nums ${isTimerDanger ? "timer-danger" : ""}`}
-            style={{ color: timerColor }}
-          >
-            {timeLeft}s
-          </span>
-        </div>
-
-        {/* Timer bar */}
-        <div className="h-2 bg-muted rounded-full overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all duration-1000 ease-linear"
-            style={{
-              width: `${timerPct}%`,
-              background: timerColor,
-            }}
-          />
+          <CircularTimer timeLeft={timeLeft} totalTime={maxTime} size={68} />
         </div>
 
         {/* Speed + combo */}

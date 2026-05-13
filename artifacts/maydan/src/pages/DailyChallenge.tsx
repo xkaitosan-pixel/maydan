@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { fetchMixedDifficultyDailyQuestions } from "@/lib/questionService";
+import CircularTimer from "@/components/CircularTimer";
 import { Question } from "@/lib/questions";
 import { shuffleQuestion } from "@/lib/shuffle";
 import { playSound } from "@/lib/sound";
@@ -313,9 +314,9 @@ export default function DailyChallenge() {
     return (
       <div className="min-h-screen gradient-hero flex flex-col" dir="rtl">
         <header className="p-4 border-b border-border/30">
-          <div className="flex justify-between items-center mb-2">
+          <div className="flex justify-between items-center">
             <span className="text-sm font-bold text-muted-foreground">{qIdx + 1} / {DAILY_Q_COUNT}</span>
-            <span className={`text-4xl font-black tabular-nums ${isDanger ? "text-red-400" : "text-primary"}`}>{timeLeft}</span>
+            <CircularTimer timeLeft={timeLeft} totalTime={QUESTION_TIME} size={72} />
             <div className="flex items-center gap-1.5">
               {combo >= 3 && (
                 <span
@@ -327,13 +328,6 @@ export default function DailyChallenge() {
               )}
               <span className="text-sm font-black text-primary">{score} نقطة</span>
             </div>
-          </div>
-          <div className="h-3 bg-muted rounded-full overflow-hidden">
-            <div className="h-full rounded-full transition-all"
-              style={{
-                width: `${timerPct}%`,
-                background: isDanger ? "linear-gradient(90deg,#ef4444,#dc2626)" : "linear-gradient(90deg,#d97706,#f59e0b)"
-              }} />
           </div>
         </header>
 
