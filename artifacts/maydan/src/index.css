@@ -737,3 +737,17 @@ html.light-mode .glass-card {
 @media (prefers-reduced-motion: reduce) {
   .shake, .combo-flash, .pulse-glow, .ring-danger { animation: none !important; }
 }
+
+/* PartyHost setup screen — ensure scroll on desktop */
+.party-setup-container {
+  min-height: 100vh;
+  max-height: 100vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+@media (min-width: 768px) {
+  .party-setup-container {
+    overflow-y: auto;
+    max-height: 100vh;
+  }
+}

@@ -455,7 +455,7 @@ export default function PartyHost() {
       ...CATEGORIES.filter(c => !c.isPremium).map(c => ({ id: c.id, name: c.name, icon: c.icon })),
     ];
     return (
-      <div className="min-h-screen gradient-hero flex flex-col p-5 gap-5 overflow-y-auto pb-8">
+      <div className="party-setup-container gradient-hero flex flex-col p-5 gap-5 pb-8" style={{ minHeight: "100vh", maxHeight: "100vh", overflowY: "auto" }}>
         <header className="flex items-center gap-3">
           <button onClick={() => navigate("/party")} className="text-muted-foreground text-xl">←</button>
           <h1 className="text-lg font-black">📺 إعداد اللعبة</h1>
