@@ -708,6 +708,67 @@ type DbCategoryRow = {
   created_at?: string;
 };
 
+// Curated emoji palette for category icons — grouped by row/theme
+const CATEGORY_EMOJI_GROUPS: { label: string; emojis: string[] }[] = [
+  { label: "معرفة",      emojis: ["🧠", "📚", "🔬", "🌍", "📖", "🎓"] },
+  { label: "رياضة وألعاب", emojis: ["⚽", "🏀", "🎮", "🏆", "🎯", "🃏"] },
+  { label: "ثقافة",      emojis: ["🎬", "🎵", "🎨", "🌸", "🎭", "🎪"] },
+  { label: "دين وتاريخ",  emojis: ["🕌", "📿", "⚔️", "🏛️", "🌙", "☪️"] },
+  { label: "طعام وطبيعة", emojis: ["🍽️", "🚗", "✈️", "🐾", "🌿", "💎"] },
+  { label: "متنوع",      emojis: ["🔥", "⚡", "👑", "💡", "🌟", "🎲"] },
+];
+
+function EmojiPickerGrid({
+  value,
+  onSelect,
+  compact = false,
+}: {
+  value: string;
+  onSelect: (e: string) => void;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className="rounded-lg border border-white/10 p-2 space-y-1.5"
+      style={{ background: "hsl(220 20% 14%)" }}
+    >
+      {CATEGORY_EMOJI_GROUPS.map((row) => (
+        <div key={row.label} className="flex items-center gap-1.5">
+          {!compact && (
+            <span className="text-[10px] text-white/35 w-16 shrink-0 text-right">
+              {row.label}
+            </span>
+          )}
+          <div className={`flex gap-1 flex-wrap ${compact ? "" : "flex-1"}`}>
+            {row.emojis.map((e) => {
+              const selected = e === value;
+              return (
+                <button
+                  key={e}
+                  type="button"
+                  onClick={() => onSelect(e)}
+                  className={`rounded-md transition-all hover:scale-110 ${
+                    compact ? "w-7 h-7 text-base" : "w-8 h-8 text-lg"
+                  }`}
+                  style={{
+                    background: selected ? "hsl(45 85% 50% / 0.25)" : "hsl(220 20% 11%)",
+                    border: selected
+                      ? "1.5px solid hsl(45 85% 50%)"
+                      : "1px solid hsl(220 15% 22%)",
+                  }}
+                  title={e}
+                >
+                  {e}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function emptyCatDraft() {
   return {
     name: "",
@@ -876,14 +937,30 @@ function CategoriesManager() {
                 style={{ background: "hsl(220 20% 16%)" }}
               />
             </div>
-            <div>
+            <div className="sm:col-span-2">
               <label className="text-xs text-white/50 mb-1 block">الأيقونة (إيموجي)</label>
-              <input
+              <div className="flex items-center gap-2 mb-2">
+                <div
+                  className="w-12 h-12 rounded-lg flex items-center justify-center text-2xl shrink-0"
+                  style={{
+                    background: "hsl(220 20% 16%)",
+                    border: "1.5px solid hsl(45 85% 50% / 0.35)",
+                  }}
+                  title="معاينة الأيقونة"
+                >
+                  {draft.icon || "🎯"}
+                </div>
+                <input
+                  value={draft.icon}
+                  onChange={(e) => setDraft((d) => ({ ...d, icon: e.target.value }))}
+                  placeholder="🌍 أو اكتب إيموجي مباشرة"
+                  className="flex-1 px-3 py-2 rounded-lg text-sm text-white border border-white/10"
+                  style={{ background: "hsl(220 20% 16%)" }}
+                />
+              </div>
+              <EmojiPickerGrid
                 value={draft.icon}
-                onChange={(e) => setDraft((d) => ({ ...d, icon: e.target.value }))}
-                placeholder="🌍"
-                className="w-full px-3 py-2 rounded-lg text-sm text-white border border-white/10"
-                style={{ background: "hsl(220 20% 16%)" }}
+                onSelect={(emoji) => setDraft((d) => ({ ...d, icon: emoji }))}
               />
             </div>
             <div>
@@ -963,13 +1040,31 @@ function CategoriesManager() {
                   if (isEditing) {
                     return (
                       <tr key={it.id} style={{ background: "hsl(220 20% 16%)" }}>
-                        <td className="px-3 py-2">
-                          <input
-                            value={editDraft.icon ?? ""}
-                            onChange={(e) => setEditDraft((d) => ({ ...d, icon: e.target.value }))}
-                            className="w-12 px-2 py-1 rounded text-sm text-white border border-white/10 text-center"
-                            style={{ background: "hsl(220 20% 12%)" }}
-                          />
+                        <td className="px-3 py-2 align-top">
+                          <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <div
+                                className="w-9 h-9 rounded-md flex items-center justify-center text-xl shrink-0"
+                                style={{
+                                  background: "hsl(220 20% 12%)",
+                                  border: "1.5px solid hsl(45 85% 50% / 0.35)",
+                                }}
+                              >
+                                {editDraft.icon || "🎯"}
+                              </div>
+                              <input
+                                value={editDraft.icon ?? ""}
+                                onChange={(e) => setEditDraft((d) => ({ ...d, icon: e.target.value }))}
+                                className="w-12 px-2 py-1 rounded text-sm text-white border border-white/10 text-center"
+                                style={{ background: "hsl(220 20% 12%)" }}
+                              />
+                            </div>
+                            <EmojiPickerGrid
+                              value={editDraft.icon ?? ""}
+                              onSelect={(emoji) => setEditDraft((d) => ({ ...d, icon: emoji }))}
+                              compact
+                            />
+                          </div>
                         </td>
                         <td className="px-3 py-2">
                           <input
