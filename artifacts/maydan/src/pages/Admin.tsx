@@ -368,6 +368,15 @@ function parseBulkText(text: string, existing: EditableQ[]): ParsedQ[] {
       if (dup) r.duplicateOfId = dup.id;
     }
     return r;
+  }).map((r, _i, all) => {
+    // In-batch duplicate detection: mark later occurrences as dup of earlier
+    if (r.duplicateOfId || !r.question) return r;
+    const norm = r.question.replace(/\s+/g, " ").trim();
+    const earlier = all.find(o => o.index < r.index && o.question.replace(/\s+/g, " ").trim() === norm);
+    if (earlier) {
+      return { ...r, duplicateOfId: -(earlier.index + 1) }; // negative = in-batch ref
+    }
+    return r;
   });
 }
 
@@ -413,9 +422,9 @@ function BulkImportModal({
     const rows = parseBulkText(text, existing);
     if (rows.length === 0) { setErrMsg("لم يتم العثور على أي أسئلة. تأكد من استخدام --- للفصل."); return; }
     setParsed(rows);
-    // Default: select all rows without errors
+    // Default: select rows without errors AND without duplicates
     const next = new Set<number>();
-    rows.forEach(r => { if (r.errors.length === 0) next.add(r.index); });
+    rows.forEach(r => { if (r.errors.length === 0 && !r.duplicateOfId) next.add(r.index); });
     setSelected(next);
   }
 
@@ -429,8 +438,18 @@ function BulkImportModal({
 
   async function saveAll() {
     if (!parsed) return;
-    const toSave = parsed.filter(r => selected.has(r.index) && r.errors.length === 0);
-    if (toSave.length === 0) { setErrMsg("لا توجد أسئلة محددة بدون أخطاء"); return; }
+    const toSave = parsed.filter(
+      r => selected.has(r.index) && r.errors.length === 0 && !r.duplicateOfId
+    );
+    const skippedDup = parsed.filter(r => selected.has(r.index) && r.duplicateOfId).length;
+    if (toSave.length === 0) {
+      setErrMsg(
+        skippedDup > 0
+          ? `كل الأسئلة المحددة (${skippedDup}) مكررة — لم يتم حفظ شيء`
+          : "لا توجد أسئلة محددة بدون أخطاء"
+      );
+      return;
+    }
     setSaving(true);
     setErrMsg(""); setDoneMsg("");
     setProgress({ done: 0, total: toSave.length });
@@ -440,11 +459,6 @@ function BulkImportModal({
     let nextId = startId;
     for (let i = 0; i < toSave.length; i++) {
       const r = toSave[i];
-      // Skip duplicates so we don't blow up on the unique question_text index (if any)
-      if (r.duplicateOfId) {
-        setProgress({ done: i + 1, total: toSave.length });
-        continue;
-      }
       const id = nextId++;
       const row: EditableQ = {
         id,
@@ -475,15 +489,21 @@ function BulkImportModal({
       setProgress({ done: i + 1, total: toSave.length });
     }
     setSaving(false);
-    if (inserted.length > 0) {
-      onImported(inserted);
-      setDoneMsg(`✅ تم حفظ ${inserted.length} من ${toSave.length} سؤال${stripIsNew ? " (تم تجاهل علامة is_new — العمود غير موجود في القاعدة)" : ""}`);
-    }
+    if (inserted.length > 0) onImported(inserted);
+    const dupNote = skippedDup > 0 ? ` (تم تجاهل ${skippedDup} مكرر)` : "";
+    const isNewNote = stripIsNew ? " — العمود is_new غير موجود في القاعدة" : "";
+    setDoneMsg(`✅ تم حفظ ${inserted.length} من ${toSave.length} سؤال${dupNote}${isNewNote}`);
   }
 
-  const okCount = parsed ? parsed.filter(r => r.errors.length === 0).length : 0;
+  const okCount = parsed ? parsed.filter(r => r.errors.length === 0 && !r.duplicateOfId).length : 0;
   const errCount = parsed ? parsed.filter(r => r.errors.length > 0).length : 0;
   const dupCount = parsed ? parsed.filter(r => r.duplicateOfId).length : 0;
+  const savableSelected = parsed
+    ? [...selected].filter(i => {
+        const r = parsed.find(x => x.index === i);
+        return r && r.errors.length === 0 && !r.duplicateOfId;
+      }).length
+    : 0;
 
   return (
     <div
@@ -566,7 +586,7 @@ function BulkImportModal({
                 <button
                   onClick={() => {
                     const next = new Set<number>();
-                    if (selected.size === 0) parsed.forEach(r => { if (r.errors.length === 0) next.add(r.index); });
+                    if (selected.size === 0) parsed.forEach(r => { if (r.errors.length === 0 && !r.duplicateOfId) next.add(r.index); });
                     setSelected(next);
                   }}
                   className="text-xs px-2 py-1 rounded-md border border-white/15 text-white/60 hover:border-white/30"
@@ -612,7 +632,9 @@ function BulkImportModal({
                             </span>
                             {isDup && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-900/40 text-yellow-300">
-                                📑 مشابه للسؤال #{r.duplicateOfId}
+                                {r.duplicateOfId! < 0
+                                  ? `📑 مكرر في هذه الدفعة (مع #${-r.duplicateOfId!})`
+                                  : `📑 مشابه للسؤال #${r.duplicateOfId}`}
                               </span>
                             )}
                           </div>
@@ -668,11 +690,11 @@ function BulkImportModal({
             </button>
             <button
               onClick={saveAll}
-              disabled={saving || selected.size === 0}
+              disabled={saving || savableSelected === 0}
               className="px-5 py-2.5 rounded-xl font-bold text-sm text-white disabled:opacity-40"
               style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}
             >
-              {saving ? `⏳ ${progress?.done ?? 0}/${progress?.total ?? 0}` : `💾 حفظ الكل (${selected.size})`}
+              {saving ? `⏳ ${progress?.done ?? 0}/${progress?.total ?? 0}` : `💾 حفظ الكل (${savableSelected})`}
             </button>
           </div>
         )}
