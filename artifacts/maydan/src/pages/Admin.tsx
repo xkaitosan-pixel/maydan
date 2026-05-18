@@ -271,6 +271,416 @@ const TYPE_LABEL: Record<StoreItem["type"], string> = {
   powercard: "🃏 بطاقة قوة",
 };
 
+// ─── Bulk Import: parser + modal ─────────────────────────────────────────────
+const DIFFICULTY_AR: Record<string, "easy" | "medium" | "hard"> = {
+  "سهل": "easy", "easy": "easy",
+  "متوسط": "medium", "وسط": "medium", "medium": "medium",
+  "صعب": "hard", "hard": "hard",
+};
+
+type ParsedQ = {
+  index: number;
+  raw: string;
+  question: string;
+  options: string[];
+  correct: number;
+  category: string;       // resolved CATEGORIES.id (empty if unresolved)
+  categoryRaw: string;
+  difficulty: "easy" | "medium" | "hard";
+  difficultyRaw: string;
+  errors: string[];
+  duplicateOfId?: number;
+};
+
+function resolveCategoryId(input: string): string {
+  const t = input.trim();
+  if (!t) return "";
+  const lower = t.toLowerCase();
+  const byId = CATEGORIES.find(c => c.id.toLowerCase() === lower);
+  if (byId) return byId.id;
+  const byName = CATEGORIES.find(c => c.name === t);
+  if (byName) return byName.id;
+  // partial: input contains the canonical first word, or category contains input
+  const byPartial = CATEGORIES.find(
+    c => c.name.includes(t) || t.includes(c.name.split(" ")[0])
+  );
+  return byPartial ? byPartial.id : "";
+}
+
+function parseBulkText(text: string, existing: EditableQ[]): ParsedQ[] {
+  const blocks = text
+    .split(/^\s*---+\s*$/m)
+    .map(b => b.trim())
+    .filter(Boolean);
+  const optKey: Record<string, number> = {
+    "أ": 0, "ا": 0, "ب": 1, "ج": 2, "د": 3,
+    "A": 0, "B": 1, "C": 2, "D": 3,
+    "a": 0, "b": 1, "c": 2, "d": 3,
+  };
+  return blocks.map((raw, i): ParsedQ => {
+    const r: ParsedQ = {
+      index: i,
+      raw,
+      question: "",
+      options: ["", "", "", ""],
+      correct: -1,
+      category: "",
+      categoryRaw: "",
+      difficulty: "easy",
+      difficultyRaw: "",
+      errors: [],
+    };
+    for (const rawLine of raw.split("\n")) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const m = line.match(/^([^:：]+)\s*[:：]\s*(.+)$/);
+      if (!m) continue;
+      const key = m[1].trim();
+      let val = m[2].trim();
+      if (key === "السؤال" || key.toLowerCase() === "question") {
+        r.question = val;
+      } else if (key in optKey) {
+        const idx = optKey[key];
+        const isCorrect = /✓|✔|\(صحيح\)|\(correct\)/i.test(val);
+        if (isCorrect) val = val.replace(/✓|✔|\(صحيح\)|\(correct\)/gi, "").trim();
+        r.options[idx] = val;
+        if (isCorrect) r.correct = idx;
+      } else if (key === "الفئة" || key.toLowerCase() === "category") {
+        r.categoryRaw = val;
+        r.category = resolveCategoryId(val);
+      } else if (key === "الصعوبة" || key.toLowerCase() === "difficulty") {
+        r.difficultyRaw = val;
+        const d = DIFFICULTY_AR[val] ?? DIFFICULTY_AR[val.toLowerCase()];
+        if (d) r.difficulty = d;
+      }
+    }
+    if (!r.question) r.errors.push("نص السؤال مفقود");
+    if (r.options.some(o => !o)) r.errors.push("خيار أو أكثر مفقود");
+    if (r.correct < 0) r.errors.push("لم يتم تحديد الإجابة الصحيحة (ضع ✓ بجانب الإجابة)");
+    if (!r.category) r.errors.push(`فئة غير معروفة: "${r.categoryRaw || "—"}"`);
+    if (!r.difficultyRaw) r.errors.push("الصعوبة مفقودة");
+    else if (!(r.difficultyRaw in DIFFICULTY_AR) && !(r.difficultyRaw.toLowerCase() in DIFFICULTY_AR)) {
+      r.errors.push(`صعوبة غير معروفة: "${r.difficultyRaw}"`);
+    }
+    if (r.question) {
+      const norm = r.question.replace(/\s+/g, " ").trim();
+      const dup = existing.find(q => q.question.replace(/\s+/g, " ").trim() === norm);
+      if (dup) r.duplicateOfId = dup.id;
+    }
+    return r;
+  });
+}
+
+const BULK_SAMPLE = `السؤال: ما عاصمة فرنسا؟
+أ: لندن
+ب: باريس ✓
+ج: برلين
+د: روما
+الفئة: جغرافيا
+الصعوبة: سهل
+---
+السؤال: من هو مؤسس شركة آبل؟
+أ: بيل غيتس
+ب: ستيف جوبز ✓
+ج: إيلون ماسك
+د: مارك زوكربيرغ
+الفئة: علوم وتكنولوجيا
+الصعوبة: متوسط
+---`;
+
+function BulkImportModal({
+  existing,
+  startId,
+  onClose,
+  onImported,
+}: {
+  existing: EditableQ[];
+  startId: number;
+  onClose: () => void;
+  onImported: (rows: EditableQ[]) => void;
+}) {
+  const [text, setText] = useState("");
+  const [parsed, setParsed] = useState<ParsedQ[] | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [doneMsg, setDoneMsg] = useState("");
+  const [errMsg, setErrMsg] = useState("");
+
+  function doParse() {
+    setErrMsg(""); setDoneMsg("");
+    if (!text.trim()) { setErrMsg("الصق نصاً للاستيراد أولاً"); return; }
+    const rows = parseBulkText(text, existing);
+    if (rows.length === 0) { setErrMsg("لم يتم العثور على أي أسئلة. تأكد من استخدام --- للفصل."); return; }
+    setParsed(rows);
+    // Default: select all rows without errors
+    const next = new Set<number>();
+    rows.forEach(r => { if (r.errors.length === 0) next.add(r.index); });
+    setSelected(next);
+  }
+
+  function toggle(i: number) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i); else next.add(i);
+      return next;
+    });
+  }
+
+  async function saveAll() {
+    if (!parsed) return;
+    const toSave = parsed.filter(r => selected.has(r.index) && r.errors.length === 0);
+    if (toSave.length === 0) { setErrMsg("لا توجد أسئلة محددة بدون أخطاء"); return; }
+    setSaving(true);
+    setErrMsg(""); setDoneMsg("");
+    setProgress({ done: 0, total: toSave.length });
+
+    const inserted: EditableQ[] = [];
+    let stripIsNew = false;
+    let nextId = startId;
+    for (let i = 0; i < toSave.length; i++) {
+      const r = toSave[i];
+      // Skip duplicates so we don't blow up on the unique question_text index (if any)
+      if (r.duplicateOfId) {
+        setProgress({ done: i + 1, total: toSave.length });
+        continue;
+      }
+      const id = nextId++;
+      const row: EditableQ = {
+        id,
+        question: r.question,
+        options: r.options,
+        correct: r.correct,
+        category: r.category,
+        difficulty: r.difficulty,
+      };
+      const payload: Record<string, unknown> = { ...row, image_url: null };
+      if (!stripIsNew) payload.is_new = true;
+      const { error } = await supabase.from("questions").upsert(payload, { onConflict: "id" });
+      if (error) {
+        // is_new column missing? strip + retry for this row and all subsequent
+        if (!stripIsNew && /is_new/i.test(error.message)) {
+          stripIsNew = true;
+          delete payload.is_new;
+          const retry = await supabase.from("questions").upsert(payload, { onConflict: "id" });
+          if (!retry.error) inserted.push(row);
+          else { setErrMsg(`فشل سؤال #${r.index + 1}: ${retry.error.message}`); break; }
+        } else {
+          setErrMsg(`فشل سؤال #${r.index + 1}: ${error.message}`);
+          break;
+        }
+      } else {
+        inserted.push(row);
+      }
+      setProgress({ done: i + 1, total: toSave.length });
+    }
+    setSaving(false);
+    if (inserted.length > 0) {
+      onImported(inserted);
+      setDoneMsg(`✅ تم حفظ ${inserted.length} من ${toSave.length} سؤال${stripIsNew ? " (تم تجاهل علامة is_new — العمود غير موجود في القاعدة)" : ""}`);
+    }
+  }
+
+  const okCount = parsed ? parsed.filter(r => r.errors.length === 0).length : 0;
+  const errCount = parsed ? parsed.filter(r => r.errors.length > 0).length : 0;
+  const dupCount = parsed ? parsed.filter(r => r.duplicateOfId).length : 0;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-3"
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-4xl max-h-[92vh] rounded-2xl border border-white/10 flex flex-col"
+        style={{ background: "hsl(220 20% 10%)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-white/10 flex items-center gap-3">
+          <span className="text-2xl">📥</span>
+          <h2 className="text-white font-bold">استيراد أسئلة بالجملة</h2>
+          <button
+            onClick={onClose}
+            className="mr-auto px-3 py-1 rounded-lg text-white/60 hover:text-white border border-white/10 hover:border-white/30 text-sm"
+          >
+            ✕ إغلاق
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="overflow-y-auto p-5 space-y-4 flex-1">
+          {!parsed ? (
+            <>
+              <p className="text-xs text-white/60">
+                الصق الأسئلة بهذا الشكل (افصل بين الأسئلة بسطر <code className="text-yellow-400">---</code>):
+              </p>
+              <pre className="text-[11px] text-white/50 bg-black/40 rounded-lg p-3 overflow-x-auto whitespace-pre" dir="rtl">
+{BULK_SAMPLE}
+              </pre>
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="الصق هنا..."
+                className="w-full h-72 px-3 py-2 rounded-lg text-sm text-white border border-white/10 font-mono"
+                style={{ background: "hsl(220 20% 14%)" }}
+                dir="rtl"
+              />
+              {errMsg && <p className="text-red-400 text-sm">⚠️ {errMsg}</p>}
+              <div className="flex justify-between items-center">
+                <button
+                  onClick={() => setText(BULK_SAMPLE)}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-white/15 text-white/60 hover:border-white/30"
+                >
+                  📋 ألصق مثالاً
+                </button>
+                <button
+                  onClick={doParse}
+                  className="px-5 py-2.5 rounded-xl font-bold text-sm text-white"
+                  style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}
+                >
+                  🔍 معاينة الأسئلة
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Summary chips */}
+              <div className="flex gap-2 flex-wrap text-xs">
+                <span className="px-3 py-1.5 rounded-full bg-green-900/30 text-green-300 border border-green-500/30">
+                  ✅ {okCount} صحيح
+                </span>
+                {errCount > 0 && (
+                  <span className="px-3 py-1.5 rounded-full bg-red-900/30 text-red-300 border border-red-500/30">
+                    ⚠️ {errCount} به أخطاء
+                  </span>
+                )}
+                {dupCount > 0 && (
+                  <span className="px-3 py-1.5 rounded-full bg-yellow-900/30 text-yellow-300 border border-yellow-500/30">
+                    📑 {dupCount} مكرر
+                  </span>
+                )}
+                <span className="px-3 py-1.5 rounded-full bg-blue-900/30 text-blue-300 border border-blue-500/30">
+                  📌 {selected.size} محدد
+                </span>
+                <button
+                  onClick={() => {
+                    const next = new Set<number>();
+                    if (selected.size === 0) parsed.forEach(r => { if (r.errors.length === 0) next.add(r.index); });
+                    setSelected(next);
+                  }}
+                  className="text-xs px-2 py-1 rounded-md border border-white/15 text-white/60 hover:border-white/30"
+                >
+                  {selected.size === 0 ? "حدد الكل" : "ألغِ الكل"}
+                </button>
+              </div>
+
+              {/* Preview list */}
+              <div className="space-y-2">
+                {parsed.map(r => {
+                  const hasErr = r.errors.length > 0;
+                  const isDup = !!r.duplicateOfId;
+                  const isSelected = selected.has(r.index);
+                  return (
+                    <div
+                      key={r.index}
+                      className="rounded-xl border p-3"
+                      style={{
+                        background: hasErr ? "hsl(0 40% 12%)" : isDup ? "hsl(45 30% 12%)" : "hsl(220 20% 12%)",
+                        borderColor: hasErr ? "hsl(0 60% 35%)" : isDup ? "hsl(45 60% 35%)" : "hsl(220 15% 22%)",
+                        opacity: isSelected ? 1 : 0.55,
+                      }}
+                    >
+                      <div className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          disabled={hasErr}
+                          onChange={() => toggle(r.index)}
+                          className="mt-1"
+                        />
+                        <div className="flex-1 space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[10px] text-white/40 font-mono">#{r.index + 1}</span>
+                            {r.category && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-900/40 text-purple-300">
+                                {CATEGORIES.find(c => c.id === r.category)?.icon} {CATEGORIES.find(c => c.id === r.category)?.name || r.category}
+                              </span>
+                            )}
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-white/60">
+                              {r.difficulty === "easy" ? "سهل" : r.difficulty === "medium" ? "متوسط" : "صعب"}
+                            </span>
+                            {isDup && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-900/40 text-yellow-300">
+                                📑 مشابه للسؤال #{r.duplicateOfId}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-white/90 font-bold">{r.question || "—"}</p>
+                          <ul className="text-xs text-white/60 space-y-0.5">
+                            {r.options.map((o, i) => (
+                              <li key={i} className={i === r.correct ? "text-green-300" : ""}>
+                                {i === r.correct ? "✓ " : ""}{["أ","ب","ج","د"][i]}: {o || <span className="text-red-400">—</span>}
+                              </li>
+                            ))}
+                          </ul>
+                          {hasErr && (
+                            <ul className="text-xs text-red-300 mt-1 list-disc pr-4 space-y-0.5">
+                              {r.errors.map((e, i) => <li key={i}>{e}</li>)}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {errMsg && <p className="text-red-400 text-sm">⚠️ {errMsg}</p>}
+              {doneMsg && <p className="text-green-400 text-sm">{doneMsg}</p>}
+              {progress && saving && (
+                <div className="space-y-1">
+                  <p className="text-xs text-white/60">جاري الحفظ: {progress.done} من {progress.total}</p>
+                  <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-200"
+                      style={{
+                        width: `${(progress.done / progress.total) * 100}%`,
+                        background: "linear-gradient(90deg,#7c3aed,#a78bfa)",
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        {parsed && (
+          <div className="px-5 py-4 border-t border-white/10 flex justify-between items-center gap-3">
+            <button
+              onClick={() => { setParsed(null); setSelected(new Set()); setProgress(null); setDoneMsg(""); setErrMsg(""); }}
+              disabled={saving}
+              className="px-4 py-2 rounded-xl text-sm border border-white/15 text-white/70 hover:border-white/30 disabled:opacity-40"
+            >
+              ← العودة للتعديل
+            </button>
+            <button
+              onClick={saveAll}
+              disabled={saving || selected.size === 0}
+              className="px-5 py-2.5 rounded-xl font-bold text-sm text-white disabled:opacity-40"
+              style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}
+            >
+              {saving ? `⏳ ${progress?.done ?? 0}/${progress?.total ?? 0}` : `💾 حفظ الكل (${selected.size})`}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function emptyDraft(): Omit<StoreItem, "id" | "created_at"> {
   return {
     name: "",
@@ -1297,6 +1707,7 @@ export default function Admin() {
 
   // Modal state: null = closed, "add" = new question, EditableQ = editing existing
   const [modalMode, setModalMode] = useState<"add" | "edit" | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [savedQuestionId, setSavedQuestionId] = useState<number | null>(null);
   const savedScrollYRef = useRef<number>(0);
   const rowRefs = useRef<Map<number, HTMLTableRowElement>>(new Map());
@@ -1495,6 +1906,21 @@ export default function Admin() {
         />
       )}
 
+      {/* ── Bulk Import Modal ── */}
+      {bulkOpen && (
+        <BulkImportModal
+          existing={questions}
+          startId={Math.max(...questions.map((x) => x.id), 750) + 1}
+          onClose={() => setBulkOpen(false)}
+          onImported={(rows) =>
+            setQuestions((prev) => {
+              const ids = new Set(prev.map((p) => p.id));
+              return [...prev, ...rows.filter((r) => !ids.has(r.id))];
+            })
+          }
+        />
+      )}
+
       {/* ── Header ── */}
       <div
         className="sticky top-0 z-20 border-b border-white/10"
@@ -1567,7 +1993,7 @@ export default function Admin() {
             filterCat={filterCat} setFilterCat={setFilterCat}
             filterDiff={filterDiff} setFilterDiff={setFilterDiff}
             loadQuestions={loadQuestions}
-            openAdd={openAdd} openEdit={openEdit} deleteQuestion={deleteQuestion}
+            openAdd={openAdd} openBulk={() => setBulkOpen(true)} openEdit={openEdit} deleteQuestion={deleteQuestion}
             isSuperAdmin={isSuperAdmin}
             savedQuestionId={savedQuestionId} rowRefs={rowRefs}
           />
@@ -1589,6 +2015,7 @@ function QuestionsTab(props: {
   filterDiff: string; setFilterDiff: (s: string) => void;
   loadQuestions: () => void;
   openAdd: () => void;
+  openBulk: () => void;
   openEdit: (q: EditableQ) => void;
   deleteQuestion: (e: React.MouseEvent, id: number) => void;
   isSuperAdmin: boolean;
@@ -1598,7 +2025,7 @@ function QuestionsTab(props: {
   const {
     status, loading, saving, questions, filtered,
     search, setSearch, filterCat, setFilterCat, filterDiff, setFilterDiff,
-    loadQuestions, openAdd, openEdit, deleteQuestion, isSuperAdmin,
+    loadQuestions, openAdd, openBulk, openEdit, deleteQuestion, isSuperAdmin,
     savedQuestionId, rowRefs,
   } = props;
   return (
@@ -1654,6 +2081,13 @@ function QuestionsTab(props: {
               className="px-4 py-2 rounded-xl text-sm border border-white/20 text-white/70 hover:border-white/40 disabled:opacity-50"
             >
               🔄 تحديث
+            </button>
+            <button
+              onClick={openBulk}
+              className="px-4 py-2 rounded-xl font-bold text-sm text-white"
+              style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}
+            >
+              📥 استيراد أسئلة
             </button>
             <button
               onClick={openAdd}
