@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
@@ -1202,6 +1202,10 @@ export default function Admin() {
 
   // Modal state: null = closed, "add" = new question, EditableQ = editing existing
   const [modalMode, setModalMode] = useState<"add" | "edit" | null>(null);
+  const [savedQuestionId, setSavedQuestionId] = useState<number | null>(null);
+  const savedScrollYRef = useRef<number>(0);
+  const rowRefs = useRef<Map<number, HTMLTableRowElement>>(new Map());
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [modalInitial, setModalInitial] = useState<Partial<EditableQ>>({});
 
   // Top-level tab
@@ -1249,6 +1253,8 @@ export default function Admin() {
   }
 
   function openEdit(q: EditableQ) {
+    // Remember exactly where the user was scrolled so we can come back here after save
+    savedScrollYRef.current = window.scrollY;
     setModalInitial({ ...q });
     setModalMode("edit");
   }
@@ -1304,8 +1310,37 @@ export default function Admin() {
       setStatus(`✅ تمت إضافة السؤال #${q.id}`);
     }
 
+    const savedId = q.id;
+    const wasEdit = modalMode === "edit";
     closeModal();
     setSaving(false);
+
+    // Restore scroll + highlight the saved row on the next frame, after React
+    // has had a chance to render the updated list.
+    setSavedQuestionId(savedId);
+    requestAnimationFrame(() => {
+      const row = rowRefs.current.get(savedId);
+      if (row) {
+        // For an edit, jump back to where the user was; for a new add, scroll
+        // to the newly created row so they can see it.
+        if (wasEdit) {
+          window.scrollTo({ top: savedScrollYRef.current, behavior: "auto" });
+          // If the saved row would be off-screen, gently scroll it into view
+          const rect = row.getBoundingClientRect();
+          if (rect.top < 0 || rect.bottom > window.innerHeight) {
+            row.scrollIntoView({ block: "center", behavior: "smooth" });
+          }
+        } else {
+          row.scrollIntoView({ block: "center", behavior: "smooth" });
+        }
+      } else if (wasEdit) {
+        window.scrollTo({ top: savedScrollYRef.current, behavior: "auto" });
+      }
+    });
+
+    // Clear the highlight after a moment
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = setTimeout(() => setSavedQuestionId(null), 2500);
   }
 
   async function deleteQuestion(e: React.MouseEvent, id: number) {
@@ -1439,6 +1474,7 @@ export default function Admin() {
             loadQuestions={loadQuestions}
             openAdd={openAdd} openEdit={openEdit} deleteQuestion={deleteQuestion}
             isSuperAdmin={isSuperAdmin}
+            savedQuestionId={savedQuestionId} rowRefs={rowRefs}
           />
         )}
       </div>
@@ -1461,11 +1497,14 @@ function QuestionsTab(props: {
   openEdit: (q: EditableQ) => void;
   deleteQuestion: (e: React.MouseEvent, id: number) => void;
   isSuperAdmin: boolean;
+  savedQuestionId: number | null;
+  rowRefs: React.MutableRefObject<Map<number, HTMLTableRowElement>>;
 }) {
   const {
     status, loading, saving, questions, filtered,
     search, setSearch, filterCat, setFilterCat, filterDiff, setFilterDiff,
     loadQuestions, openAdd, openEdit, deleteQuestion, isSuperAdmin,
+    savedQuestionId, rowRefs,
   } = props;
   return (
     <div className="space-y-5">
@@ -1604,18 +1643,28 @@ function QuestionsTab(props: {
                 {filtered.map((q) => {
                   const cat = CATEGORIES.find((c) => c.id === q.category);
                   const wrong = q.options.filter((_, i) => i !== q.correct);
+                  const isJustSaved = savedQuestionId === q.id;
                   return (
                     <tr
                       key={q.id}
+                      ref={(el) => {
+                        if (el) rowRefs.current.set(q.id, el);
+                        else rowRefs.current.delete(q.id);
+                      }}
                       onClick={() => openEdit(q)}
-                      className="cursor-pointer transition-colors group"
-                      style={{ background: "hsl(220 20% 11%)" }}
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.background = "hsl(220 20% 15%)")
-                      }
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.background = "hsl(220 20% 11%)")
-                      }
+                      className={`cursor-pointer transition-colors group ${isJustSaved ? "saved-flash" : ""}`}
+                      style={{
+                        background: isJustSaved ? "hsl(45 85% 50% / 0.18)" : "hsl(220 20% 11%)",
+                        boxShadow: isJustSaved ? "inset 0 0 0 2px hsl(45 85% 50%)" : undefined,
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isJustSaved)
+                          e.currentTarget.style.background = "hsl(220 20% 15%)";
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isJustSaved)
+                          e.currentTarget.style.background = "hsl(220 20% 11%)";
+                      }}
                     >
                       {/* ID */}
                       <td className="px-4 py-3 text-white/25 font-mono text-xs">
