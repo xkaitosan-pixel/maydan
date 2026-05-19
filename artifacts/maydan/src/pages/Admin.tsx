@@ -1929,6 +1929,7 @@ export default function Admin() {
       )}
 
       {/* ── Bulk Import Modal ── */}
+      {bulkOpen && (console.log("[bulk-import] rendering BulkImportModal (bulkOpen=true)"), null)}
       {bulkOpen && (
         <BulkImportModal
           existing={questions}
@@ -2015,7 +2016,12 @@ export default function Admin() {
             filterCat={filterCat} setFilterCat={setFilterCat}
             filterDiff={filterDiff} setFilterDiff={setFilterDiff}
             loadQuestions={loadQuestions}
-            openAdd={openAdd} openBulk={() => setBulkOpen(true)} openEdit={openEdit} deleteQuestion={deleteQuestion}
+            openAdd={openAdd}
+            openBulk={() => {
+              console.log("[bulk-import] openBulk() invoked → setBulkOpen(true)");
+              setBulkOpen(true);
+            }}
+            openEdit={openEdit} deleteQuestion={deleteQuestion}
             isSuperAdmin={isSuperAdmin}
             savedQuestionId={savedQuestionId} rowRefs={rowRefs}
           />
@@ -2105,7 +2111,10 @@ function QuestionsTab(props: {
               🔄 تحديث
             </button>
             <button
-              onClick={openBulk}
+              onClick={() => {
+                console.log("[bulk-import] button clicked, calling openBulk()");
+                openBulk();
+              }}
               className="px-4 py-2 rounded-xl font-bold text-sm text-white"
               style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}
             >
