@@ -118,8 +118,9 @@ export default function Survival() {
   }
 
   // Timer effect
+  const [isReporting, setIsReporting] = useState(false);
   useEffect(() => {
-    if (phase !== "playing" || showResult || !currentQ) return;
+    if (phase !== "playing" || showResult || !currentQ || isReporting) return;
     if (timerRef.current) clearInterval(timerRef.current);
 
     timerRef.current = setInterval(() => {
@@ -135,7 +136,7 @@ export default function Survival() {
     }, 1000);
 
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [phase, showResult, currentQ?.id]);
+  }, [phase, showResult, currentQ?.id, isReporting]);
 
   const handleTimeOut = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -594,7 +595,12 @@ export default function Survival() {
 
           {/* Question */}
           <div className="bg-card border border-border rounded-2xl p-5 mb-4 text-center slide-in relative">
-            <ReportFlag questionId={currentQ.id} questionText={currentQ.question} reporter={dbUser?.username ?? null} />
+            <ReportFlag
+              questionId={currentQ.id}
+              questionText={currentQ.question}
+              reporter={dbUser?.username ?? null}
+              onOpenChange={setIsReporting}
+            />
             {currentQ.image_url && (
               <QuestionImage url={currentQ.image_url} maxHeight={200} className="mb-3" />
             )}

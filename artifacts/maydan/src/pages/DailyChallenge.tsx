@@ -126,13 +126,27 @@ export default function DailyChallenge() {
     startTimer();
   }
 
+  const [isReporting, setIsReporting] = useState(false);
+  const isReportingRef = useRef(false);
+  useEffect(() => { isReportingRef.current = isReporting; }, [isReporting]);
+
   function startTimer() {
     setTimeLeft(QUESTION_TIME);
     questionStartRef.current = Date.now();
     if (timerRef.current) clearInterval(timerRef.current);
+    let pausedAt: number | null = null;
+    let pausedTotal = 0;
     const start = Date.now();
     timerRef.current = setInterval(() => {
-      const elapsed = (Date.now() - start) / 1000;
+      if (isReportingRef.current) {
+        if (pausedAt === null) pausedAt = Date.now();
+        return;
+      }
+      if (pausedAt !== null) {
+        pausedTotal += Date.now() - pausedAt;
+        pausedAt = null;
+      }
+      const elapsed = (Date.now() - start - pausedTotal) / 1000;
       const rem = Math.max(0, QUESTION_TIME - Math.floor(elapsed));
       setTimeLeft(rem);
       if (rem <= 3 && rem > 0) playSound("tick");
@@ -334,7 +348,12 @@ export default function DailyChallenge() {
 
         <div className="flex-1 flex flex-col p-4 gap-4">
           <div className="flex-1 bg-card border border-border/40 rounded-2xl p-5 flex items-center justify-center relative">
-            <ReportFlag questionId={currentQ.id} questionText={currentQ.question} reporter={dbUser?.username ?? null} />
+            <ReportFlag
+              questionId={currentQ.id}
+              questionText={currentQ.question}
+              reporter={displayName ?? null}
+              onOpenChange={setIsReporting}
+            />
             <p className="text-lg font-black text-center leading-relaxed">{currentQ.question}</p>
           </div>
 

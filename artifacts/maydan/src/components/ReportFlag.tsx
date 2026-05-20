@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 export type ReportType =
@@ -21,6 +21,7 @@ export interface ReportFlagProps {
   questionText: string;
   reporter?: string | null;
   className?: string;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export default function ReportFlag({
@@ -28,8 +29,10 @@ export default function ReportFlag({
   questionText,
   reporter,
   className,
+  onOpenChange,
 }: ReportFlagProps) {
   const [open, setOpen] = useState(false);
+  useEffect(() => { onOpenChange?.(open); }, [open]);
   const [type, setType] = useState<ReportType>("wrong_question");
   const [comment, setComment] = useState("");
   const [sending, setSending] = useState(false);

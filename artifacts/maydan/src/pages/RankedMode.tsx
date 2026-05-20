@@ -885,7 +885,7 @@ export default function RankedMode() {
 
         <div key={`ranked-${currentQIdx}`} className="flex-1 flex flex-col justify-center p-4 gap-4">
           <div className="bg-card border border-border rounded-2xl p-4 text-center relative">
-            <ReportFlag questionId={currentQ.id} questionText={currentQ.question} reporter={dbUser?.username ?? null} />
+            <ReportFlag questionId={currentQ.id} questionText={currentQ.question} reporter={myName ?? null} />
             <p className="text-base font-bold leading-relaxed">{currentQ.question}</p>
           </div>
 

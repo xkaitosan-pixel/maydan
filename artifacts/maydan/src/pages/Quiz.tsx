@@ -20,6 +20,7 @@ export default function Quiz() {
   const params = useParams<{ id: string; role: string }>();
   const [, navigate] = useLocation();
   const { dbUser } = useAuth();
+  const [isReporting, setIsReporting] = useState(false);
   const challengeId = params.id;
   const role = params.role as "creator" | "challenger";
 
@@ -89,7 +90,7 @@ export default function Quiz() {
   }, [currentIndex, challenge]);
 
   useEffect(() => {
-    if (showResult || !challenge || showNameInput) return;
+    if (showResult || !challenge || showNameInput || isReporting) return;
     if (timerRef.current) clearInterval(timerRef.current);
 
     timerRef.current = setInterval(() => {
@@ -109,7 +110,7 @@ export default function Quiz() {
       });
     }, 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [currentIndex, showResult, answers, challenge, showNameInput]);
+  }, [currentIndex, showResult, answers, challenge, showNameInput, isReporting]);
 
   function handleAnswer(optionIndex: number) {
     if (selectedOption !== null || showResult || isTransitioning) return;
@@ -294,7 +295,12 @@ export default function Quiz() {
           </div>
 
           <div className="glass-card p-6 mb-4 text-center slide-in relative" style={{ boxShadow: "0 8px 32px rgba(0,0,0,0.3)" }}>
-            <ReportFlag questionId={currentQuestion.id} questionText={currentQuestion.question} reporter={dbUser?.username ?? null} />
+            <ReportFlag
+              questionId={currentQuestion.id}
+              questionText={currentQuestion.question}
+              reporter={dbUser?.username ?? challengerName ?? null}
+              onOpenChange={setIsReporting}
+            />
             {currentQuestion.image_url && (
               <QuestionImage url={currentQuestion.image_url} maxHeight={200} className="mb-3" />
             )}
