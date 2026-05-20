@@ -11,6 +11,7 @@ import { recordTodayWin, recordTodayLoss, recordTodayXP } from "@/lib/storage";
 import { getDailyPercentile } from "@/lib/db";
 import { getCountryFlag } from "@/lib/countryUtils";
 import ShareCard from "@/components/ShareCard";
+import ReportFlag from "@/components/ReportFlag";
 
 const DAILY_Q_COUNT = 10;
 const QUESTION_TIME = 15;
@@ -332,7 +333,8 @@ export default function DailyChallenge() {
         </header>
 
         <div className="flex-1 flex flex-col p-4 gap-4">
-          <div className="flex-1 bg-card border border-border/40 rounded-2xl p-5 flex items-center justify-center">
+          <div className="flex-1 bg-card border border-border/40 rounded-2xl p-5 flex items-center justify-center relative">
+            <ReportFlag questionId={currentQ.id} questionText={currentQ.question} reporter={dbUser?.username ?? null} />
             <p className="text-lg font-black text-center leading-relaxed">{currentQ.question}</p>
           </div>
 

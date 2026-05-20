@@ -1737,7 +1737,17 @@ export default function Admin() {
   const [modalInitial, setModalInitial] = useState<Partial<EditableQ>>({});
 
   // Top-level tab
-  const [activeTab, setActiveTab] = useState<"questions" | "store" | "categories">("questions");
+  const [activeTab, setActiveTab] = useState<"questions" | "store" | "categories" | "reports">("questions");
+  const [pendingReportCount, setPendingReportCount] = useState<number>(0);
+
+  async function loadPendingReportCount() {
+    const { count } = await supabase
+      .from("question_reports")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending");
+    setPendingReportCount(count ?? 0);
+  }
+  useEffect(() => { loadPendingReportCount(); }, [activeTab]);
 
   const userEmail = session?.user?.email ?? "";
 
@@ -1983,6 +1993,7 @@ export default function Admin() {
             { id: "questions",  label: "📚 الأسئلة" },
             { id: "store",      label: "🛍️ المتجر" },
             { id: "categories", label: "🗂️ إدارة الفئات" },
+            { id: "reports",    label: `🚩 البلاغات${pendingReportCount > 0 ? ` (${pendingReportCount})` : ""}` },
           ] as const).map((t) => (
             <button
               key={t.id}
@@ -2006,6 +2017,21 @@ export default function Admin() {
         ) : activeTab === "categories" ? (
           <>
             <CategoriesManager />
+            <div className="h-10" />
+          </>
+        ) : activeTab === "reports" ? (
+          <>
+            <ReportsManager
+              questions={questions}
+              onOpenQuestion={(qid) => {
+                const q = questions.find((x) => x.id === qid);
+                if (q) {
+                  setActiveTab("questions");
+                  setTimeout(() => openEdit(q), 50);
+                }
+              }}
+              onCountChanged={loadPendingReportCount}
+            />
             <div className="h-10" />
           </>
         ) : (
@@ -2032,6 +2058,216 @@ export default function Admin() {
 }
 
 // ─── Questions Tab (extracted from main Admin component body) ────────────────
+// ─── Reports Manager ─────────────────────────────────────────────────────────
+type ReportRow = {
+  id: string;
+  question_id: string;
+  question_text: string | null;
+  report_type: string;
+  comment: string | null;
+  reported_by: string | null;
+  status: string;
+  created_at: string;
+};
+
+const REPORT_TYPE_LABEL: Record<string, string> = {
+  wrong_question: "السؤال خاطئ",
+  wrong_answer: "الإجابة الصحيحة خاطئة",
+  bad_options: "خيارات غير مناسبة",
+  bad_wording: "مشكلة في الصياغة",
+  other: "أخرى",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  pending: "قيد المراجعة",
+  reviewed: "تمت المراجعة",
+  fixed: "تم الإصلاح",
+  dismissed: "مرفوض",
+};
+
+const STATUS_COLOR: Record<string, string> = {
+  pending: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30",
+  reviewed: "bg-blue-500/15 text-blue-300 border-blue-500/30",
+  fixed: "bg-green-500/15 text-green-300 border-green-500/30",
+  dismissed: "bg-white/5 text-white/40 border-white/10",
+};
+
+function ReportsManager({
+  questions,
+  onOpenQuestion,
+  onCountChanged,
+}: {
+  questions: EditableQ[];
+  onOpenQuestion: (qid: number) => void;
+  onCountChanged: () => void;
+}) {
+  const [rows, setRows] = useState<ReportRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<"pending" | "all">("pending");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState("");
+
+  async function load() {
+    setLoading(true);
+    setErr("");
+    let q = supabase
+      .from("question_reports")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(500);
+    if (filter === "pending") q = q.eq("status", "pending");
+    const { data, error } = await q;
+    if (error) setErr(error.message);
+    setRows((data ?? []) as ReportRow[]);
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, [filter]);
+
+  async function updateStatus(id: string, status: "fixed" | "dismissed" | "reviewed") {
+    setBusy(id);
+    const { error } = await supabase
+      .from("question_reports")
+      .update({ status })
+      .eq("id", id);
+    setBusy(null);
+    if (error) { setErr(error.message); return; }
+    setRows((prev) =>
+      filter === "pending"
+        ? prev.filter((r) => r.id !== id)
+        : prev.map((r) => (r.id === id ? { ...r, status } : r))
+    );
+    onCountChanged();
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <h2 className="text-white font-bold text-lg flex items-center gap-2">
+          🚩 البلاغات
+          <span className="text-xs text-white/40 font-normal">({rows.length})</span>
+        </h2>
+
+        <div className="mr-auto flex gap-2">
+          <button
+            onClick={() => setFilter("pending")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${
+              filter === "pending"
+                ? "bg-amber-500/15 text-amber-300 border-amber-500/40"
+                : "text-white/50 border-white/10 hover:border-white/30"
+            }`}
+          >
+            قيد المراجعة فقط
+          </button>
+          <button
+            onClick={() => setFilter("all")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${
+              filter === "all"
+                ? "bg-amber-500/15 text-amber-300 border-amber-500/40"
+                : "text-white/50 border-white/10 hover:border-white/30"
+            }`}
+          >
+            الكل
+          </button>
+          <button
+            onClick={load}
+            disabled={loading}
+            className="px-3 py-1.5 rounded-lg text-xs border border-white/10 text-white/60 hover:border-white/30 disabled:opacity-40"
+          >
+            🔄 تحديث
+          </button>
+        </div>
+      </div>
+
+      {err && <p className="text-red-400 text-sm">⚠️ {err}</p>}
+
+      {loading ? (
+        <p className="text-white/40 text-sm text-center py-8">جاري التحميل...</p>
+      ) : rows.length === 0 ? (
+        <p className="text-white/40 text-sm text-center py-8">
+          {filter === "pending" ? "🎉 لا توجد بلاغات قيد المراجعة" : "لا توجد بلاغات بعد"}
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((r) => {
+            const qidNum = Number(r.question_id);
+            const qExists = Number.isFinite(qidNum) && questions.some((x) => x.id === qidNum);
+            const when = new Date(r.created_at).toLocaleString("ar-EG", {
+              year: "numeric", month: "short", day: "numeric",
+              hour: "2-digit", minute: "2-digit",
+            });
+            return (
+              <div
+                key={r.id}
+                className="rounded-xl border p-3 space-y-2"
+                style={{
+                  background: "hsl(220 20% 12%)",
+                  borderColor: "hsl(220 15% 22%)",
+                }}
+              >
+                <div className="flex items-center gap-2 flex-wrap text-[11px]">
+                  <span className="font-mono text-white/40">#{r.question_id}</span>
+                  <span className="px-2 py-0.5 rounded bg-red-900/30 text-red-300 border border-red-500/30">
+                    {REPORT_TYPE_LABEL[r.report_type] ?? r.report_type}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded border ${STATUS_COLOR[r.status] ?? STATUS_COLOR.pending}`}>
+                    {STATUS_LABEL[r.status] ?? r.status}
+                  </span>
+                  <span className="text-white/40">·</span>
+                  <span className="text-white/50">
+                    👤 {r.reported_by?.trim() || "مجهول"}
+                  </span>
+                  <span className="text-white/40">·</span>
+                  <span className="text-white/40">{when}</span>
+                </div>
+
+                <p className="text-sm text-white/90 font-bold leading-relaxed">
+                  {r.question_text || <span className="text-white/40">(لا يوجد نص محفوظ)</span>}
+                </p>
+
+                {r.comment && (
+                  <div className="text-xs text-white/70 bg-black/30 rounded-lg px-3 py-2 border-r-2 border-amber-500/50">
+                    💬 {r.comment}
+                  </div>
+                )}
+
+                <div className="flex gap-2 flex-wrap pt-1">
+                  <button
+                    onClick={() => qExists && onOpenQuestion(qidNum)}
+                    disabled={!qExists || busy === r.id}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold border border-white/15 text-white/80 hover:border-white/40 disabled:opacity-40"
+                    title={qExists ? "" : "السؤال غير موجود في القاعدة"}
+                  >
+                    📝 عرض السؤال
+                  </button>
+                  {r.status !== "fixed" && (
+                    <button
+                      onClick={() => updateStatus(r.id, "fixed")}
+                      disabled={busy === r.id}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-40"
+                      style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}
+                    >
+                      ✅ تم الإصلاح
+                    </button>
+                  )}
+                  {r.status !== "dismissed" && (
+                    <button
+                      onClick={() => updateStatus(r.id, "dismissed")}
+                      disabled={busy === r.id}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold border border-red-500/40 text-red-300 hover:bg-red-500/10 disabled:opacity-40"
+                    >
+                      ❌ رفض البلاغ
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function QuestionsTab(props: {
   status: string;
   loading: boolean;

@@ -4,6 +4,7 @@ import { CATEGORIES, getCategoryById, Question } from "@/lib/questions";
 import { fetchGameQuestions } from "@/lib/questionService";
 import { shuffleQuestion } from "@/lib/shuffle";
 import QuestionImage from "@/components/QuestionImage";
+import ReportFlag from "@/components/ReportFlag";
 import CircularTimer from "@/components/CircularTimer";
 import CategoryCard from "@/components/CategoryCard";
 import { recordSurvivalGame, recordCategoryAnswers, getSurvivalRank, getAvailablePowerCards, useSkipCard, useTimeCard, getOrCreateUser, addLeaderboardEntry, canPlaySurvival, getRemainingSurvival, incrementSurvivalCount } from "@/lib/storage";
@@ -592,7 +593,8 @@ export default function Survival() {
           </div>
 
           {/* Question */}
-          <div className="bg-card border border-border rounded-2xl p-5 mb-4 text-center slide-in">
+          <div className="bg-card border border-border rounded-2xl p-5 mb-4 text-center slide-in relative">
+            <ReportFlag questionId={currentQ.id} questionText={currentQ.question} reporter={dbUser?.username ?? null} />
             {currentQ.image_url && (
               <QuestionImage url={currentQ.image_url} maxHeight={200} className="mb-3" />
             )}

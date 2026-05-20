@@ -4,6 +4,8 @@ import { getCategoryById, Question } from "@/lib/questions";
 import { fetchQuestionsByIds } from "@/lib/questionService";
 import QuestionImage from "@/components/QuestionImage";
 import CircularTimer from "@/components/CircularTimer";
+import ReportFlag from "@/components/ReportFlag";
+import { useAuth } from "@/lib/AuthContext";
 import { getChallenge, saveChallenge, getOrCreateUser, recordGamePlayed, recordCategoryAnswers, getAvailablePowerCards, useSkipCard, useTimeCard } from "@/lib/storage";
 import { completeDbChallenge } from "@/lib/db";
 import { playCorrect, playWrong, playTick } from "@/lib/sound";
@@ -17,6 +19,7 @@ const QUESTION_TIME = 30;
 export default function Quiz() {
   const params = useParams<{ id: string; role: string }>();
   const [, navigate] = useLocation();
+  const { dbUser } = useAuth();
   const challengeId = params.id;
   const role = params.role as "creator" | "challenger";
 
@@ -290,7 +293,8 @@ export default function Quiz() {
             </span>
           </div>
 
-          <div className="glass-card p-6 mb-4 text-center slide-in" style={{ boxShadow: "0 8px 32px rgba(0,0,0,0.3)" }}>
+          <div className="glass-card p-6 mb-4 text-center slide-in relative" style={{ boxShadow: "0 8px 32px rgba(0,0,0,0.3)" }}>
+            <ReportFlag questionId={currentQuestion.id} questionText={currentQuestion.question} reporter={dbUser?.username ?? null} />
             {currentQuestion.image_url && (
               <QuestionImage url={currentQuestion.image_url} maxHeight={200} className="mb-3" />
             )}
