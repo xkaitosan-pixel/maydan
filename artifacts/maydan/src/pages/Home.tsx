@@ -87,10 +87,9 @@ export default function Home() {
   }
 
   function handleChallengeClick() {
-    if (!canCreate) return;
     if (pendingChallenges > 0) {
       void openPendingSheet();
-    } else {
+    } else if (canCreate) {
       navigate("/create");
     }
   }
@@ -173,8 +172,11 @@ export default function Home() {
     {
       id: "challenge", icon: "⚔️", label: "تحدي", sub: "تحدي صديق أو غريب",
       gradient: "linear-gradient(135deg, #f97316, #dc2626)",
-      onClick: () => canCreate ? handleChallengeClick() : undefined,
-      disabled: !canCreate,
+      // Pending sheet is always reachable when there are pending challenges,
+      // even if the daily-create quota is exhausted (the "new challenge"
+      // button inside the sheet remains gated by canCreate).
+      onClick: () => (pendingChallenges > 0 || canCreate) ? handleChallengeClick() : undefined,
+      disabled: pendingChallenges === 0 && !canCreate,
       badge: pendingChallenges > 0 ? pendingChallenges : undefined,
     },
     {

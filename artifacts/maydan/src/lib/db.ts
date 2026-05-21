@@ -423,13 +423,17 @@ export async function getMyPendingChallenges(creatorId: string, limit = 50): Pro
   return (data as DbChallenge[]) ?? [];
 }
 
-/** Delete a challenge (only the creator should call this). */
+/** Delete a *pending* challenge (only the creator should call this).
+ *  Guarded by status = 'pending' so a challenge that was just completed
+ *  between list load and delete click is not destroyed.
+ */
 export async function deleteDbChallenge(id: string, creatorId: string): Promise<boolean> {
-  const { error } = await supabase
+  const { error, count } = await supabase
     .from("challenges")
-    .delete()
+    .delete({ count: "exact" })
     .eq("id", id)
-    .eq("creator_id", creatorId);
+    .eq("creator_id", creatorId)
+    .eq("status", "pending");
   if (error) { console.error("deleteDbChallenge error", error); return false; }
-  return true;
+  return (count ?? 0) > 0;
 }

@@ -271,7 +271,7 @@ export default function RankedMode() {
       );
       chosenCategory = shared.length > 0
         ? shared[Math.floor(Math.random() * shared.length)]
-        : (selectedCats[0] ?? "mix");
+        : "mix";
     }
     const now = Date.now();
     const { data: newMatch, error } = await supabase
@@ -703,7 +703,7 @@ export default function RankedMode() {
               ))}
             </div>
             <div className="text-xs text-muted-foreground text-center">
-              فوز: +20 نقطة · خسارة: -5 نقاط
+              فوز: +20 نقطة · خسارة: -20 نقطة
             </div>
           </div>
 
@@ -737,7 +737,7 @@ export default function RankedMode() {
             <p className="text-muted-foreground">• 10 أسئلة · 10 ثوانٍ لكل سؤال</p>
             <p className="text-muted-foreground">• الإجابة أسرع = نقاط أكثر (10/8/6/4/2)</p>
             <p className="text-muted-foreground">• ينتقل السؤال بعد إجابة كلا اللاعبين أو انتهاء الوقت</p>
-            <p className="text-muted-foreground">• فوز: +20 · تعادل: 0 · خسارة: -5</p>
+            <p className="text-muted-foreground">• فوز: +20 · تعادل: 0 · خسارة: -20</p>
           </div>
         </div>
 
