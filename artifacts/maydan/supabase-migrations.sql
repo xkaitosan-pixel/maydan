@@ -23,6 +23,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS country text DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS bio text DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed boolean NOT NULL DEFAULT false;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS favorite_categories text[] DEFAULT '{}'::text[];
+ALTER TABLE users ADD COLUMN IF NOT EXISTS gender text;
 
 -- 3. daily_scores table (create if not exists)
 CREATE TABLE IF NOT EXISTS daily_scores (

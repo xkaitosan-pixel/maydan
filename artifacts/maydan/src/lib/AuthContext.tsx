@@ -25,6 +25,7 @@ export interface DbUser {
   display_name: string | null;
   country: string | null;
   bio: string | null;
+  gender: string | null;
   onboarding_completed: boolean | null;
   favorite_categories: string[] | null;
 }

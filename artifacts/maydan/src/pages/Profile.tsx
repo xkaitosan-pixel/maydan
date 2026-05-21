@@ -37,6 +37,7 @@ export default function Profile() {
   const [displayName, setDisplayName] = useState(dbUser?.display_name ?? dbUser?.username ?? "");
   const [country, setCountry] = useState(dbUser?.country ?? "");
   const [bio, setBio] = useState(dbUser?.bio ?? "");
+  const [gender, setGender] = useState(dbUser?.gender ?? "");
   const [editingName, setEditingName] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -84,6 +85,7 @@ export default function Profile() {
     setDisplayName(dbUser?.display_name ?? dbUser?.username ?? "");
     setCountry(dbUser?.country ?? "");
     setBio(dbUser?.bio ?? "");
+    setGender(dbUser?.gender ?? "");
     setFavDraft(dbUser?.favorite_categories ?? []);
   }, [dbUser]);
 
@@ -147,6 +149,7 @@ export default function Profile() {
       display_name: displayName.trim() || null,
       country: country || null,
       bio: bio.trim() || null,
+      gender: gender || null,
     }).eq("id", dbUser.id);
     setSaving(false);
     if (!error) {
@@ -459,6 +462,30 @@ export default function Profile() {
                 placeholder="أخبر الآخرين عنك..."
                 className="w-full h-11 bg-background border border-border rounded-xl px-3 text-sm text-foreground outline-none focus:border-primary"
               />
+            </div>
+
+            {/* Gender */}
+            <div>
+              <label className="text-xs text-muted-foreground mb-2 block">👤 الجنس</label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { value: "male", label: "♂️ ذكر" },
+                  { value: "female", label: "♀️ أنثى" },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setGender(g => g === opt.value ? "" : opt.value)}
+                    className={`h-11 rounded-xl text-sm font-bold border transition-colors ${
+                      gender === opt.value
+                        ? "bg-primary/15 border-primary text-primary"
+                        : "bg-background border-border text-foreground hover:border-primary/40"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}

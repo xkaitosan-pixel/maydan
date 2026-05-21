@@ -5,7 +5,7 @@ import {
   getActiveNotifications, AppNotification, updateStreak, getTodayStats,
 } from "@/lib/storage";
 import { useAuth } from "@/lib/AuthContext";
-import { syncStreak, getMyPendingChallengesCount } from "@/lib/db";
+import { syncStreak, getMyPendingChallengesCount, getMyPendingChallenges, deleteDbChallenge, type DbChallenge } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 import StreakMilestone from "@/components/StreakMilestone";
 import NotificationBanner from "@/components/NotificationBanner";
@@ -47,6 +47,53 @@ export default function Home() {
   const [soundOn, setSoundOn] = useState(() => isSoundEnabled());
   const [seasonRewardMsg, setSeasonRewardMsg] = useState<string | null>(null);
   const [pendingChallenges, setPendingChallenges] = useState(0);
+  const [showPendingSheet, setShowPendingSheet] = useState(false);
+  const [pendingList, setPendingList] = useState<DbChallenge[]>([]);
+  const [loadingPending, setLoadingPending] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  async function openPendingSheet() {
+    setShowPendingSheet(true);
+    setLoadingPending(true);
+    if (dbUser?.id) {
+      const rows = await getMyPendingChallenges(dbUser.id);
+      setPendingList(rows);
+      setPendingChallenges(rows.length);
+    }
+    setLoadingPending(false);
+  }
+
+  function resendChallenge(c: DbChallenge) {
+    const baseUrl = `${window.location.origin}${import.meta.env.BASE_URL}challenge/${c.id}`;
+    const text =
+      "⚔️ لا تزال تحدياتي بانتظارك!\n" +
+      "هل تقبل التحدي؟ 😏\n" +
+      `👉 ${baseUrl}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
+  }
+
+  async function confirmDeleteChallenge(c: DbChallenge) {
+    if (!dbUser?.id) return;
+    if (!window.confirm("هل تريد حذف هذا التحدي؟")) return;
+    setDeletingId(c.id);
+    const ok = await deleteDbChallenge(c.id, dbUser.id);
+    setDeletingId(null);
+    if (ok) {
+      setPendingList(prev => prev.filter(x => x.id !== c.id));
+      setPendingChallenges(n => Math.max(0, n - 1));
+    } else {
+      alert("تعذر حذف التحدي. حاول مرة أخرى.");
+    }
+  }
+
+  function handleChallengeClick() {
+    if (!canCreate) return;
+    if (pendingChallenges > 0) {
+      void openPendingSheet();
+    } else {
+      navigate("/create");
+    }
+  }
 
   function handleThemeToggle() {
     playClick();
@@ -126,7 +173,7 @@ export default function Home() {
     {
       id: "challenge", icon: "⚔️", label: "تحدي", sub: "تحدي صديق أو غريب",
       gradient: "linear-gradient(135deg, #f97316, #dc2626)",
-      onClick: () => canCreate ? navigate("/create") : undefined,
+      onClick: () => canCreate ? handleChallengeClick() : undefined,
       disabled: !canCreate,
       badge: pendingChallenges > 0 ? pendingChallenges : undefined,
     },
@@ -526,6 +573,93 @@ export default function Home() {
       <footer className="py-3 text-center text-xs text-muted-foreground border-t border-border/30">
         <span className="text-primary">ميدان</span> — {isGuest ? "الوضع الضيف (ميزات محدودة)" : "النسخة المجانية: 5 تحديات يومياً"}
       </footer>
+
+      {showPendingSheet && (
+        <div
+          className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-3"
+          style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }}
+          onClick={() => setShowPendingSheet(false)}
+          dir="rtl"
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-border shadow-2xl bg-card max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+              <span className="text-lg">⏳</span>
+              <h3 className="font-bold text-sm flex-1">تحدياتك المعلقة</h3>
+              <span className="text-xs text-muted-foreground">{pendingList.length}</span>
+              <button
+                onClick={() => setShowPendingSheet(false)}
+                className="text-muted-foreground hover:text-foreground text-sm px-2"
+                aria-label="إغلاق"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {loadingPending ? (
+                <p className="text-center text-muted-foreground text-sm py-6">جاري التحميل...</p>
+              ) : pendingList.length === 0 ? (
+                <p className="text-center text-muted-foreground text-sm py-6">
+                  🎉 لا توجد تحديات معلقة
+                </p>
+              ) : (
+                pendingList.map((c) => {
+                  const when = new Date(c.created_at).toLocaleString("ar-EG", {
+                    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+                  });
+                  return (
+                    <div
+                      key={c.id}
+                      className="rounded-xl border border-border/60 bg-background p-3 space-y-2"
+                    >
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="font-bold text-foreground">
+                          {c.opponent_name?.trim() || "خصم لم ينضم بعد"}
+                        </span>
+                        <span className="text-muted-foreground">·</span>
+                        <span className="text-muted-foreground">{when}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        🎯 {c.category} · {c.question_count} سؤال · نتيجتك: {c.creator_score ?? 0}/{c.question_count}
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => resendChallenge(c)}
+                          className="flex-1 px-3 py-2 rounded-lg text-xs font-bold text-white"
+                          style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}
+                        >
+                          إرسال مجدداً 🔄
+                        </button>
+                        <button
+                          onClick={() => confirmDeleteChallenge(c)}
+                          disabled={deletingId === c.id}
+                          className="px-3 py-2 rounded-lg text-xs font-bold border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-40"
+                        >
+                          {deletingId === c.id ? "جاري..." : "حذف 🗑️"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="p-3 border-t border-border">
+              <button
+                onClick={() => { setShowPendingSheet(false); navigate("/create"); }}
+                disabled={!canCreate}
+                className="w-full px-3 py-3 rounded-xl text-sm font-bold text-white disabled:opacity-40"
+                style={{ background: "linear-gradient(135deg, #f97316, #dc2626)" }}
+              >
+                تحدي جديد +
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

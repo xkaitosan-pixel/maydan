@@ -259,7 +259,20 @@ export default function RankedMode() {
       return false;
     }
 
-    const chosenCategory = opp.preferred_categories?.includes(category) ? category : "mix";
+    // Prefer the rolled category if both share it; otherwise pick any shared
+    // category between the two players; only fall back to "mix" when there is
+    // genuinely no overlap.
+    let chosenCategory: string;
+    if (opp.preferred_categories?.includes(category)) {
+      chosenCategory = category;
+    } else {
+      const shared = (opp.preferred_categories ?? []).filter((c: string) =>
+        selectedCats.includes(c),
+      );
+      chosenCategory = shared.length > 0
+        ? shared[Math.floor(Math.random() * shared.length)]
+        : (selectedCats[0] ?? "mix");
+    }
     const now = Date.now();
     const { data: newMatch, error } = await supabase
       .from("ranked_matches")
@@ -590,7 +603,7 @@ export default function RankedMode() {
 
     const won = w === "me";
     const draw = w === "draw";
-    const delta = won ? 20 : draw ? 0 : -5;
+    const delta = won ? 20 : draw ? 0 : -20;
     if (delta !== 0) {
       supabase.from("ranked_queue")
         .select("rank_points")

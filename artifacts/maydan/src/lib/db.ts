@@ -409,3 +409,27 @@ export async function getMyPendingChallengesCount(creatorId: string): Promise<nu
   if (error) { console.error("getMyPendingChallengesCount error", error); return 0; }
   return count ?? 0;
 }
+
+/** Full rows of challenges I created that are still pending. */
+export async function getMyPendingChallenges(creatorId: string, limit = 50): Promise<DbChallenge[]> {
+  const { data, error } = await supabase
+    .from("challenges")
+    .select("*")
+    .eq("creator_id", creatorId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) { console.error("getMyPendingChallenges error", error); return []; }
+  return (data as DbChallenge[]) ?? [];
+}
+
+/** Delete a challenge (only the creator should call this). */
+export async function deleteDbChallenge(id: string, creatorId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from("challenges")
+    .delete()
+    .eq("id", id)
+    .eq("creator_id", creatorId);
+  if (error) { console.error("deleteDbChallenge error", error); return false; }
+  return true;
+}
