@@ -1,0 +1,1 @@
+- [Maydan background music ownership](maydan-music-ownership.md) — music playback is gameplay-owned via useBackgroundMusic; never start the scheduler from non-game pages (e.g. Settings).
