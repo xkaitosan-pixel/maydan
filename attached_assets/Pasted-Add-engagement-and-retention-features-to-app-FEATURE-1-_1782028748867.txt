@@ -1,0 +1,141 @@
+Add engagement and retention features to ميدان app.
+
+═══════════════════════════════
+FEATURE 1 - DAILY MISSIONS:
+═══════════════════════════════
+Add daily missions system (resets every day):
+
+Create /missions page or add to home screen:
+"مهامك اليوم 📋"
+
+3 daily missions:
+1. "العب 3 ألعاب" → reward +20 قرش
+   Progress: (X/3)
+2. "فز بتحدي واحد" → reward +30 قرش  
+   Progress: (X/1)
+3. "أجب 10 أسئلة صح" → reward +15 قرش
+   Progress: (X/10)
+
+- Track progress in daily_missions table
+- Update progress after each game
+- Show progress bars for each mission
+- "استلم 🎁" button when mission complete
+- Claimed missions show ✅
+- Reset at midnight
+- Show missions widget on home screen with completion count
+- Notification when all missions done: "أكملت كل المهام! 🎉"
+
+═══════════════════════════════
+FEATURE 2 - REWARD BOXES:
+═══════════════════════════════
+After every 5 games, give a reward box:
+
+- Track games_since_box in users table
+- When reaches 5: show "🎁 صندوق مكافأة جاهز!"
+- Reward box opening animation:
+  * Box shakes then bursts open
+  * Confetti explosion
+  * Reveals reward
+- Random rewards:
+  * 10-50 قرش (common)
+  * 50-100 قرش (rare)
+  * XP boost (uncommon)
+  * Avatar frame (rare)
+- Show reward with celebration
+- Reset counter after opening
+
+═══════════════════════════════
+FEATURE 3 - CATEGORY LEVELS:
+═══════════════════════════════
+Each category has its own level:
+
+- Track category_xp and category_level per category
+- Earn category XP when playing that category
+- Level up formula: each level needs level*100 XP
+- Show on profile: "مستوياتي في الفئات"
+  Grid showing each category with its level:
+  🕌 إسلامية - مستوى 5
+  🌍 جغرافيا - مستوى 3
+- Category mastery badge at level 10:
+  "خبير [الفئة] 🏅"
+- Show category level during games:
+  "تاريخ عربي - مستوى 4"
+
+═══════════════════════════════
+FEATURE 4 - WEEKLY CHALLENGE:
+═══════════════════════════════
+One big weekly challenge for everyone:
+
+- "تحدي الأسبوع 🎯"
+- Example: "أجب 100 سؤال صح هذا الأسبوع"
+- Progress bar: (X/100)
+- Reward: +200 قرش + exclusive badge
+- Resets every Monday
+- Show on home screen
+- Track in weekly_challenges table
+- Celebration when completed
+
+═══════════════════════════════
+FEATURE 5 - DAILY LOGIN STREAK:
+═══════════════════════════════
+Reward consecutive daily logins:
+
+- Track login_streak and last_login_date
+- On login each day:
+  * If consecutive: increment streak
+  * If missed a day: reset to 1
+- Show login reward popup:
+  "🔥 يوم [X] متتالي!"
+- Rewards escalate:
+  Day 1: +10 قرش
+  Day 2: +15 قرش
+  Day 3: +20 قرش
+  Day 4: +25 قرش
+  Day 5: +30 قرش
+  Day 6: +40 قرش
+  Day 7: +100 قرش (big reward!)
+  Then repeats
+- Calendar visual showing 7 days
+- Current day highlighted
+- "استلم مكافأتك 🎁" button
+
+═══════════════════════════════
+FEATURE 6 - TRAINING MODE:
+═══════════════════════════════
+Add practice mode without pressure:
+
+- New mode "تدريب 🎓" on home
+- No timer, no scoring pressure
+- Choose category and difficulty
+- After each answer: show explanation
+  "الإجابة الصحيحة: X
+   لأن: [explanation]"
+- Not counted in stats/ranking
+- Good for learning
+- "سؤال تالي" button to continue
+- Can exit anytime
+
+═══════════════════════════════
+FEATURE 7 - NEAR-MISS MOTIVATION:
+═══════════════════════════════
+Show motivational prompts:
+
+On home screen, show contextual messages:
+- "أنت قريب من المركز #X! 🏆" (if close in leaderboard)
+- "نقطتان للمستوى التالي! ⚡" (if close to level up)
+- "أكمل [X] ألعاب لإنجاز جديد!" (if close to achievement)
+- "ستريكك [X] أيام - لا تكسره! 🔥"
+
+═══════════════════════════════
+HOME SCREEN INTEGRATION:
+═══════════════════════════════
+Add new section on home showing:
+- Daily missions progress (3 missions)
+- Weekly challenge progress bar
+- Reward box counter (X/5 games)
+- Login streak indicator
+- Motivational message
+
+Make it clean and not cluttered - use cards/sections.
+
+Push everything to GitHub.

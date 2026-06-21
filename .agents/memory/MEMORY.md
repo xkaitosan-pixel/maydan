@@ -1,1 +1,1 @@
-- [Maydan background music ownership](maydan-music-ownership.md) — music playback is gameplay-owned via useBackgroundMusic; never start the scheduler from non-game pages (e.g. Settings).
+- [Maydan engagement state storage](engagement-state-storage.md) — engagement state nests at users.achievements.engagement; always read via engagementFrom(), never normalizeEngagement(raw blob).
