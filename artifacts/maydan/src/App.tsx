@@ -9,6 +9,7 @@ import { supabase } from "@/lib/supabase";
 import NotificationSystem from "@/components/NotificationSystem";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import InstallPrompt from "@/components/InstallPrompt";
+import ScreenFlashHost from "@/components/ScreenFlashHost";
 import BottomNav from "@/components/BottomNav";
 
 // Eager: critical auth-flow + landing pages
@@ -347,6 +348,7 @@ function App() {
                   <NotificationSystem />
                   <BottomNav />
                   <InstallPrompt />
+                  <ScreenFlashHost />
                 </div>
               </WouterRouter>
             </AuthProvider>

@@ -9,6 +9,8 @@ import { useAuth } from "@/lib/AuthContext";
 import { getChallenge, saveChallenge, getOrCreateUser, recordGamePlayed, recordCategoryAnswers, getAvailablePowerCards, useSkipCard, useTimeCard } from "@/lib/storage";
 import { completeDbChallenge } from "@/lib/db";
 import { playCorrect, playWrong, playTick } from "@/lib/sound";
+import { useBackgroundMusic } from "@/lib/useBackgroundMusic";
+import { flashScreen } from "@/lib/flash";
 import { hapticCorrect, hapticWrong } from "@/lib/haptics";
 import { sanitizeNickname } from "@/lib/sanitize";
 import { XP_REWARDS } from "@/lib/gamification";
@@ -20,6 +22,7 @@ export default function Quiz() {
   const params = useParams<{ id: string; role: string }>();
   const [, navigate] = useLocation();
   const { dbUser } = useAuth();
+  useBackgroundMusic("calm");
   const [isReporting, setIsReporting] = useState(false);
   const challengeId = params.id;
   const role = params.role as "creator" | "challenger";
@@ -122,11 +125,13 @@ export default function Quiz() {
     setAnswers(newAnswers);
     if (optionIndex === currentQuestion?.correct) {
       playCorrect();
+      flashScreen("correct");
       hapticCorrect();
       setShowXPPop(true);
       setTimeout(() => setShowXPPop(false), 1100);
     } else {
       playWrong();
+      flashScreen("wrong");
       hapticWrong();
     }
     setTimeout(() => goToNextQuestion(newAnswers), 1200);

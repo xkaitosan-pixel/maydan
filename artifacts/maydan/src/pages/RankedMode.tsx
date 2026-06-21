@@ -9,6 +9,8 @@ import { fetchSeededQuestions } from "@/lib/questionService";
 import { useAuth } from "@/lib/AuthContext";
 import { getOrCreateUser, canPlayRanked, getRemainingRanked, incrementRankedCount } from "@/lib/storage";
 import { playCorrect, playWrong, playTick, playGameOver, playMatchFound, playSound } from "@/lib/sound";
+import { useBackgroundMusic } from "@/lib/useBackgroundMusic";
+import { flashScreen } from "@/lib/flash";
 import { RANKS, getRankInfo } from "@/lib/rank";
 import { getCountryFlag } from "@/lib/countryUtils";
 import { recordTodayWin, recordTodayLoss, recordTodayXP } from "@/lib/storage";
@@ -77,6 +79,7 @@ async function getMatchQuestions(matchId: string, category: string) {
 export default function RankedMode() {
   const [, navigate] = useLocation();
   const { dbUser, isGuest, refreshUser } = useAuth();
+  useBackgroundMusic("party");
   const localUser = getOrCreateUser();
 
   const myId = dbUser?.id ?? localUser.userId ?? "";
@@ -554,7 +557,8 @@ export default function RankedMode() {
     const correct = !!q && idx === q.correct;
     const pts = pointsForElapsedMs(elapsed, correct);
     setSelected(idx);
-    if (correct) playCorrect(); else playWrong();
+    if (correct) { playCorrect(); flashScreen("correct"); }
+    else { playWrong(); flashScreen("wrong"); }
     void writeMyAnswer(idx, qIdx, pts, elapsed);
   }
 

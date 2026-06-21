@@ -12,6 +12,8 @@ import { fetchCategoryTree, type CategoryNode } from "@/lib/categoriesService";
 import { insertScore, updateUserStats } from "@/lib/db";
 import { useAuth } from "@/lib/AuthContext";
 import { playSound } from "@/lib/sound";
+import { useBackgroundMusic } from "@/lib/useBackgroundMusic";
+import { flashScreen } from "@/lib/flash";
 import AchievementPopup from "@/components/AchievementPopup";
 import FloatingReward from "@/components/FloatingReward";
 import ShareCard from "@/components/ShareCard";
@@ -37,6 +39,7 @@ function getTimerForScore(score: number): number {
 export default function Survival() {
   const [, navigate] = useLocation();
   const { dbUser, isGuest, refreshUser } = useAuth();
+  useBackgroundMusic("calm");
   const [phase, setPhase] = useState<Phase>("select");
   const [selectedCategory, setSelectedCategory] = useState<string>("mix");
   const [catTree, setCatTree] = useState<CategoryNode[]>([]);
@@ -165,6 +168,7 @@ export default function Survival() {
 
     const isCorrect = idx === currentQ.correct;
     playSound(isCorrect ? "correct" : "wrong");
+    flashScreen(isCorrect ? "correct" : "wrong");
     const cat = currentQ.category;
     setTotalAnswers(prev => ({ ...prev, [cat]: (prev[cat] || 0) + 1 }));
 

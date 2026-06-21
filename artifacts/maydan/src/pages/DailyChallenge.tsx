@@ -7,6 +7,8 @@ import CircularTimer from "@/components/CircularTimer";
 import { Question } from "@/lib/questions";
 import { shuffleQuestion } from "@/lib/shuffle";
 import { playSound } from "@/lib/sound";
+import { useBackgroundMusic } from "@/lib/useBackgroundMusic";
+import { flashScreen } from "@/lib/flash";
 import { recordTodayWin, recordTodayLoss, recordTodayXP } from "@/lib/storage";
 import { getDailyPercentile } from "@/lib/db";
 import { getCountryFlag } from "@/lib/countryUtils";
@@ -40,6 +42,7 @@ interface DailyEntry {
 export default function DailyChallenge() {
   const [, navigate] = useLocation();
   const { dbUser, isGuest, googleDisplayName } = useAuth();
+  useBackgroundMusic("calm");
 
   const [phase, setPhase] = useState<"loading" | "intro" | "question" | "finished" | "already_done">("loading");
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -168,11 +171,13 @@ export default function DailyChallenge() {
 
     if (correct) {
       playSound("correct");
+      flashScreen("correct");
       const pts = calcPoints(elapsedSec);
       scoreRef.current += pts;
       setScore(scoreRef.current);
     } else {
       playSound("wrong");
+      flashScreen("wrong");
     }
 
     setSelected(idx);

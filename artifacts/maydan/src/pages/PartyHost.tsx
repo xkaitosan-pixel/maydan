@@ -7,6 +7,7 @@ import { shuffleQuestion } from "@/lib/shuffle";
 import QuestionImage from "@/components/QuestionImage";
 import CircularTimer from "@/components/CircularTimer";
 import { playSound } from "@/lib/sound";
+import { useBackgroundMusic } from "@/lib/useBackgroundMusic";
 import { QRCodeSVG } from "qrcode.react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -90,6 +91,7 @@ function Confetti() {
 // ── Main component ────────────────────────────────────────────────────────────
 export default function PartyHost() {
   const [, navigate] = useLocation();
+  useBackgroundMusic("party");
 
   // Local phase (mirrors DB status but with extra local states)
   const [phase, setPhase] = useState<HostPhase>("setup");

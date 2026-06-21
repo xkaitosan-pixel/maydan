@@ -52,6 +52,52 @@ export function toggleSound(): boolean {
   return next;
 }
 
+// ── Volume preferences ────────────────────────────────────────────────────────
+// Stored 0..1. SFX default loud-ish, music subtle. Music is OFF by default.
+
+function clamp01(n: number): number {
+  if (Number.isNaN(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
+export function getSfxVolume(): number {
+  const v = localStorage.getItem("maydan_sfx_vol");
+  return v === null ? 0.8 : clamp01(parseFloat(v));
+}
+
+export function setSfxVolume(v: number) {
+  localStorage.setItem("maydan_sfx_vol", String(clamp01(v)));
+}
+
+export function getMusicVolume(): number {
+  const v = localStorage.getItem("maydan_music_vol");
+  return v === null ? 0.35 : clamp01(parseFloat(v));
+}
+
+export function setMusicVolume(v: number) {
+  const c = clamp01(v);
+  localStorage.setItem("maydan_music_vol", String(c));
+  if (_musicGain && _ctx) {
+    _musicGain.gain.setTargetAtTime(c, _ctx.currentTime, 0.1);
+  }
+}
+
+/** Background music is OFF by default (null → false). */
+export function getMusicEnabled(): boolean {
+  return localStorage.getItem("maydan_music") === "1";
+}
+
+export function setMusicEnabled(v: boolean) {
+  localStorage.setItem("maydan_music", v ? "1" : "0");
+  if (!v) stopMusic();
+}
+
+export function toggleMusic(): boolean {
+  const next = !getMusicEnabled();
+  setMusicEnabled(next);
+  return next;
+}
+
 // ── Core tone builder ─────────────────────────────────────────────────────────
 
 function tone(
@@ -65,6 +111,8 @@ function tone(
   if (!getSoundEnabled()) return;
   const c = getCtx();          // auto-creates context inside any gesture
   if (!c) return;
+  const v = vol * getSfxVolume();
+  if (v <= 0) return;
   try {
     const now = c.currentTime;
     const osc = c.createOscillator();
@@ -79,8 +127,8 @@ function tone(
     }
 
     gain.gain.setValueAtTime(0, now + delayS);
-    gain.gain.linearRampToValueAtTime(vol, now + delayS + 0.005);
-    gain.gain.setValueAtTime(vol, now + delayS + dur * 0.7);
+    gain.gain.linearRampToValueAtTime(v, now + delayS + 0.005);
+    gain.gain.setValueAtTime(v, now + delayS + dur * 0.7);
     gain.gain.exponentialRampToValueAtTime(0.001, now + delayS + dur);
 
     osc.start(now + delayS);
@@ -182,5 +230,111 @@ export function playSound(type: SoundType, extra?: number) {
     case "coin":        return playCoin();
     case "combo":       return playComboStreak(extra ?? 3);
     case "countdown":   return playCountdownBeep();
+  }
+}
+
+// ── Background music ───────────────────────────────────────────────────────────
+// Generative ambient loop built with the Web Audio API (no asset files needed).
+// "calm" = slow chord pad for normal play; "party" = energetic arpeggio + bass.
+// A dedicated GainNode lets the music volume change live, independent of SFX.
+
+export type MusicTrack = "calm" | "party";
+
+let _musicGain: GainNode | null = null;
+let _musicTimer: ReturnType<typeof setInterval> | null = null;
+let _musicTrack: MusicTrack | null = null;
+let _nextNoteTime = 0;
+let _step = 0;
+
+// Step length (seconds) per track.
+const STEP_DUR: Record<MusicTrack, number> = { calm: 3.2, party: 0.22 };
+
+// Calm: gentle A-minor pad progression (Am – F – C – G), each a soft triad.
+const CALM_CHORDS: number[][] = [
+  [220.0, 261.63, 329.63],
+  [174.61, 220.0, 261.63],
+  [261.63, 329.63, 392.0],
+  [196.0, 246.94, 293.66],
+];
+
+// Party: C-major pentatonic arpeggio with a bass note on the downbeat.
+const PARTY_ARP = [261.63, 329.63, 392.0, 523.25, 659.25, 523.25, 392.0, 329.63];
+const PARTY_BASS = [130.81, 174.61, 196.0, 174.61];
+
+function ensureMusicGain(c: AudioContext): GainNode {
+  if (!_musicGain) {
+    _musicGain = c.createGain();
+    _musicGain.gain.value = getMusicVolume();
+    _musicGain.connect(c.destination);
+  }
+  return _musicGain;
+}
+
+function musicNote(
+  c: AudioContext,
+  freq: number,
+  start: number,
+  dur: number,
+  type: OscillatorType,
+  peak: number,
+) {
+  const g = ensureMusicGain(c);
+  const osc = c.createOscillator();
+  const env = c.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  osc.connect(env);
+  env.connect(g);
+  env.gain.setValueAtTime(0.0001, start);
+  env.gain.linearRampToValueAtTime(peak, start + dur * 0.3);
+  env.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+  osc.start(start);
+  osc.stop(start + dur + 0.05);
+}
+
+function scheduleMusicStep(c: AudioContext, step: number, at: number) {
+  if (_musicTrack === "calm") {
+    const chord = CALM_CHORDS[step % CALM_CHORDS.length];
+    chord.forEach((f, i) => musicNote(c, f, at + i * 0.04, STEP_DUR.calm + 0.4, "sine", 0.13));
+  } else {
+    musicNote(c, PARTY_ARP[step % PARTY_ARP.length], at, 0.36, "triangle", 0.12);
+    if (step % 4 === 0) {
+      musicNote(c, PARTY_BASS[(step / 4) % PARTY_BASS.length], at, 0.55, "sawtooth", 0.1);
+    }
+  }
+}
+
+function tickMusicScheduler() {
+  const c = _ctx;
+  if (!c || !_musicTrack) return;
+  const lookahead = 0.25;
+  const stepDur = STEP_DUR[_musicTrack];
+  while (_nextNoteTime < c.currentTime + lookahead) {
+    scheduleMusicStep(c, _step, _nextNoteTime);
+    _nextNoteTime += stepDur;
+    _step++;
+  }
+}
+
+/** Start (or switch to) a looping background track. No-op if music is disabled. */
+export function startMusic(track: MusicTrack = "calm") {
+  if (!getMusicEnabled()) return;
+  const c = getCtx();
+  if (!c) return;
+  if (_musicTrack === track && _musicTimer) return;
+  if (_musicTimer) { clearInterval(_musicTimer); _musicTimer = null; }
+  _musicTrack = track;
+  _step = 0;
+  _nextNoteTime = c.currentTime + 0.1;
+  ensureMusicGain(c).gain.setTargetAtTime(getMusicVolume(), c.currentTime, 0.4);
+  _musicTimer = setInterval(tickMusicScheduler, 100);
+}
+
+/** Stop the background track and fade out the music bus. */
+export function stopMusic() {
+  if (_musicTimer) { clearInterval(_musicTimer); _musicTimer = null; }
+  _musicTrack = null;
+  if (_musicGain && _ctx) {
+    _musicGain.gain.setTargetAtTime(0.0001, _ctx.currentTime, 0.2);
   }
 }

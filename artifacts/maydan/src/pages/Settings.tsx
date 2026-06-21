@@ -2,9 +2,9 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
-import { isSoundEnabled, toggleSound, playSound } from "@/lib/sound";
+import { isSoundEnabled, toggleSound, playSound, getMusicEnabled, toggleMusic, getSfxVolume, setSfxVolume, getMusicVolume, setMusicVolume, startMusic, stopMusic } from "@/lib/sound";
 import { NOTIF_TYPES, getNotifPrefs, setNotifPref, type NotifType } from "@/lib/notifications";
-import { ArrowRight, User, Bell, Volume2, VolumeX, LogOut, Trash2, Globe, Moon, Info, FileText, Shield, Smartphone } from "lucide-react";
+import { ArrowRight, User, Bell, Volume2, VolumeX, LogOut, Trash2, Globe, Moon, Info, FileText, Shield, Smartphone, Music } from "lucide-react";
 import { isHapticsEnabled, setHapticsEnabled, hapticTap } from "@/lib/haptics";
 import { friendlyErrorText } from "@/lib/errors";
 
@@ -13,7 +13,26 @@ export default function Settings() {
   const { dbUser, isGuest, signOut } = useAuth();
 
   const [soundOn, setSoundOn] = useState(() => isSoundEnabled());
+  const [musicOn, setMusicOn] = useState(() => getMusicEnabled());
+  const [sfxVol, setSfxVol] = useState(() => getSfxVolume());
+  const [musicVol, setMusicVol] = useState(() => getMusicVolume());
   const [hapticsOn, setHapticsOn] = useState(() => isHapticsEnabled());
+
+  function handleMusicToggle() {
+    const next = toggleMusic();
+    setMusicOn(next);
+    if (next) startMusic("calm"); else stopMusic();
+  }
+
+  function handleSfxVol(v: number) {
+    setSfxVol(v);
+    setSfxVolume(v);
+  }
+
+  function handleMusicVol(v: number) {
+    setMusicVol(v);
+    setMusicVolume(v);
+  }
 
   function handleHapticsToggle() {
     const next = !hapticsOn;
@@ -136,9 +155,54 @@ export default function Settings() {
               className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-border/30 bg-background hover:border-primary/40 transition-colors text-right"
             >
               {soundOn ? <Volume2 className="w-4 h-4 text-primary" /> : <VolumeX className="w-4 h-4 text-muted-foreground" />}
-              <span className="flex-1 text-sm font-bold">الصوت</span>
+              <span className="flex-1 text-sm font-bold">المؤثرات الصوتية</span>
               <span className="text-xs text-muted-foreground">{soundOn ? "مفعّل" : "موقوف"}</span>
             </button>
+
+            {soundOn && (
+              <div className="flex items-center gap-3 p-2.5 rounded-xl border border-border/30 bg-background">
+                <Volume2 className="w-4 h-4 text-muted-foreground shrink-0" />
+                <span className="text-xs font-bold shrink-0">مستوى المؤثرات</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={sfxVol}
+                  onChange={(e) => handleSfxVol(parseFloat(e.target.value))}
+                  onMouseUp={() => playSound("click")}
+                  onTouchEnd={() => playSound("click")}
+                  className="flex-1 accent-primary"
+                  dir="ltr"
+                />
+              </div>
+            )}
+
+            <button
+              onClick={handleMusicToggle}
+              className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-border/30 bg-background hover:border-primary/40 transition-colors text-right"
+            >
+              <Music className={`w-4 h-4 ${musicOn ? "text-primary" : "text-muted-foreground"}`} />
+              <span className="flex-1 text-sm font-bold">موسيقى الخلفية</span>
+              <span className="text-xs text-muted-foreground">{musicOn ? "مفعّل" : "موقوف"}</span>
+            </button>
+
+            {musicOn && (
+              <div className="flex items-center gap-3 p-2.5 rounded-xl border border-border/30 bg-background">
+                <Music className="w-4 h-4 text-muted-foreground shrink-0" />
+                <span className="text-xs font-bold shrink-0">مستوى الموسيقى</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={musicVol}
+                  onChange={(e) => handleMusicVol(parseFloat(e.target.value))}
+                  className="flex-1 accent-primary"
+                  dir="ltr"
+                />
+              </div>
+            )}
             <button
               onClick={handleHapticsToggle}
               className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-border/30 bg-background hover:border-primary/40 transition-colors text-right"

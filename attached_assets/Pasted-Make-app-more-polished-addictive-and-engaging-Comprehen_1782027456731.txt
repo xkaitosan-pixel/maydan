@@ -1,0 +1,149 @@
+Make ميدان app more polished, addictive, and engaging.
+Comprehensive update across animations, sounds, gameplay feel, and rewards.
+
+═══════════════════════════════
+PART 1 - GAMEPLAY FEEL (juice):
+═══════════════════════════════
+1. Correct answer feedback:
+- Button turns green with a satisfying pop scale animation
+- Burst of small particles/confetti from the button
+- "+10 XP" floats up and fades
+- Quick green flash on screen edges
+- Satisfying "ding" sound
+
+2. Wrong answer feedback:
+- Button turns red, shake animation
+- Brief red flash on screen edges
+- Lower "buzz" sound
+- Correct answer briefly pulses green
+
+3. Streak/combo effects:
+- At 3 streak: screen gets subtle gold glow
+- At 5 streak: "🔥 متوهج!" banner slides in
+- At 10 streak: screen border flames effect + "🔥🔥 لا يُوقف!"
+- Combo counter grows bigger as it increases
+
+4. Timer tension:
+- Last 3 seconds: timer pulses red + ticking sound
+- Screen edges pulse red when time almost out
+- Heartbeat sound effect under 3 seconds
+
+═══════════════════════════════
+PART 2 - SOUNDS & MUSIC:
+═══════════════════════════════
+1. Add subtle background music option:
+- Calm background loop during gameplay (toggleable)
+- Different track for party mode (more energetic)
+- Volume control in settings
+- Default OFF, user can enable
+
+2. Sound effects (use Web Audio API or short audio files):
+- Correct: pleasant ding/chime
+- Wrong: soft buzz
+- Tick: clock tick under 3 seconds  
+- Level up: triumphant fanfare
+- Achievement: sparkle sound
+- Coin earned: coin clink
+- Button tap: subtle click
+- Game start: whoosh
+- Victory: celebration sound
+- Countdown: 3-2-1 beeps
+
+3. Make all sounds toggleable in settings
+Respect existing sound toggle
+
+═══════════════════════════════
+PART 3 - ANIMATIONS:
+═══════════════════════════════
+1. Page transitions:
+- Smooth fade + slide between pages
+- Cards stagger-animate in on page load
+
+2. Number animations:
+- XP/coins count up animation (not instant jump)
+- Score increments with bounce
+- Level up: big celebration modal with confetti
+
+3. Micro-interactions:
+- All buttons: scale down on press (0.95)
+- Cards lift on hover with shadow
+- Icons subtle bounce on appear
+- Loading: branded spinner with logo
+
+4. Achievement unlock:
+- Full screen celebration overlay
+- Badge flies in with glow + confetti
+- Sound + haptic feedback
+
+═══════════════════════════════
+PART 4 - REWARDS & MOTIVATION:
+═══════════════════════════════
+1. Daily login streak rewards:
+- Show "🔥 يوم X" on login
+- Day 1: +10 coins, Day 2: +15, Day 3: +20...
+- Day 7: big reward +100 coins
+- Calendar visual showing streak progress
+- Warning if about to lose streak
+
+2. Level up rewards:
+- Each level up: reward coins + unlock something
+- Show "وصلت للمستوى X! 🎉" celebration
+- New badge/frame unlocked notification
+
+3. Near-miss motivation:
+- "أنت قريب من المركز الأول! 🏆"
+- "نقطتان للمستوى التالي! ⚡"
+- "أكمل 3 ألعاب لإنجاز جديد!"
+
+4. Progress indicators everywhere:
+- XP bar always visible with smooth fill
+- Achievement progress: "7/10 لفتح الإنجاز"
+- Daily goals: "العب 3 ألعاب اليوم (1/3)"
+
+═══════════════════════════════
+PART 5 - VISUAL POLISH:
+═══════════════════════════════
+1. Consistent design system:
+- All cards: same border-radius (16-20px)
+- Consistent spacing and padding
+- Unified color palette (gold/purple/dark)
+- Better typography hierarchy
+
+2. Glassmorphism throughout:
+- Glass cards for stats, modals, panels
+- Subtle gradients and glows
+- Depth with layered shadows
+
+3. Empty states with personality:
+- Friendly illustrations/emojis
+- Encouraging messages
+- Clear call-to-action
+
+4. Loading states:
+- Skeleton screens (not blank)
+- Branded loading animations
+- Smooth content fade-in
+
+CSS keyframes to add:
+@keyframes pop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+@keyframes shake {
+  0%,100% { transform: translateX(0); }
+  25% { transform: translateX(-8px); }
+  75% { transform: translateX(8px); }
+}
+@keyframes countUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes glowPulse {
+  0%,100% { box-shadow: 0 0 20px rgba(212,175,55,0.4); }
+  50% { box-shadow: 0 0 40px rgba(212,175,55,0.7); }
+}
+
+Keep performance smooth (use CSS transforms, not layout changes).
+Respect prefers-reduced-motion.
+Push to GitHub.

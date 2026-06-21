@@ -477,6 +477,24 @@ html[dir="rtl"] .maydan-skeleton::after,
   animation: mdyFadeIn 0.3s ease forwards;
 }
 
+/* Brief screen-edge glow on correct/wrong answers */
+@keyframes mdyScreenFlash {
+  0%   { opacity: 0; }
+  20%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+.screen-flash {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  box-shadow: inset 0 0 90px 22px var(--flash-color, rgba(34,197,94,0.5));
+  animation: mdyScreenFlash 0.5s ease-out forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .screen-flash { display: none; }
+}
+
 @keyframes mdySlideUp {
   from { opacity: 0; transform: translateY(20px); }
   to   { opacity: 1; transform: translateY(0); }

@@ -7,6 +7,8 @@ import { shuffleQuestion } from "@/lib/shuffle";
 import QuestionImage from "@/components/QuestionImage";
 import CircularTimer from "@/components/CircularTimer";
 import { playSound } from "@/lib/sound";
+import { useBackgroundMusic } from "@/lib/useBackgroundMusic";
+import { flashScreen } from "@/lib/flash";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type GuestPhase = "enter_code" | "enter_name" | "waiting" | "question" | "answered" | "reveal" | "leaderboard" | "finished";
@@ -68,6 +70,7 @@ async function getPartyQuestions(code: string, category: string, count: number) 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function PartyGuest() {
   const [, navigate] = useLocation();
+  useBackgroundMusic("party");
 
   const [phase, setPhase] = useState<GuestPhase>("enter_code");
   const [codeInput, setCodeInput] = useState(() => {
@@ -281,6 +284,7 @@ export default function PartyGuest() {
         const wasCorrect = selected === revealQ.correct;
         if (wasCorrect) {
           playSound("correct");
+          flashScreen("correct");
           const newStreak = consecutiveRef.current + 1;
           consecutiveRef.current = newStreak;
           setConsecutiveCorrect(newStreak);
@@ -290,6 +294,7 @@ export default function PartyGuest() {
           }
         } else {
           playSound("wrong");
+          flashScreen("wrong");
           consecutiveRef.current = 0;
           setConsecutiveCorrect(0);
         }
