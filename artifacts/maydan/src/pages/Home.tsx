@@ -10,6 +10,9 @@ import { Button } from "@/components/ui/button";
 import StreakMilestone from "@/components/StreakMilestone";
 import NotificationBanner from "@/components/NotificationBanner";
 import XPBar from "@/components/XPBar";
+import EngagementSection from "@/components/EngagementSection";
+import LoginStreakPopup from "@/components/LoginStreakPopup";
+import { refreshLoginStreak, type LoginInfo } from "@/lib/engagement";
 import { toggleTheme, getTheme } from "@/lib/theme";
 import { isSoundEnabled, toggleSound, playClick, playSound } from "@/lib/sound";
 import {
@@ -51,6 +54,7 @@ export default function Home() {
   const [pendingList, setPendingList] = useState<DbChallenge[]>([]);
   const [loadingPending, setLoadingPending] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [loginInfo, setLoginInfo] = useState<LoginInfo | null>(null);
 
   async function openPendingSheet() {
     setShowPendingSheet(true);
@@ -147,6 +151,11 @@ export default function Home() {
           refreshUser();
         }
       });
+      // Daily login streak — show popup when today's reward can be claimed
+      refreshLoginStreak(dbUser.id).then(info => {
+        if (info && info.canClaim) setLoginInfo(info);
+        refreshUser();
+      }).catch(() => {});
     }
     setNotifications(getActiveNotifications());
     if (dbUser?.id && !isGuest) {
@@ -199,6 +208,11 @@ export default function Home() {
       gradient: "linear-gradient(135deg, #1d4ed8, #7c3aed)",
       onClick: () => navigate("/ranked"),
     },
+    {
+      id: "training", icon: "🎓", label: "وضع التدريب", sub: "تعلّم بلا ضغط",
+      gradient: "linear-gradient(135deg, #0891b2, #155e75)",
+      onClick: () => navigate("/training"),
+    },
   ];
 
   const aData           = parseAchievementsData(dbUser?.achievements);
@@ -219,6 +233,14 @@ export default function Home() {
   return (
     <div className="min-h-screen gradient-hero star-bg particle-bg flex flex-col">
       {milestone && <StreakMilestone days={milestone} onClose={() => setMilestone(null)} />}
+      {loginInfo && dbUser && (
+        <LoginStreakPopup
+          userId={dbUser.id}
+          info={loginInfo}
+          onClose={() => setLoginInfo(null)}
+          onClaimed={() => refreshUser()}
+        />
+      )}
       {seasonRewardMsg && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 rounded-full px-6 py-3 font-bold text-sm text-white shadow-xl bg-yellow-600 border border-yellow-500/50">
           {seasonRewardMsg}
@@ -395,6 +417,11 @@ export default function Home() {
                         <p className="text-xs font-bold text-yellow-400">{daysUntilReset} أيام</p>
                       </div>
                     </div>
+                  )}
+
+                  {/* Engagement: daily missions, weekly challenge, reward box, motivation */}
+                  {!isGuest && dbUser && (
+                    <EngagementSection onCoins={() => refreshUser()} />
                   )}
 
                   {/* Time-of-day greeting */}

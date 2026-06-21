@@ -37,6 +37,7 @@ const RankedMode = lazy(() => import("@/pages/RankedMode"));
 const Achievements = lazy(() => import("@/pages/Achievements"));
 const Store = lazy(() => import("@/pages/Store"));
 const DailyChallenge = lazy(() => import("@/pages/DailyChallenge"));
+const Training = lazy(() => import("@/pages/Training"));
 const Settings = lazy(() => import("@/pages/Settings"));
 const PublicProfile = lazy(() => import("@/pages/PublicProfile"));
 const Terms = lazy(() => import("@/pages/Terms"));
@@ -315,6 +316,7 @@ function AppRoutes() {
             <Route path="/achievements" component={Achievements} />
             <Route path="/store" component={Store} />
             <Route path="/daily" component={DailyChallenge} />
+            <Route path="/training" component={Training} />
             <Route path="/terms" component={Terms} />
             <Route path="/privacy" component={Privacy} />
             <Route path="/about" component={About} />

@@ -145,11 +145,16 @@ export interface AchievementsData {
   avatar_frame: string | null;
   season_week: string;
   power_cards_store: Record<string, number>;
+  // Engagement state (daily missions, weekly challenge, login streak, reward
+  // boxes, category levels). Kept as an opaque passthrough here so this module
+  // stays free of a dependency on engagement.ts; the engagement module owns the
+  // concrete shape. Preserved on every write so awards never wipe it.
+  engagement: unknown;
 }
 
 export function parseAchievementsData(raw: unknown): AchievementsData {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return { unlocked: [], progress: {}, avatar_frame: null, season_week: '', power_cards_store: {} };
+    return { unlocked: [], progress: {}, avatar_frame: null, season_week: '', power_cards_store: {}, engagement: null };
   }
   const r = raw as Record<string, unknown>;
   return {
@@ -158,6 +163,7 @@ export function parseAchievementsData(raw: unknown): AchievementsData {
     avatar_frame:      (r.avatar_frame as string) ?? null,
     season_week:       (r.season_week as string) ?? '',
     power_cards_store: (r.power_cards_store as Record<string, number>) ?? {},
+    engagement:        r.engagement ?? null,
   };
 }
 

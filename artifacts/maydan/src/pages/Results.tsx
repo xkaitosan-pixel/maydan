@@ -13,6 +13,7 @@ import FloatingReward from "@/components/FloatingReward";
 import ShareCard from "@/components/ShareCard";
 import { getSeasonTier } from "@/lib/gamification";
 import { awardGameRewards, XP_REWARDS, COIN_REWARDS } from "@/lib/gamification";
+import { recordEngagementGame } from "@/lib/engagement";
 
 const WA_ICON = (
   <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
@@ -119,7 +120,9 @@ export default function Results() {
             if (result.coinsGained > 0) playSound("coin");
             if (result.leveledUp) playSound("levelup");
             recordTodayXP(result.xpGained);
-            refreshUser();
+            recordEngagementGame(dbUser.id, { won: myWon, correct: myScore, categoryId: challenge.categoryId })
+              .then(() => refreshUser())
+              .catch(() => refreshUser());
           }).catch(() => {});
         }
       }

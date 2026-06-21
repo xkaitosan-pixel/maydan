@@ -18,6 +18,7 @@ import AchievementPopup from "@/components/AchievementPopup";
 import FloatingReward from "@/components/FloatingReward";
 import ShareCard from "@/components/ShareCard";
 import { awardGameRewards, XP_REWARDS } from "@/lib/gamification";
+import { recordEngagementGame } from "@/lib/engagement";
 import { recordTodayWin, recordTodayLoss, recordTodayXP } from "@/lib/storage";
 
 const XP_PER_CORRECT = XP_REWARDS.correct_answer;
@@ -260,7 +261,9 @@ export default function Survival() {
           if (result.coinsGained > 0) playSound("coin");
           if (result.leveledUp) playSound("levelup");
           recordTodayXP(result.xpGained);
-          refreshUser();
+          recordEngagementGame(dbUser.id, { won: finalScore >= 15, correct: finalScore, categoryId: selectedCategory })
+            .then(() => refreshUser())
+            .catch(() => refreshUser());
         }).catch(() => {});
       }
     }

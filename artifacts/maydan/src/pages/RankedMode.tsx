@@ -18,6 +18,7 @@ import AchievementPopup from "@/components/AchievementPopup";
 import FloatingReward from "@/components/FloatingReward";
 import ShareCard from "@/components/ShareCard";
 import { awardGameRewards, XP_REWARDS, COIN_REWARDS } from "@/lib/gamification";
+import { recordEngagementGame } from "@/lib/engagement";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -118,6 +119,7 @@ export default function RankedMode() {
   const advancedFromRef = useRef<number>(-1);   // last qIdx that p1 already advanced past
   const displayedQIdxRef = useRef<number>(-1);  // qIdx currently shown to the user
   const finishedRef = useRef(false);
+  const correctCountRef = useRef(0);
 
   useEffect(() => {
     myIdRef.current = myId;
@@ -344,6 +346,7 @@ export default function RankedMode() {
     advancedFromRef.current = -1;
     displayedQIdxRef.current = -1;
     finishedRef.current = false;
+    correctCountRef.current = 0;
 
     const qs = await getMatchQuestions(m.id, m.category);
     const sq = qs.map((q) => shuffleQuestion(q, q.id));
@@ -557,7 +560,7 @@ export default function RankedMode() {
     const correct = !!q && idx === q.correct;
     const pts = pointsForElapsedMs(elapsed, correct);
     setSelected(idx);
-    if (correct) { playCorrect(); flashScreen("correct"); }
+    if (correct) { correctCountRef.current += 1; playCorrect(); flashScreen("correct"); }
     else { playWrong(); flashScreen("wrong"); }
     void writeMyAnswer(idx, qIdx, pts, elapsed);
   }
@@ -651,7 +654,9 @@ export default function RankedMode() {
         }
         if (result.coinsGained > 0) playSound("coin");
         if (result.leveledUp) playSound("levelup");
-        refreshUser();
+        recordEngagementGame(dbUser.id, { won, correct: correctCountRef.current })
+          .then(() => refreshUser())
+          .catch(() => refreshUser());
       }).catch(() => {});
     }
 

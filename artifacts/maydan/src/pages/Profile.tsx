@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { parseAchievementsData, ACHIEVEMENTS, LEVELS } from "@/lib/gamification";
+import CategoryLevels from "@/components/CategoryLevels";
 import { Crown, Trophy, Target, Zap, Star, Edit2, Check, X, Camera, Swords, Bell, Users, Share2, Link2, Settings as SettingsIcon } from "lucide-react";
 
 import { COUNTRIES, getCountryFlag } from "@/lib/countryUtils";
@@ -576,6 +577,11 @@ export default function Profile() {
               </div>
             )}
           </div>
+        )}
+
+        {/* Category levels & mastery */}
+        {!isGuest && dbUser && (
+          <CategoryLevels achievements={dbUser.achievements} />
         )}
 
         {/* Sent challenges */}

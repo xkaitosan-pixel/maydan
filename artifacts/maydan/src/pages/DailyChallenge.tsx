@@ -10,6 +10,7 @@ import { playSound } from "@/lib/sound";
 import { useBackgroundMusic } from "@/lib/useBackgroundMusic";
 import { flashScreen } from "@/lib/flash";
 import { recordTodayWin, recordTodayLoss, recordTodayXP } from "@/lib/storage";
+import { recordEngagementGame } from "@/lib/engagement";
 import { getDailyPercentile } from "@/lib/db";
 import { getCountryFlag } from "@/lib/countryUtils";
 import ShareCard from "@/components/ShareCard";
@@ -70,6 +71,7 @@ export default function DailyChallenge() {
   const answeredRef = useRef(false);
   const questionStartRef = useRef(0);
   const scoreRef = useRef(0);
+  const correctRef = useRef(0);
 
   const today = getTodayDate();
   const userId = dbUser?.id ?? (isGuest ? "guest_" + (localStorage.getItem("maydan_guest_id") ?? Math.random().toString(36).slice(2)) : null);
@@ -120,6 +122,7 @@ export default function DailyChallenge() {
 
   function startChallenge() {
     scoreRef.current = 0;
+    correctRef.current = 0;
     setScore(0);
     setPhase("question");
     setQIdx(0);
@@ -172,6 +175,7 @@ export default function DailyChallenge() {
     if (correct) {
       playSound("correct");
       flashScreen("correct");
+      correctRef.current += 1;
       const pts = calcPoints(elapsedSec);
       scoreRef.current += pts;
       setScore(scoreRef.current);
@@ -218,6 +222,9 @@ export default function DailyChallenge() {
     if (accPct >= 70) recordTodayWin(); else recordTodayLoss();
     recordTodayXP(Math.round(finalScore / 5));
     playSound("gameover");
+    if (dbUser?.id) {
+      recordEngagementGame(dbUser.id, { won: accPct >= 70, correct: correctRef.current }).catch(() => {});
+    }
     if (!userId) return;
 
     const entry: DailyEntry = {
