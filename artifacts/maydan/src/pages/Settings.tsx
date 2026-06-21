@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
-import { isSoundEnabled, toggleSound, playSound, getMusicEnabled, toggleMusic, getSfxVolume, setSfxVolume, getMusicVolume, setMusicVolume, startMusic, stopMusic } from "@/lib/sound";
+import { isSoundEnabled, toggleSound, playSound, getMusicEnabled, toggleMusic, getSfxVolume, setSfxVolume, getMusicVolume, setMusicVolume } from "@/lib/sound";
 import { NOTIF_TYPES, getNotifPrefs, setNotifPref, type NotifType } from "@/lib/notifications";
 import { ArrowRight, User, Bell, Volume2, VolumeX, LogOut, Trash2, Globe, Moon, Info, FileText, Shield, Smartphone, Music } from "lucide-react";
 import { isHapticsEnabled, setHapticsEnabled, hapticTap } from "@/lib/haptics";
@@ -19,9 +19,12 @@ export default function Settings() {
   const [hapticsOn, setHapticsOn] = useState(() => isHapticsEnabled());
 
   function handleMusicToggle() {
+    // Persist preference only. Playback is owned by the game screens via
+    // useBackgroundMusic — starting it here would leave an orphaned scheduler
+    // running on non-game pages. toggleMusic() already stops playback when
+    // turning music off.
     const next = toggleMusic();
     setMusicOn(next);
-    if (next) startMusic("calm"); else stopMusic();
   }
 
   function handleSfxVol(v: number) {
