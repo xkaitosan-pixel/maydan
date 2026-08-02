@@ -1,1 +1,2 @@
 - [Maydan engagement state storage](engagement-state-storage.md) — engagement state nests at users.achievements.engagement; always read via engagementFrom(), never normalizeEngagement(raw blob).
+- [GitHub push path](github-push-path.md) — git credentials are blocked here; commit via sandbox child_process, push via connectors-sdk GitHub Contents API to xkaitosan-pixel/maydan main.
