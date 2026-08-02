@@ -53,6 +53,17 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 const GUEST_KEY = "maydan_guest_mode";
 
+/** Race a promise against a timeout so a hung network call can never block the app forever. */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    promise.then(
+      v => { clearTimeout(timer); resolve(v); },
+      e => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [dbUser, setDbUser] = useState<DbUser | null>(null);
@@ -67,11 +78,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const fullName: string = authUser.user_metadata?.full_name ?? authUser.user_metadata?.name ?? "";
       setGoogleDisplayName(fullName);
 
-      const { data, error } = await supabase
-        .from("users")
-        .select("*")
-        .eq("auth_id", authUser.id)
-        .single();
+      const { data, error } = await withTimeout(
+        Promise.resolve(
+          supabase.from("users").select("*").eq("auth_id", authUser.id).single()
+        ),
+        8000,
+        "load user",
+      );
 
       if (data && !error) {
         setDbUser(data);
@@ -86,11 +99,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const encodedSeed = encodeURIComponent(nameForAvatar);
       const generatedAvatar = `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodedSeed}&backgroundColor=9333ea`;
       const avatarUrl = providerAvatar || generatedAvatar;
-      const { data: newUser, error: insertError } = await supabase
-        .from("users")
-        .insert({ auth_id: authUser.id, avatar_url: avatarUrl, username: existingUsername || null })
-        .select()
-        .single();
+      const { data: newUser, error: insertError } = await withTimeout(
+        Promise.resolve(
+          supabase
+            .from("users")
+            .insert({ auth_id: authUser.id, avatar_url: avatarUrl, username: existingUsername || null })
+            .select()
+            .single()
+        ),
+        8000,
+        "create user",
+      );
 
       if (newUser && !insertError) {
         setDbUser(newUser);
@@ -115,14 +134,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      setSession(s);
-      if (s) {
-        loadOrCreateDbUser(s.user).finally(() => setIsLoading(false));
-      } else {
+    // Hard safety net: never show the loading spinner for more than 10 seconds,
+    // even if every network call below hangs. The app renders in whatever auth
+    // state we have at that point (worst case: the login screen).
+    const maxLoadTimer = setTimeout(() => {
+      console.warn("[auth] init exceeded 10s — rendering app anyway");
+      setIsLoading(false);
+    }, 10_000);
+
+    withTimeout(supabase.auth.getSession(), 8000, "getSession")
+      .then(({ data: { session: s } }) => {
+        setSession(s);
+        if (s) {
+          loadOrCreateDbUser(s.user).finally(() => setIsLoading(false));
+        } else {
+          setIsLoading(false);
+        }
+      })
+      .catch(e => {
+        console.error("[auth] getSession failed", e);
         setIsLoading(false);
-      }
-    });
+      });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
@@ -137,7 +169,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      clearTimeout(maxLoadTimer);
+      subscription.unsubscribe();
+    };
   }, [loadOrCreateDbUser]);
 
   async function signInWithGoogle() {
