@@ -13,6 +13,10 @@ interface CacheEntry<T> {
 
 const categoryCache = new Map<string, CacheEntry<Question[]>>();
 const categoryInflight = new Map<string, Promise<Question[]>>();
+const selectionCache = new Map<string, CacheEntry<Question[]>>();
+const selectionInflight = new Map<string, Promise<Question[]>>();
+const countCache = new Map<string, CacheEntry<number>>();
+const countInflight = new Map<string, Promise<number>>();
 const idsCache = new Map<string, CacheEntry<Question[]>>();
 const idsInflight = new Map<string, Promise<Question[]>>();
 const questionCache = new Map<number, CacheEntry<Question>>();
@@ -47,6 +51,128 @@ export function seededShuffleQuestions<T>(arr: T[], seed: string): T[] {
     [result[i], result[j]] = [result[j], result[i]];
   }
   return result;
+}
+
+function seedHash(seed: string): number {
+  let hash = 0;
+  for (const c of seed) hash = Math.imul(hash ^ c.charCodeAt(0), 0x9e3779b9);
+  return hash >>> 0;
+}
+
+type Difficulty = Question["difficulty"];
+
+function selectionKey(category: string, difficulty?: Difficulty): string {
+  return `${category}|${difficulty ?? "all"}`;
+}
+
+function filteredQuestionQuery(difficulty?: Difficulty) {
+  let query = supabase
+    .from("questions")
+    .select(QUESTION_COLUMNS)
+    .order("id");
+
+  if (difficulty) query = query.eq("difficulty", difficulty);
+  return query;
+}
+
+function applyCategoryFilter<T extends { eq: (column: string, value: string) => T; neq: (column: string, value: string) => T }>(
+  query: T,
+  category: string,
+): T {
+  return category === "mix"
+    ? query.neq("category", "legends")
+    : query.eq("category", category);
+}
+
+async function countMatchingQuestions(category: string, difficulty?: Difficulty): Promise<number> {
+  const key = selectionKey(category, difficulty);
+  const cached = freshValue(countCache.get(key));
+  if (cached !== undefined) return cached;
+
+  const pending = countInflight.get(key);
+  if (pending) return pending;
+
+  const request = (async () => {
+    let query = supabase
+      .from("questions")
+      .select("id", { count: "exact", head: true });
+    query = applyCategoryFilter(query, category);
+    if (difficulty) query = query.eq("difficulty", difficulty);
+
+    const { count, error } = await query;
+    if (error) {
+      console.error("Failed to count questions:", error);
+      return 0;
+    }
+
+    const value = count ?? 0;
+    countCache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+    return value;
+  })();
+  countInflight.set(key, request);
+  try {
+    return await request;
+  } finally {
+    countInflight.delete(key);
+  }
+}
+
+async function fetchQuestionRange(
+  category: string,
+  start: number,
+  end: number,
+  difficulty?: Difficulty,
+): Promise<Question[]> {
+  let query = filteredQuestionQuery(difficulty).range(start, end);
+  query = applyCategoryFilter(query, category);
+  const { data, error } = await query;
+  if (error || !data) {
+    console.error("Failed to load bounded question range:", error);
+    return [];
+  }
+  return data as Question[];
+}
+
+async function fetchBoundedSeededQuestions(
+  category: string,
+  seed: string,
+  count: number,
+  difficulty?: Difficulty,
+): Promise<Question[]> {
+  const safeCount = Math.max(0, Math.floor(count));
+  if (safeCount === 0) return [];
+
+  const key = `${selectionKey(category, difficulty)}|${seed}|${safeCount}`;
+  const cached = freshValue(selectionCache.get(key));
+  if (cached) return cached;
+
+  const pending = selectionInflight.get(key);
+  if (pending) return pending;
+
+  const request = (async () => {
+    const total = await countMatchingQuestions(category, difficulty);
+    if (total === 0) return [];
+
+    const requested = Math.min(safeCount, total);
+    const start = seedHash(seed) % total;
+    const firstCount = Math.min(requested, total - start);
+    const ranges = [fetchQuestionRange(category, start, start + firstCount - 1, difficulty)];
+    if (firstCount < requested) {
+      ranges.push(fetchQuestionRange(category, 0, requested - firstCount - 1, difficulty));
+    }
+
+    const questions = seededShuffleQuestions((await Promise.all(ranges)).flat(), seed);
+    const expiresAt = Date.now() + CACHE_TTL_MS;
+    selectionCache.set(key, { value: questions, expiresAt });
+    rememberQuestions(questions, expiresAt);
+    return questions;
+  })();
+  selectionInflight.set(key, request);
+  try {
+    return await request;
+  } finally {
+    selectionInflight.delete(key);
+  }
 }
 
 export async function loadCategoryQuestions(category: string): Promise<Question[]> {
@@ -98,14 +224,17 @@ export async function loadCategoryQuestions(category: string): Promise<Question[
 }
 
 export async function fetchGameQuestions(category: string, count?: number): Promise<Question[]> {
+  if (count !== undefined) {
+    const seed = `random_${Math.random().toString(36).slice(2)}`;
+    return fetchBoundedSeededQuestions(category, seed, count);
+  }
   const all = await loadCategoryQuestions(category);
   const shuffled = shuffleArray(all);
-  return count ? shuffled.slice(0, count) : shuffled;
+  return shuffled;
 }
 
 export async function fetchSeededQuestions(category: string, seed: string, count: number): Promise<Question[]> {
-  const all = await loadCategoryQuestions(category);
-  return seededShuffleQuestions(all, seed).slice(0, Math.min(count, all.length));
+  return fetchBoundedSeededQuestions(category, seed, count);
 }
 
 export async function fetchQuestionsByIds(ids: number[]): Promise<Question[]> {
@@ -166,17 +295,22 @@ export async function fetchQuestionsByIds(ids: number[]): Promise<Question[]> {
 }
 
 export async function fetchMixedDifficultyDailyQuestions(seed: string): Promise<Question[]> {
-  const all = await loadCategoryQuestions("mix");
-  const easy = seededShuffleQuestions(all.filter((q) => q.difficulty === "easy"), seed + "easy").slice(0, 4);
-  const medium = seededShuffleQuestions(all.filter((q) => q.difficulty === "medium"), seed + "med").slice(0, 4);
-  const hard = seededShuffleQuestions(all.filter((q) => q.difficulty === "hard"), seed + "hard").slice(0, 2);
+  const [easy, medium, hard] = await Promise.all([
+    fetchBoundedSeededQuestions("mix", seed + "easy", 4, "easy"),
+    fetchBoundedSeededQuestions("mix", seed + "med", 4, "medium"),
+    fetchBoundedSeededQuestions("mix", seed + "hard", 2, "hard"),
+  ]);
   return seededShuffleQuestions([...easy, ...medium, ...hard], seed);
 }
 
 export function clearQuestionCache() {
   categoryCache.clear();
+  selectionCache.clear();
+  countCache.clear();
   idsCache.clear();
   questionCache.clear();
   categoryInflight.clear();
+  selectionInflight.clear();
+  countInflight.clear();
   idsInflight.clear();
 }
