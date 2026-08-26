@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from "react";
 import { supabase } from "./supabase";
 import { syncPremiumFromServer } from "./storage";
 import type { Session, User } from "@supabase/supabase-js";
@@ -35,6 +35,8 @@ interface AuthContextType {
   dbUser: DbUser | null;
   isGuest: boolean;
   isLoading: boolean;
+  isProfileLoading: boolean;
+  profileError: string | null;
   needsUsername: boolean;
   googleDisplayName: string;
   isFirstLogin: boolean;
@@ -52,6 +54,18 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 const GUEST_KEY = "maydan_guest_mode";
+const OPTIONAL_CALL_TIMEOUT_MS = 5_000;
+const PROFILE_CACHE_TTL_MS = 30_000;
+export const DB_USER_COLUMNS = "id,auth_id,username,avatar_url,total_wins,total_losses,streak_count,longest_streak,last_played,is_premium,total_points,created_at,xp,level,coins,rank_title,achievements,season_points,display_name,country,bio,gender,onboarding_completed,favorite_categories";
+
+interface ProfileLoadResult {
+  user: DbUser | null;
+  created: boolean;
+}
+
+const profileCache = new Map<string, { user: DbUser; expiresAt: number }>();
+const profileRequests = new Map<string, Promise<ProfileLoadResult>>();
+const profileRequestVersions = new Map<string, number>();
 
 /** Race a promise against a timeout so a hung network call can never block the app forever. */
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -64,105 +78,197 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
+async function fetchOrCreateDbUser(authUser: User): Promise<ProfileLoadResult> {
+  const { data, error } = await withTimeout(
+    Promise.resolve(
+      supabase.from("users").select(DB_USER_COLUMNS).eq("auth_id", authUser.id).maybeSingle()
+    ),
+    OPTIONAL_CALL_TIMEOUT_MS,
+    "load user",
+  );
+
+  if (data && !error) {
+    return { user: data as DbUser, created: false };
+  }
+  if (error) throw error;
+
+  const fullName: string = authUser.user_metadata?.full_name ?? authUser.user_metadata?.name ?? "";
+  const providerAvatar: string = authUser.user_metadata?.avatar_url ?? "";
+  const existingUsername: string = authUser.user_metadata?.username ?? "";
+  const nameForAvatar = fullName || existingUsername || authUser.id;
+  const encodedSeed = encodeURIComponent(nameForAvatar);
+  const generatedAvatar = `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodedSeed}&backgroundColor=9333ea`;
+  const avatarUrl = providerAvatar || generatedAvatar;
+  const { data: newUser, error: insertError } = await withTimeout(
+    Promise.resolve(
+      supabase
+        .from("users")
+        .insert({ auth_id: authUser.id, avatar_url: avatarUrl, username: existingUsername || null })
+        .select(DB_USER_COLUMNS)
+        .single()
+    ),
+    OPTIONAL_CALL_TIMEOUT_MS,
+    "create user",
+  );
+
+  if (newUser && !insertError) {
+    return { user: newUser as DbUser, created: true };
+  }
+
+  return { user: null, created: false };
+}
+
+function getDbUser(authUser: User, force = false): Promise<ProfileLoadResult> {
+  if (!force) {
+    const cached = profileCache.get(authUser.id);
+    if (cached && cached.expiresAt > Date.now()) {
+      return Promise.resolve({ user: cached.user, created: false });
+    }
+    if (cached) profileCache.delete(authUser.id);
+  }
+
+  const inFlight = profileRequests.get(authUser.id);
+  if (!force && inFlight) return inFlight;
+
+  const requestVersion = (profileRequestVersions.get(authUser.id) ?? 0) + 1;
+  profileRequestVersions.set(authUser.id, requestVersion);
+  const request = fetchOrCreateDbUser(authUser)
+    .then(result => {
+      if (result.user && profileRequestVersions.get(authUser.id) === requestVersion) {
+        profileCache.set(authUser.id, {
+          user: result.user,
+          expiresAt: Date.now() + PROFILE_CACHE_TTL_MS,
+        });
+      }
+      return result;
+    })
+    .finally(() => {
+      if (profileRequests.get(authUser.id) === request) {
+        profileRequests.delete(authUser.id);
+      }
+    });
+
+  profileRequests.set(authUser.id, request);
+  return request;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [dbUser, setDbUser] = useState<DbUser | null>(null);
   const [isGuest, setIsGuest] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isProfileLoading, setIsProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const [needsUsername, setNeedsUsername] = useState(false);
   const [googleDisplayName, setGoogleDisplayName] = useState("");
   const [isFirstLogin, setIsFirstLogin] = useState(false);
+  const activeAuthIdRef = useRef<string | null>(null);
+  const profileLoadGenerationRef = useRef(0);
 
-  const loadOrCreateDbUser = useCallback(async (authUser: User) => {
+  const loadOrCreateDbUser = useCallback(async (authUser: User, force = false) => {
+    const generation = ++profileLoadGenerationRef.current;
+    setIsProfileLoading(true);
+    setProfileError(null);
     try {
       const fullName: string = authUser.user_metadata?.full_name ?? authUser.user_metadata?.name ?? "";
       setGoogleDisplayName(fullName);
 
-      const { data, error } = await withTimeout(
-        Promise.resolve(
-          supabase.from("users").select("*").eq("auth_id", authUser.id).single()
-        ),
-        8000,
-        "load user",
-      );
-
-      if (data && !error) {
-        setDbUser(data);
-        syncPremiumFromServer(!!data.is_premium);
-        setNeedsUsername(!data.username);
-        return;
-      }
-
-      const providerAvatar: string = authUser.user_metadata?.avatar_url ?? "";
       const existingUsername: string = authUser.user_metadata?.username ?? "";
-      const nameForAvatar = fullName || existingUsername || authUser.id;
-      const encodedSeed = encodeURIComponent(nameForAvatar);
-      const generatedAvatar = `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodedSeed}&backgroundColor=9333ea`;
-      const avatarUrl = providerAvatar || generatedAvatar;
-      const { data: newUser, error: insertError } = await withTimeout(
-        Promise.resolve(
-          supabase
-            .from("users")
-            .insert({ auth_id: authUser.id, avatar_url: avatarUrl, username: existingUsername || null })
-            .select()
-            .single()
-        ),
-        8000,
-        "create user",
-      );
+      const result = await getDbUser(authUser, force);
+      if (
+        generation !== profileLoadGenerationRef.current ||
+        activeAuthIdRef.current !== authUser.id
+      ) return;
 
-      if (newUser && !insertError) {
-        setDbUser(newUser);
-        syncPremiumFromServer(!!newUser.is_premium);
-        setNeedsUsername(!existingUsername);
-        setIsFirstLogin(true);
+      if (result.user) {
+        setDbUser(result.user);
+        syncPremiumFromServer(!!result.user.is_premium);
+        setNeedsUsername(!result.user.username);
+        if (result.created) {
+          setNeedsUsername(!existingUsername);
+          setIsFirstLogin(true);
+        }
+      } else {
+        setProfileError("تعذر تحميل ملفك الشخصي. تحقق من الاتصال ثم حاول مجدداً.");
       }
     } catch (e) {
+      if (
+        generation !== profileLoadGenerationRef.current ||
+        activeAuthIdRef.current !== authUser.id
+      ) return;
       console.error("loadOrCreateDbUser error", e);
+      setProfileError("تعذر تحميل ملفك الشخصي. تحقق من الاتصال ثم حاول مجدداً.");
+    } finally {
+      if (
+        generation === profileLoadGenerationRef.current &&
+        activeAuthIdRef.current === authUser.id
+      ) {
+        setIsProfileLoading(false);
+      }
     }
   }, []);
 
   const refreshUser = useCallback(async () => {
     if (!session?.user) return;
-    await loadOrCreateDbUser(session.user);
+    profileCache.delete(session.user.id);
+    await loadOrCreateDbUser(session.user, true);
   }, [session, loadOrCreateDbUser]);
 
   useEffect(() => {
     if (localStorage.getItem(GUEST_KEY)) {
+      activeAuthIdRef.current = null;
       setIsGuest(true);
       setIsLoading(false);
       return;
     }
 
-    // Hard safety net: never show the loading spinner for more than 10 seconds,
+    // Hard safety net: never show the loading spinner for more than 5 seconds,
     // even if every network call below hangs. The app renders in whatever auth
     // state we have at that point (worst case: the login screen).
     const maxLoadTimer = setTimeout(() => {
-      console.warn("[auth] init exceeded 10s — rendering app anyway");
+      console.warn("[auth] init exceeded 5s — rendering app anyway");
       setIsLoading(false);
-    }, 10_000);
+    }, OPTIONAL_CALL_TIMEOUT_MS);
 
-    withTimeout(supabase.auth.getSession(), 8000, "getSession")
+    withTimeout(supabase.auth.getSession(), OPTIONAL_CALL_TIMEOUT_MS, "getSession")
       .then(({ data: { session: s } }) => {
+        clearTimeout(maxLoadTimer);
+        const nextAuthId = s?.user.id ?? null;
+        if (activeAuthIdRef.current !== nextAuthId) {
+          profileLoadGenerationRef.current += 1;
+          setDbUser(null);
+          setNeedsUsername(false);
+          setProfileError(null);
+        }
+        activeAuthIdRef.current = nextAuthId;
         setSession(s);
+        setIsLoading(false);
         if (s) {
-          loadOrCreateDbUser(s.user).finally(() => setIsLoading(false));
-        } else {
-          setIsLoading(false);
+          void loadOrCreateDbUser(s.user);
         }
       })
       .catch(e => {
+        clearTimeout(maxLoadTimer);
         console.error("[auth] getSession failed", e);
         setIsLoading(false);
       });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+      const nextAuthId = s?.user.id ?? null;
+      if (activeAuthIdRef.current !== nextAuthId) {
+        profileLoadGenerationRef.current += 1;
+        setDbUser(null);
+        setNeedsUsername(false);
+        setProfileError(null);
+      }
+      activeAuthIdRef.current = nextAuthId;
       setSession(s);
       if (s) {
         localStorage.removeItem(GUEST_KEY);
         setIsGuest(false);
-        loadOrCreateDbUser(s.user);
+        void loadOrCreateDbUser(s.user);
       } else {
+        setIsProfileLoading(false);
         setDbUser(null);
         setNeedsUsername(false);
         setGoogleDisplayName("");
@@ -176,16 +282,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loadOrCreateDbUser]);
 
   async function signInWithGoogle() {
+    const redirectTo = new URL(import.meta.env.BASE_URL, window.location.origin).href;
     await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo },
     });
   }
 
   async function signInWithApple() {
+    const redirectTo = new URL(import.meta.env.BASE_URL, window.location.origin).href;
     await supabase.auth.signInWithOAuth({
       provider: "apple",
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo },
     });
   }
 
@@ -225,23 +333,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function resetPassword(email: string): Promise<string | null> {
+    const appBaseUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
+      redirectTo: new URL("reset-password", appBaseUrl).href,
     });
     if (error) return error.message;
     return null;
   }
 
   function playAsGuest() {
+    profileLoadGenerationRef.current += 1;
+    activeAuthIdRef.current = null;
     localStorage.setItem(GUEST_KEY, "1");
+    setSession(null);
+    setDbUser(null);
+    setIsProfileLoading(false);
+    setProfileError(null);
     setIsGuest(true);
   }
 
   async function signOut() {
+    profileLoadGenerationRef.current += 1;
+    activeAuthIdRef.current = null;
+    if (session?.user) profileCache.delete(session.user.id);
     localStorage.removeItem(GUEST_KEY);
     setIsGuest(false);
     setSession(null);
     setDbUser(null);
+    setIsProfileLoading(false);
+    setProfileError(null);
     setNeedsUsername(false);
     setGoogleDisplayName("");
     setIsFirstLogin(false);
@@ -250,12 +370,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={{
-      session, dbUser, isGuest, isLoading, needsUsername,
+      session, dbUser, isGuest, isLoading, isProfileLoading, profileError, needsUsername,
       googleDisplayName, isFirstLogin,
       signInWithGoogle, signInWithApple,
       signInWithEmail, signUpWithEmail, resetPassword,
       playAsGuest, signOut,
-      setDbUser: (u: DbUser) => { setDbUser(u); syncPremiumFromServer(!!u.is_premium); },
+      setDbUser: (u: DbUser) => {
+        setDbUser(u);
+        setIsProfileLoading(false);
+        setProfileError(null);
+        profileCache.set(u.auth_id, { user: u, expiresAt: Date.now() + PROFILE_CACHE_TTL_MS });
+        syncPremiumFromServer(!!u.is_premium);
+      },
       setIsFirstLogin, refreshUser,
     }}>
       {children}
