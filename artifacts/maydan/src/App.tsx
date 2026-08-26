@@ -1,25 +1,20 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { hasCompletedOnboarding } from "@/lib/storage";
 import { AuthProvider, useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
-import NotificationSystem from "@/components/NotificationSystem";
 import ErrorBoundary from "@/components/ErrorBoundary";
-import InstallPrompt from "@/components/InstallPrompt";
-import ScreenFlashHost from "@/components/ScreenFlashHost";
-import BottomNav from "@/components/BottomNav";
 
 // Eager: critical auth-flow + landing pages
 import Home from "@/pages/Home";
 import Auth from "@/pages/Auth";
-import UsernameSetup from "@/pages/UsernameSetup";
-import Onboarding from "@/pages/Onboarding";
-import NotFound from "@/pages/not-found";
 
 // Lazy: heavier / less-frequently-used pages
+const UsernameSetup = lazy(() => import("@/pages/UsernameSetup"));
+const Onboarding = lazy(() => import("@/pages/Onboarding"));
+const NotFound = lazy(() => import("@/pages/not-found"));
 const CreateChallenge = lazy(() => import("@/pages/CreateChallenge"));
 const Quiz = lazy(() => import("@/pages/Quiz"));
 const Results = lazy(() => import("@/pages/Results"));
@@ -44,13 +39,38 @@ const Terms = lazy(() => import("@/pages/Terms"));
 const Privacy = lazy(() => import("@/pages/Privacy"));
 const About = lazy(() => import("@/pages/About"));
 
-const queryClient = new QueryClient();
+// Global UI that is not needed for first paint. Each component remains isolated
+// behind its own Suspense boundary so one slow chunk does not hold up the others.
+const NotificationSystem = lazy(() => import("@/components/NotificationSystem"));
+const InstallPrompt = lazy(() => import("@/components/InstallPrompt"));
+const ScreenFlashHost = lazy(() => import("@/components/ScreenFlashHost"));
+const BottomNav = lazy(() => import("@/components/BottomNav"));
+const Toaster = lazy(() =>
+  import("@/components/ui/toaster").then((module) => ({ default: module.Toaster })),
+);
+
+const baseUrl = import.meta.env.BASE_URL.endsWith("/")
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
+const assetUrl = (path: string) => `${baseUrl}${path.replace(/^\/+/, "")}`;
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      // Retain inactive query data so returning to a route does not flash empty.
+      gcTime: 30 * 60_000,
+      placeholderData: (previousData: unknown) => previousData,
+    },
+  },
+});
 
 // Detect if this page load is an OAuth callback (hash or query params from Supabase/Google)
 function detectAuthCallback(): boolean {
   const hash = window.location.hash;
   const search = window.location.search;
-  const path = window.location.pathname;
+  const basePath = new URL(baseUrl, window.location.origin).pathname.replace(/\/$/, "");
+  const path = window.location.pathname.slice(basePath.length) || "/";
 
   // Party routes use ?code= for 4-digit room codes — never treat as an OAuth callback
   if (path.startsWith("/party")) return false;
@@ -116,7 +136,7 @@ function AuthCallbackHandler() {
     <div className="min-h-screen gradient-hero star-bg flex flex-col items-center justify-center gap-5 p-6 text-center"
       style={{ background: "hsl(220 20% 8%)" }}>
       <div className="gold-glow rounded-3xl">
-        <img src="/logo.png" alt="ميدان" className="app-logo" style={{ width: 100, height: "auto" }} />
+        <img src={assetUrl("logo.png")} alt="ميدان" className="app-logo" style={{ width: 100, height: "auto" }} />
       </div>
 
       {status === "loading" && (
@@ -143,7 +163,7 @@ function AuthCallbackHandler() {
         <>
           <p className="text-destructive font-bold text-lg">حدث خطأ أثناء تسجيل الدخول</p>
           <button
-            onClick={() => { window.location.href = "/"; }}
+            onClick={() => { window.location.href = baseUrl; }}
             className="mt-2 px-6 py-3 rounded-2xl font-bold text-background"
             style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}
           >
@@ -159,7 +179,7 @@ function LoadingScreen() {
   return (
     <div className="min-h-screen gradient-hero flex flex-col items-center justify-center gap-4">
       <div className="gold-glow rounded-3xl">
-        <img src="/logo.png" alt="ميدان" className="app-logo" style={{ width: 100, height: "auto" }} />
+        <img src={assetUrl("logo.png")} alt="ميدان" className="app-logo" style={{ width: 100, height: "auto" }} />
       </div>
       <div className="flex gap-1.5">
         {[0, 1, 2].map(i => (
@@ -169,6 +189,95 @@ function LoadingScreen() {
       </div>
       <p className="text-muted-foreground text-sm">جاري التحميل...</p>
     </div>
+  );
+}
+
+function AppShellSkeleton() {
+  return (
+    <div className="min-h-[70vh] w-full px-4 py-5" aria-busy="true" aria-label="جاري تحميل الصفحة">
+      <div className="mx-auto max-w-2xl animate-pulse space-y-5">
+        <div className="flex items-center justify-between">
+          <div className="h-10 w-10 rounded-xl bg-muted/60" />
+          <div className="h-5 w-28 rounded-full bg-muted/60" />
+        </div>
+        <div className="h-36 rounded-3xl bg-muted/50" />
+        <div className="grid grid-cols-2 gap-3">
+          <div className="h-24 rounded-2xl bg-muted/40" />
+          <div className="h-24 rounded-2xl bg-muted/40" />
+        </div>
+        <div className="h-16 rounded-2xl bg-muted/30" />
+      </div>
+    </div>
+  );
+}
+
+function ProfileLoadingScreen({
+  hasError,
+  onRetry,
+}: {
+  hasError: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="min-h-screen gradient-hero flex flex-col items-center justify-center gap-4 px-6 text-center">
+      <AppShellSkeleton />
+      {hasError && (
+        <div className="fixed inset-x-4 bottom-8 mx-auto max-w-sm rounded-2xl border border-destructive/30 bg-card/95 p-4 shadow-xl">
+          <p className="mb-3 text-sm text-foreground">تعذر تحميل ملفك الشخصي.</p>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground"
+          >
+            إعادة المحاولة
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function useDeferredMount(delayMs = 750) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setReady(true), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [delayMs]);
+  return ready;
+}
+
+function DeferredRoutedUi() {
+  const ready = useDeferredMount();
+  const [location] = useLocation();
+  const { session, isGuest } = useAuth();
+  if (!ready || (!session && !isGuest)) return null;
+  return (
+    <>
+      <Suspense fallback={null}>
+        <NotificationSystem />
+      </Suspense>
+      <Suspense fallback={null}>
+        <BottomNav />
+      </Suspense>
+      {location !== "/onboarding" && (
+        <Suspense fallback={null}>
+          <InstallPrompt />
+        </Suspense>
+      )}
+      <Suspense fallback={null}>
+        <ScreenFlashHost />
+      </Suspense>
+    </>
+  );
+}
+
+function DeferredToaster() {
+  const ready = useDeferredMount();
+  if (!ready) return null;
+  return (
+    <Suspense fallback={null}>
+      <Toaster />
+    </Suspense>
   );
 }
 
@@ -196,7 +305,7 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
 function RedirectHome() {
   const [, navigate] = useLocation();
   useEffect(() => { navigate("/", { replace: true }); }, []);
-  return <LoadingScreen />;
+  return <AppShellSkeleton />;
 }
 
 // Wraps a child route so it re-mounts (and re-plays the page-enter animation) on path change.
@@ -211,7 +320,16 @@ function PageTransition({ children }: { children: React.ReactNode }) {
 
 function AppRoutes() {
   const [location] = useLocation();
-  const { session, isGuest, isLoading, needsUsername } = useAuth();
+  const {
+    session,
+    dbUser,
+    isGuest,
+    isLoading,
+    isProfileLoading,
+    profileError,
+    needsUsername,
+    refreshUser,
+  } = useAuth();
 
   // Party + Ranked routes are public — no login required
   const isPartyRoute = location.startsWith("/party");
@@ -233,7 +351,7 @@ function AppRoutes() {
     normalizedPath === "/about";
   if (isPartyRoute) {
     return (
-      <Suspense fallback={<LoadingScreen />}>
+      <Suspense fallback={<AppShellSkeleton />}>
         <Switch>
           <Route path="/party/host" component={PartyHost} />
           <Route path="/party/guest" component={PartyGuest} />
@@ -245,7 +363,7 @@ function AppRoutes() {
 
   if (isRankedRoute) {
     return (
-      <Suspense fallback={<LoadingScreen />}>
+      <Suspense fallback={<AppShellSkeleton />}>
         <Switch>
           <Route path="/ranked" component={RankedMode} />
         </Switch>
@@ -258,7 +376,7 @@ function AppRoutes() {
   // Static info routes — render before auth checks so guests + visitors can read them.
   if (isPublicInfoRoute) {
     return (
-      <Suspense fallback={<LoadingScreen />}>
+      <Suspense fallback={<AppShellSkeleton />}>
         <PageTransition>
           <Switch>
             <Route path="/terms" component={Terms} />
@@ -273,7 +391,7 @@ function AppRoutes() {
   // Public challenge routes — render without forcing the auth screen.
   if (isPublicChallengeRoute && !session && !isGuest) {
     return (
-      <Suspense fallback={<LoadingScreen />}>
+      <Suspense fallback={<AppShellSkeleton />}>
         <PageTransition>
           <Switch>
             <Route path="/quiz/:id/:role" component={Quiz} />
@@ -288,12 +406,29 @@ function AppRoutes() {
   // Not authenticated and not a guest → show login screen
   if (!session && !isGuest) return <Auth />;
 
+  // The session is ready, but protected screens still need a matching profile.
+  // Show the app skeleton (not the blocking auth spinner) and offer a retry.
+  if (session && !dbUser) {
+    return (
+      <ProfileLoadingScreen
+        hasError={!isProfileLoading && !!profileError}
+        onRetry={() => { void refreshUser(); }}
+      />
+    );
+  }
+
   // Authenticated but no username yet → show username setup
-  if (session && needsUsername) return <UsernameSetup />;
+  if (session && needsUsername) {
+    return (
+      <Suspense fallback={<AppShellSkeleton />}>
+        <UsernameSetup />
+      </Suspense>
+    );
+  }
 
   return (
     <OnboardingGuard>
-      <Suspense fallback={<LoadingScreen />}>
+      <Suspense fallback={<AppShellSkeleton />}>
         <PageTransition>
           <Switch>
             <Route path="/onboarding" component={Onboarding} />
@@ -347,15 +482,12 @@ function App() {
               <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
                 <div className="min-h-screen w-full">
                   <AppRoutes />
-                  <NotificationSystem />
-                  <BottomNav />
-                  <InstallPrompt />
-                  <ScreenFlashHost />
+                   <DeferredRoutedUi />
                 </div>
               </WouterRouter>
             </AuthProvider>
           )}
-          <Toaster />
+          <DeferredToaster />
         </TooltipProvider>
       </QueryClientProvider>
     </ErrorBoundary>
