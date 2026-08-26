@@ -2,6 +2,9 @@ import { useState } from "react";
 import { useAuth } from "@/lib/AuthContext";
 
 type AuthView = "login" | "signup" | "forgot";
+const APP_BASE_URL = import.meta.env.BASE_URL.endsWith("/")
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
 
 const GoogleIcon = () => (
   <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
@@ -95,7 +98,7 @@ export default function Auth() {
     <div className="min-h-screen gradient-hero particle-bg flex flex-col items-center justify-center p-5 text-center">
       {/* Logo */}
       <div className="gold-glow mb-4 mx-auto w-fit rounded-3xl">
-        <img src="/logo.png" alt="ميدان" className="app-logo" style={{ width: 140, height: "auto" }} />
+        <img src={`${APP_BASE_URL}logo.png`} alt="ميدان" className="app-logo" style={{ width: 140, height: "auto" }} />
       </div>
       <h1 className="font-black gradient-text" style={{ fontSize: 56, lineHeight: 1.1 }}>ميدان</h1>
       <p className="text-primary font-semibold mt-1 mb-6" style={{ fontSize: 18 }}>
@@ -369,9 +372,9 @@ export default function Auth() {
       {/* Legal footer */}
       <p className="mt-6 text-[11px] text-muted-foreground/80 text-center leading-relaxed max-w-xs">
         بمتابعتك، فأنت توافق على{" "}
-        <a href="/terms" className="text-primary/90 hover:text-primary underline underline-offset-2">شروط الاستخدام</a>
+        <a href={`${APP_BASE_URL}terms`} className="text-primary/90 hover:text-primary underline underline-offset-2">شروط الاستخدام</a>
         {" "}و{" "}
-        <a href="/privacy" className="text-primary/90 hover:text-primary underline underline-offset-2">سياسة الخصوصية</a>
+        <a href={`${APP_BASE_URL}privacy`} className="text-primary/90 hover:text-primary underline underline-offset-2">سياسة الخصوصية</a>
         .
       </p>
     </div>
