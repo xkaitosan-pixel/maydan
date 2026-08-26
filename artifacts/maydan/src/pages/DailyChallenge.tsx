@@ -90,7 +90,7 @@ export default function DailyChallenge() {
 
     const { data: existing } = await supabase
       .from("daily_scores")
-      .select("*")
+      .select("user_id, date, display_name, country, score, total, completed_at")
       .eq("user_id", userId!)
       .eq("date", today)
       .maybeSingle();

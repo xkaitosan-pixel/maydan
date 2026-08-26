@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { lazy, Suspense, useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import {
   getOrCreateUser, updateDisplayName, canCreateChallenge,
@@ -9,13 +9,27 @@ import { syncStreak, getMyPendingChallengesCount, getMyPendingChallenges, delete
 import { Button } from "@/components/ui/button";
 import StreakMilestone from "@/components/StreakMilestone";
 import NotificationBanner from "@/components/NotificationBanner";
-import EngagementSection from "@/components/EngagementSection";
-import LoginStreakPopup from "@/components/LoginStreakPopup";
 import { refreshLoginStreak, type LoginInfo } from "@/lib/engagement";
 import { checkSeasonReset, getLevelInfo } from "@/lib/gamification";
 import { getCountryFlag } from "@/lib/countryUtils";
 
 const STREAK_POPUP_KEY = "maydan_streak_popup_v1";
+const APP_BASE_URL = import.meta.env.BASE_URL.endsWith("/")
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
+const EngagementSection = lazy(() => import("@/components/EngagementSection"));
+const LoginStreakPopup = lazy(() => import("@/components/LoginStreakPopup"));
+
+function scheduleAfterPaint(callback: () => void): () => void {
+  let cancelled = false;
+  const timer = window.setTimeout(() => {
+    if (!cancelled) callback();
+  }, 250);
+  return () => {
+    cancelled = true;
+    window.clearTimeout(timer);
+  };
+}
 function wasStreakShownToday(milestone: number): boolean {
   try {
     const s = localStorage.getItem(STREAK_POPUP_KEY);
@@ -46,6 +60,7 @@ export default function Home() {
   const [loadingPending, setLoadingPending] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [loginInfo, setLoginInfo] = useState<LoginInfo | null>(null);
+  const [engagementReady, setEngagementReady] = useState(false);
 
   async function openPendingSheet() {
     setShowPendingSheet(true);
@@ -106,38 +121,51 @@ export default function Home() {
       setNotifications(getActiveNotifications());
       return;
     }
-    if (dbUser?.id) {
-      syncStreak(dbUser.id).then(result => {
-        if (result) {
-          setStreak(result.streak_count);
-          const ms = result.streak_count;
-          if ([3, 7, 30].includes(ms) && !wasStreakShownToday(ms)) { setMilestone(ms); markStreakShown(ms); }
-          refreshUser();
-        }
-      });
-      checkSeasonReset(
-        dbUser.id,
-        dbUser.achievements,
-        dbUser.season_points ?? 0,
-        dbUser.coins ?? 0,
-      ).then(reset => {
-        if (reset) {
-          setSeasonRewardMsg(`🏆 الموسم انتهى! حصلت على ${reset.coinsAwarded} قرش (${reset.tierName})`);
-          setTimeout(() => setSeasonRewardMsg(null), 5000);
-          refreshUser();
-        }
-      });
-      refreshLoginStreak(dbUser.id).then(info => {
-        if (info && info.canClaim) setLoginInfo(info);
-        refreshUser();
-      }).catch(() => {});
-    }
     setNotifications(getActiveNotifications());
-    if (dbUser?.id && !isGuest) {
-      getMyPendingChallengesCount(dbUser.id).then(setPendingChallenges).catch(() => {});
-    } else {
+    if (!dbUser?.id || isGuest) {
       setPendingChallenges(0);
+      setEngagementReady(false);
+      return;
     }
+
+    setStreak(dbUser.streak_count ?? 0);
+    setEngagementReady(false);
+    return scheduleAfterPaint(() => {
+      setEngagementReady(true);
+      void Promise.allSettled([
+        syncStreak(dbUser.id),
+        checkSeasonReset(
+          dbUser.id,
+          dbUser.achievements,
+          dbUser.season_points ?? 0,
+          dbUser.coins ?? 0,
+        ),
+        refreshLoginStreak(dbUser.id),
+        getMyPendingChallengesCount(dbUser.id),
+      ]).then(async ([streakResult, seasonResult, loginResult, pendingResult]) => {
+        let profileChanged = false;
+        if (streakResult.status === "fulfilled" && streakResult.value) {
+          setStreak(streakResult.value.streak_count);
+          const ms = streakResult.value.streak_count;
+          if ([3, 7, 30].includes(ms) && !wasStreakShownToday(ms)) {
+            setMilestone(ms);
+            markStreakShown(ms);
+          }
+          profileChanged = true;
+        }
+        if (seasonResult.status === "fulfilled" && seasonResult.value) {
+          setSeasonRewardMsg(`🏆 الموسم انتهى! حصلت على ${seasonResult.value.coinsAwarded} قرش (${seasonResult.value.tierName})`);
+          setTimeout(() => setSeasonRewardMsg(null), 5000);
+          profileChanged = true;
+        }
+        if (loginResult.status === "fulfilled" && loginResult.value) {
+          if (loginResult.value.canClaim) setLoginInfo(loginResult.value);
+          profileChanged = true;
+        }
+        if (pendingResult.status === "fulfilled") setPendingChallenges(pendingResult.value);
+        if (profileChanged) await refreshUser();
+      });
+    });
   }, [dbUser?.id, isGuest]);
 
   function handleGuestSaveName() {
@@ -195,12 +223,14 @@ export default function Home() {
     <div className="min-h-screen gradient-hero star-bg particle-bg flex flex-col relative">
       {milestone && <StreakMilestone days={milestone} onClose={() => setMilestone(null)} />}
       {loginInfo && dbUser && (
-        <LoginStreakPopup
-          userId={dbUser.id}
-          info={loginInfo}
-          onClose={() => setLoginInfo(null)}
-          onClaimed={() => refreshUser()}
-        />
+        <Suspense fallback={null}>
+          <LoginStreakPopup
+            userId={dbUser.id}
+            info={loginInfo}
+            onClose={() => setLoginInfo(null)}
+            onClaimed={() => refreshUser()}
+          />
+        </Suspense>
       )}
       {seasonRewardMsg && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 rounded-full px-6 py-3 font-bold text-sm text-white shadow-xl bg-yellow-600 border border-yellow-500/50">
@@ -211,7 +241,7 @@ export default function Home() {
       {/* ── Compact Header ─────────────────────────────────────────────── */}
       <header className="px-4 pt-4 pb-3 flex justify-between items-center z-10 relative bg-background/50 backdrop-blur-lg border-b border-white/5">
         <div className="flex items-center gap-2">
-          <img src="/logo.png" alt="ميدان" className="w-8 h-8 object-contain" />
+          <img src={`${APP_BASE_URL}logo.png`} alt="ميدان" className="w-8 h-8 object-contain" />
           <span className="text-xl font-black text-primary tracking-tight">ميدان</span>
         </div>
         <div className="flex items-center gap-2">
@@ -389,8 +419,10 @@ export default function Home() {
           )}
 
           {/* Engagement */}
-          {showContent && !isGuest && dbUser && (
-            <EngagementSection onCoins={() => refreshUser()} />
+          {showContent && !isGuest && dbUser && engagementReady && (
+            <Suspense fallback={<div className="h-14 rounded-[20px] border border-white/10 bg-card/30 animate-pulse" />}>
+              <EngagementSection onCoins={() => refreshUser()} />
+            </Suspense>
           )}
 
           {/* Greeting Line */}

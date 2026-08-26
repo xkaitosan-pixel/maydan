@@ -95,7 +95,8 @@ export default function AchievementPopup({ unlockedIds, onDone }: AchievementPop
         {/* Share button */}
         <button
           onClick={() => {
-            const text = `🏆 حققت إنجاز "${ach.title}" في ميدان!\n${ach.desc}\nانضم للتحدي: ${window.location.origin}`;
+            const appUrl = new URL(import.meta.env.BASE_URL, window.location.origin).href;
+            const text = `🏆 حققت إنجاز "${ach.title}" في ميدان!\n${ach.desc}\nانضم للتحدي: ${appUrl}`;
             if (navigator.share) {
               navigator.share({ text }).catch(() => {});
             } else {

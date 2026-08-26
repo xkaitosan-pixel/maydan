@@ -1,23 +1,16 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/AuthContext";
-import { supabase } from "@/lib/supabase";
+import {
+  getUserLeaderboard,
+  getUserLeaderboardRank,
+  invalidateLeaderboardCache,
+  type RankedLeaderboardEntry,
+} from "@/lib/db";
 import { getCountryFlag } from "@/lib/countryUtils";
 import { SkeletonLeaderboard } from "@/components/Skeleton";
 import { friendlyErrorText } from "@/lib/errors";
 import { ACHIEVEMENTS, parseAchievementsData } from "@/lib/gamification";
-
-interface RankedEntry {
-  id: string;
-  username: string;
-  display_name: string | null;
-  country: string | null;
-  total_points: number;
-  season_points: number | null;
-  total_wins: number | null;
-  avatar_url: string | null;
-  achievements: unknown;
-}
 
 // Pick the most prestigious unlocked badge (highest XP reward) for an entry.
 function getTopBadge(achievements: unknown): { icon: string; title: string } | null {
@@ -36,13 +29,17 @@ export default function Leaderboard() {
   const { dbUser, isGuest, signOut } = useAuth();
 
   const [tab, setTab] = useState<"weekly" | "alltime">("alltime");
-  const [entries, setEntries] = useState<RankedEntry[]>([]);
+  const [entries, setEntries] = useState<RankedLeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [myRankNum, setMyRankNum] = useState<number | null>(null);
 
   const sortField = tab === "weekly" ? "season_points" : "total_points";
+  const refresh = () => {
+    invalidateLeaderboardCache();
+    setRefreshKey((key) => key + 1);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -50,19 +47,9 @@ export default function Leaderboard() {
     setError(null);
     (async () => {
       try {
-        const result = await supabase
-          .from("users")
-          .select("id, username, display_name, country, total_points, season_points, total_wins, avatar_url, achievements")
-          .gt(sortField, 0)
-          .order(sortField, { ascending: false })
-          .order("total_wins", { ascending: false })
-          .limit(50);
+        const result = await getUserLeaderboard(tab);
         if (cancelled) return;
-        if (result.error) {
-          setError(friendlyErrorText(result.error));
-        } else {
-          setEntries((result.data ?? []) as RankedEntry[]);
-        }
+        setEntries(result);
       } catch (e) {
         if (!cancelled) setError(friendlyErrorText(e));
       } finally {
@@ -70,7 +57,7 @@ export default function Leaderboard() {
       }
     })();
     return () => { cancelled = true; };
-  }, [tab, refreshKey, sortField]);
+  }, [tab, refreshKey]);
 
   // Resolve "أنت في المركز #X" — count players above the current user
   useEffect(() => {
@@ -80,18 +67,17 @@ export default function Leaderboard() {
     const myWins = dbUser.total_wins ?? 0;
     if (myScore <= 0) { setMyRankNum(null); return; }
     (async () => {
-      // Players ranked strictly above me: higher score, OR same score and more wins (matches list ordering).
-      const above = await supabase
-        .from("users")
-        .select("id", { count: "exact", head: true })
-        .gt(sortField, myScore);
-      const tied = await supabase
-        .from("users")
-        .select("id", { count: "exact", head: true })
-        .eq(sortField, myScore)
-        .gt("total_wins", myWins);
-      if (cancelled) return;
-      setMyRankNum((above.count ?? 0) + (tied.count ?? 0) + 1);
+      try {
+        const rank = await getUserLeaderboardRank({
+          userId: dbUser.id,
+          period: tab,
+          score: myScore,
+          wins: myWins,
+        });
+        if (!cancelled) setMyRankNum(rank);
+      } catch {
+        if (!cancelled) setMyRankNum(null);
+      }
     })();
     return () => { cancelled = true; };
   }, [tab, dbUser?.id, dbUser?.total_points, dbUser?.season_points, refreshKey, sortField, isGuest]);
@@ -103,7 +89,7 @@ export default function Leaderboard() {
           <button onClick={() => navigate("/")} className="text-muted-foreground hover:text-foreground text-xl">←</button>
           <h1 className="text-lg font-bold">🏆 لوحة المتصدرين</h1>
           <button
-            onClick={() => setRefreshKey(k => k + 1)}
+             onClick={refresh}
             disabled={loading}
             className="text-muted-foreground hover:text-foreground text-lg disabled:opacity-40 transition-opacity"
             title="تحديث"
@@ -165,7 +151,7 @@ export default function Leaderboard() {
                 <p className="text-4xl mb-4">⚠️</p>
                 <p className="text-foreground font-bold">تعذّر تحميل التصنيف</p>
                 <p className="text-xs text-muted-foreground mt-1 px-6 break-all">{error}</p>
-                <button onClick={() => setRefreshKey(k => k + 1)}
+                 <button onClick={refresh}
                   className="mt-4 px-5 py-2 rounded-xl border border-border text-sm text-muted-foreground hover:text-foreground">
                   🔄 إعادة المحاولة
                 </button>

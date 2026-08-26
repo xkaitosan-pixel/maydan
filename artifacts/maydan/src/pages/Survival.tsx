@@ -394,7 +394,8 @@ export default function Survival() {
 
   // ── GAME OVER ──
   if (phase === "gameover") {
-    const shareText = `🏃 وضع البقاء في ميدان!\nوصلت إلى ${score} سؤالاً صحيحاً!\nرتبتي: ${rank.icon} ${rank.title}\nأفضل نتيجتي: ${user.stats.survivalBest}\nهل تستطيع التغلب عليّ؟\n${window.location.origin}`;
+    const appUrl = new URL(import.meta.env.BASE_URL, window.location.origin).href;
+    const shareText = `🏃 وضع البقاء في ميدان!\nوصلت إلى ${score} سؤالاً صحيحاً!\nرتبتي: ${rank.icon} ${rank.title}\nأفضل نتيجتي: ${user.stats.survivalBest}\nهل تستطيع التغلب عليّ؟\n${appUrl}`;
 
     return (
       <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-6">

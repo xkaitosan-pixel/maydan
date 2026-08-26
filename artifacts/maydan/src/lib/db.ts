@@ -3,6 +3,57 @@ import type { DbUser } from "./AuthContext";
 
 // ──────────────────────────── SCORES / LEADERBOARD ────────────────────────────
 
+const CACHE_TTL_MS = 30_000;
+const SCORE_COLUMNS = "id, user_id, username, category, score, game_mode, created_at";
+const USER_COLUMNS = "id, auth_id, username, avatar_url, total_wins, total_losses, streak_count, longest_streak, last_played, is_premium, total_points, created_at, xp, level, coins, rank_title, achievements, season_points, display_name, country, bio, gender, onboarding_completed, favorite_categories";
+const CHALLENGE_COLUMNS = "id, creator_id, creator_name, opponent_id, opponent_name, status, creator_score, opponent_score, category, question_ids, creator_answers, opponent_answers, question_count, created_at, winner";
+const FRIEND_COLUMNS = "id, user_id, friend_id, friend_name, friend_avatar, friend_country, status, created_at";
+const RANKED_USER_COLUMNS = "id, username, display_name, country, total_points, season_points, total_wins, avatar_url, achievements";
+
+interface CacheEntry<T> {
+  value: T;
+  expiresAt: number;
+}
+
+const leaderboardCache = new Map<string, CacheEntry<unknown>>();
+const leaderboardInflight = new Map<string, Promise<unknown>>();
+let leaderboardGeneration = 0;
+
+function cached<T>(key: string): T | undefined {
+  const entry = leaderboardCache.get(key);
+  return entry && entry.expiresAt > Date.now() ? entry.value as T : undefined;
+}
+
+async function cachedLeaderboard<T>(key: string, load: () => Promise<T>, force = false): Promise<T> {
+  if (force) {
+    invalidateLeaderboardCache();
+  } else {
+    const value = cached<T>(key);
+    if (value !== undefined) return value;
+    const pending = leaderboardInflight.get(key);
+    if (pending) return pending as Promise<T>;
+  }
+
+  const generation = leaderboardGeneration;
+  const request = load();
+  leaderboardInflight.set(key, request);
+  try {
+    const value = await request;
+    if (generation === leaderboardGeneration) {
+      leaderboardCache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+    }
+    return value;
+  } finally {
+    if (leaderboardInflight.get(key) === request) leaderboardInflight.delete(key);
+  }
+}
+
+export function invalidateLeaderboardCache(): void {
+  leaderboardGeneration++;
+  leaderboardCache.clear();
+  leaderboardInflight.clear();
+}
+
 export interface ScoreEntry {
   id: string;
   user_id: string | null;
@@ -31,39 +82,106 @@ export async function insertScore(entry: {
     score: entry.score,
     game_mode: entry.game_mode,
   };
-  const { data, error } = await supabase.from("scores").insert(payload).select();
+  const { data, error } = await supabase.from("scores").insert(payload).select("id");
   if (error) {
     console.error("[ميدان] insertScore FAILED ✗", error.code, error.message, error.details);
     return false;
   }
+  invalidateLeaderboardCache();
   console.log("[ميدان] Score saved ✓", { username: entry.username, score: entry.score, mode: entry.game_mode, id: data?.[0]?.id });
   return true;
 }
 
 export async function getWeeklyLeaderboard(category?: string): Promise<ScoreEntry[]> {
-  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-  let q = supabase
-    .from("scores")
-    .select("*")
-    .gte("created_at", weekAgo)
-    .order("score", { ascending: false })
-    .limit(50);
-  if (category && category !== "all") q = q.eq("category", category);
-  const { data, error } = await q;
-  if (error) console.error("[ميدان] getWeeklyLeaderboard error", error.message);
-  return dedupeByUsername(data ?? []);
+  const key = `scores:weekly:${category ?? "all"}`;
+  return cachedLeaderboard(key, async () => {
+    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+    let q = supabase
+      .from("scores")
+      .select(SCORE_COLUMNS)
+      .gte("created_at", weekAgo)
+      .order("score", { ascending: false })
+      .limit(50);
+    if (category && category !== "all") q = q.eq("category", category);
+    const { data, error } = await q;
+    if (error) console.error("[ميدان] getWeeklyLeaderboard error", error.message);
+    return dedupeByUsername((data ?? []) as ScoreEntry[]);
+  });
 }
 
 export async function getAllTimeLeaderboard(category?: string): Promise<ScoreEntry[]> {
-  let q = supabase
-    .from("scores")
-    .select("*")
-    .order("score", { ascending: false })
-    .limit(200);
-  if (category && category !== "all") q = q.eq("category", category);
-  const { data, error } = await q;
-  if (error) console.error("[ميدان] getAllTimeLeaderboard error", error.message);
-  return dedupeByUsername(data ?? []);
+  const key = `scores:alltime:${category ?? "all"}`;
+  return cachedLeaderboard(key, async () => {
+    let q = supabase
+      .from("scores")
+      .select(SCORE_COLUMNS)
+      .order("score", { ascending: false })
+      .limit(200);
+    if (category && category !== "all") q = q.eq("category", category);
+    const { data, error } = await q;
+    if (error) console.error("[ميدان] getAllTimeLeaderboard error", error.message);
+    return dedupeByUsername((data ?? []) as ScoreEntry[]);
+  });
+}
+
+export interface RankedLeaderboardEntry {
+  id: string;
+  username: string;
+  display_name: string | null;
+  country: string | null;
+  total_points: number;
+  season_points: number | null;
+  total_wins: number | null;
+  avatar_url: string | null;
+  achievements: unknown;
+}
+
+export type LeaderboardPeriod = "weekly" | "alltime";
+
+export async function getUserLeaderboard(
+  period: LeaderboardPeriod,
+  forceRefresh = false,
+): Promise<RankedLeaderboardEntry[]> {
+  const sortField = period === "weekly" ? "season_points" : "total_points";
+  return cachedLeaderboard(`users:${period}`, async () => {
+    const { data, error } = await supabase
+      .from("users")
+      .select(RANKED_USER_COLUMNS)
+      .gt(sortField, 0)
+      .order(sortField, { ascending: false })
+      .order("total_wins", { ascending: false })
+      .limit(50);
+    if (error) throw error;
+    return (data ?? []) as RankedLeaderboardEntry[];
+  }, forceRefresh);
+}
+
+export async function getUserLeaderboardRank(params: {
+  userId: string;
+  period: LeaderboardPeriod;
+  score: number;
+  wins: number;
+  forceRefresh?: boolean;
+}): Promise<number | null> {
+  if (params.score <= 0) return null;
+  const sortField = params.period === "weekly" ? "season_points" : "total_points";
+  const key = `users:rank:${params.period}:${params.userId}:${params.score}:${params.wins}`;
+  return cachedLeaderboard(key, async () => {
+    const [above, tied] = await Promise.all([
+      supabase
+        .from("users")
+        .select("id", { count: "exact", head: true })
+        .gt(sortField, params.score),
+      supabase
+        .from("users")
+        .select("id", { count: "exact", head: true })
+        .eq(sortField, params.score)
+        .gt("total_wins", params.wins),
+    ]);
+    if (above.error) throw above.error;
+    if (tied.error) throw tied.error;
+    return (above.count ?? 0) + (tied.count ?? 0) + 1;
+  }, params.forceRefresh);
 }
 
 // Keep best score per username
@@ -145,7 +263,7 @@ export async function setPremiumStatus(userId: string, isPremium: boolean): Prom
     .from("users")
     .update({ is_premium: isPremium })
     .eq("id", userId)
-    .select()
+    .select(USER_COLUMNS)
     .single();
   return data ?? null;
 }
@@ -205,10 +323,10 @@ export async function createDbChallenge(params: {
 export async function getMyChallenges(userId: string, limit = 20): Promise<DbChallenge[]> {
   const { data, error } = await supabase
     .from("challenges")
-    .select("*")
+    .select(CHALLENGE_COLUMNS)
     .eq("creator_id", userId)
     .order("created_at", { ascending: false })
-    .limit(limit);
+    .limit(Math.min(Math.max(limit, 1), 100));
   if (error) { console.error("getMyChallenges error", error); return []; }
   return (data as DbChallenge[]) ?? [];
 }
@@ -216,7 +334,7 @@ export async function getMyChallenges(userId: string, limit = 20): Promise<DbCha
 export async function getDbChallenge(id: string): Promise<DbChallenge | null> {
   const { data } = await supabase
     .from("challenges")
-    .select("*")
+    .select(CHALLENGE_COLUMNS)
     .eq("id", id)
     .single();
   return data ?? null;
@@ -291,7 +409,7 @@ export async function addFriend(params: {
 export async function getFriends(userId: string): Promise<Friend[]> {
   const { data, error } = await supabase
     .from("friends")
-    .select("*")
+    .select(FRIEND_COLUMNS)
     .eq("user_id", userId)
     .eq("status", "accepted")
     .order("created_at", { ascending: false })
@@ -325,7 +443,7 @@ export async function removeFriend(userId: string, friendId: string): Promise<bo
 export async function getPublicProfile(userId: string): Promise<DbUser | null> {
   const { data, error } = await supabase
     .from("users")
-    .select("*")
+    .select(USER_COLUMNS)
     .eq("id", userId)
     .maybeSingle();
   if (error) { console.error("getPublicProfile error", error); return null; }
@@ -414,11 +532,11 @@ export async function getMyPendingChallengesCount(creatorId: string): Promise<nu
 export async function getMyPendingChallenges(creatorId: string, limit = 50): Promise<DbChallenge[]> {
   const { data, error } = await supabase
     .from("challenges")
-    .select("*")
+    .select(CHALLENGE_COLUMNS)
     .eq("creator_id", creatorId)
     .eq("status", "pending")
     .order("created_at", { ascending: false })
-    .limit(limit);
+    .limit(Math.min(Math.max(limit, 1), 100));
   if (error) { console.error("getMyPendingChallenges error", error); return []; }
   return (data as DbChallenge[]) ?? [];
 }
