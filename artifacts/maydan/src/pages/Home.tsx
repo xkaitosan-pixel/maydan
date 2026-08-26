@@ -2,23 +2,17 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import {
   getOrCreateUser, updateDisplayName, canCreateChallenge,
-  getActiveNotifications, AppNotification, updateStreak, getTodayStats,
+  getActiveNotifications, AppNotification, updateStreak,
 } from "@/lib/storage";
 import { useAuth } from "@/lib/AuthContext";
 import { syncStreak, getMyPendingChallengesCount, getMyPendingChallenges, deleteDbChallenge, type DbChallenge } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 import StreakMilestone from "@/components/StreakMilestone";
 import NotificationBanner from "@/components/NotificationBanner";
-import XPBar from "@/components/XPBar";
 import EngagementSection from "@/components/EngagementSection";
 import LoginStreakPopup from "@/components/LoginStreakPopup";
 import { refreshLoginStreak, type LoginInfo } from "@/lib/engagement";
-import { toggleTheme, getTheme } from "@/lib/theme";
-import { isSoundEnabled, toggleSound, playClick, playSound } from "@/lib/sound";
-import {
-  parseAchievementsData, ACHIEVEMENTS, getSeasonTier, getDaysUntilSunday,
-  getCurrentSeasonWeek, checkSeasonReset,
-} from "@/lib/gamification";
+import { checkSeasonReset, getLevelInfo } from "@/lib/gamification";
 import { getCountryFlag } from "@/lib/countryUtils";
 
 const STREAK_POPUP_KEY = "maydan_streak_popup_v1";
@@ -45,9 +39,6 @@ export default function Home() {
   const [milestone, setMilestone] = useState<number | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [streak, setStreak] = useState(0);
-  const [longestStreak, setLongestStreak] = useState(0);
-  const [isDark, setIsDark] = useState(() => getTheme() === "dark");
-  const [soundOn, setSoundOn] = useState(() => isSoundEnabled());
   const [seasonRewardMsg, setSeasonRewardMsg] = useState<string | null>(null);
   const [pendingChallenges, setPendingChallenges] = useState(0);
   const [showPendingSheet, setShowPendingSheet] = useState(false);
@@ -98,18 +89,6 @@ export default function Home() {
     }
   }
 
-  function handleThemeToggle() {
-    playClick();
-    toggleTheme();
-    setIsDark((prev) => !prev);
-  }
-
-  function handleSoundToggle() {
-    const next = toggleSound();
-    setSoundOn(next);
-    if (next) playSound("correct");
-  }
-
   const displayName = dbUser?.username ?? (hasGuestName ? guestName : "");
   const isPremium = dbUser?.is_premium ?? getOrCreateUser().isPremium;
   const canCreate = canCreateChallenge();
@@ -124,7 +103,6 @@ export default function Home() {
       const hit = updateStreak();
       if (hit && !wasStreakShownToday(hit)) { setMilestone(hit); markStreakShown(hit); }
       setStreak(user.streak);
-      setLongestStreak(user.longestStreak);
       setNotifications(getActiveNotifications());
       return;
     }
@@ -132,13 +110,11 @@ export default function Home() {
       syncStreak(dbUser.id).then(result => {
         if (result) {
           setStreak(result.streak_count);
-          setLongestStreak(result.longest_streak);
           const ms = result.streak_count;
           if ([3, 7, 30].includes(ms) && !wasStreakShownToday(ms)) { setMilestone(ms); markStreakShown(ms); }
           refreshUser();
         }
       });
-      // Season reset check
       checkSeasonReset(
         dbUser.id,
         dbUser.achievements,
@@ -151,7 +127,6 @@ export default function Home() {
           refreshUser();
         }
       });
-      // Daily login streak — show popup when today's reward can be claimed
       refreshLoginStreak(dbUser.id).then(info => {
         if (info && info.canClaim) setLoginInfo(info);
         refreshUser();
@@ -174,27 +149,18 @@ export default function Home() {
     setNotifications(getActiveNotifications());
   }
 
-  const localUser = getOrCreateUser();
   const showContent = !!displayName;
 
   const modes = [
     {
-      id: "challenge", icon: "⚔️", label: "تحدي", sub: "تحدي صديق أو غريب",
+      id: "challenge", icon: "⚔️", label: "تحدي", sub: "صديق أو عشوائي",
       gradient: "linear-gradient(135deg, #f97316, #dc2626)",
-      // Pending sheet is always reachable when there are pending challenges,
-      // even if the daily-create quota is exhausted (the "new challenge"
-      // button inside the sheet remains gated by canCreate).
       onClick: () => (pendingChallenges > 0 || canCreate) ? handleChallengeClick() : undefined,
       disabled: pendingChallenges === 0 && !canCreate,
       badge: pendingChallenges > 0 ? pendingChallenges : undefined,
     },
     {
-      id: "survival", icon: "🏃", label: "وضع البقاء", sub: "كم تصمد؟",
-      gradient: "linear-gradient(135deg, #dc2626, #7f1d1d)",
-      onClick: () => navigate("/survival"),
-    },
-    {
-      id: "party", icon: "📺", label: "وضع التجمعات", sub: "العب مع الجماعة",
+      id: "party", icon: "📺", label: "تجمعات", sub: "العب مع الجماعة",
       gradient: "linear-gradient(135deg, #7c3aed, #1d4ed8)",
       onClick: () => navigate("/party"),
     },
@@ -209,20 +175,15 @@ export default function Home() {
       onClick: () => navigate("/ranked"),
     },
     {
-      id: "training", icon: "🎓", label: "وضع التدريب", sub: "تعلّم بلا ضغط",
+      id: "training", icon: "🎓", label: "تدريب", sub: "تعلّم بلا ضغط",
       gradient: "linear-gradient(135deg, #0891b2, #155e75)",
       onClick: () => navigate("/training"),
     },
   ];
 
-  const aData           = parseAchievementsData(dbUser?.achievements);
-  const lastUnlocked    = aData.unlocked.slice(-3).map(id => ACHIEVEMENTS.find(a => a.id === id)).filter(Boolean) as typeof ACHIEVEMENTS;
-  const seasonPoints    = dbUser?.season_points ?? 0;
-  const seasonTier      = getSeasonTier(seasonPoints);
-  const daysUntilReset  = getDaysUntilSunday();
-  const todayStats      = getTodayStats();
+  const lvl = getLevelInfo(dbUser?.xp ?? 0);
+  const xpCurrent = dbUser?.xp ?? 0;
 
-  // Time-of-day greeting (Arabic, by local hour)
   const hour = new Date().getHours();
   const greeting =
     hour < 5  ? { text: "ليلة هادئة 🌙", sub: "وقت مثالي لتحدي خاطف" } :
@@ -231,7 +192,7 @@ export default function Home() {
                 { text: "سهرة معرفية 🌌", sub: "آخر فرصة للستريك اليوم" };
 
   return (
-    <div className="min-h-screen gradient-hero star-bg particle-bg flex flex-col">
+    <div className="min-h-screen gradient-hero star-bg particle-bg flex flex-col relative">
       {milestone && <StreakMilestone days={milestone} onClose={() => setMilestone(null)} />}
       {loginInfo && dbUser && (
         <LoginStreakPopup
@@ -247,444 +208,247 @@ export default function Home() {
         </div>
       )}
 
-      {/* ── Header ───────────────────────────────────────────────────────── */}
-      <header className="px-4 md:px-8 pt-4 pb-3 flex justify-between items-center border-b border-border/30">
+      {/* ── Compact Header ─────────────────────────────────────────────── */}
+      <header className="px-4 pt-4 pb-3 flex justify-between items-center z-10 relative bg-background/50 backdrop-blur-lg border-b border-white/5">
         <div className="flex items-center gap-2">
-          <img src="/logo.png" alt="ميدان" className="app-logo" style={{ width: 44, height: "auto" }} />
-          <span className="text-xl md:text-2xl font-black text-primary">ميدان</span>
+          <img src="/logo.png" alt="ميدان" className="w-8 h-8 object-contain" />
+          <span className="text-xl font-black text-primary tracking-tight">ميدان</span>
         </div>
         <div className="flex items-center gap-2">
           {!isGuest && dbUser && (dbUser.coins ?? 0) > 0 && (
             <div className="flex items-center gap-1 bg-yellow-500/15 border border-yellow-500/30 rounded-full px-2.5 py-1">
-              <span className="text-sm">🪙</span>
+              <span className="text-xs">🪙</span>
               <span className="text-xs font-bold text-yellow-400">{(dbUser.coins ?? 0).toLocaleString()}</span>
             </div>
           )}
           {streak > 0 && (
             <div className="flex items-center gap-1 bg-orange-500/15 border border-orange-500/30 rounded-full px-2.5 py-1">
-              <span className="text-sm">🔥</span>
+              <span className="text-xs">🔥</span>
               <span className="text-xs font-bold text-orange-400">{streak}</span>
             </div>
           )}
-          <button onClick={handleSoundToggle}
-            className="w-9 h-9 rounded-full bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors text-base"
-            title={soundOn ? "كتم الأصوات" : "تشغيل الأصوات"}
-          >{soundOn ? "🔊" : "🔇"}</button>
-          <button onClick={handleThemeToggle}
-            className="w-9 h-9 rounded-full bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors text-base"
-            title={isDark ? "الوضع النهاري" : "الوضع الليلي"}
-          >{isDark ? "🌙" : "☀️"}</button>
+          <button onClick={() => navigate("/settings")}
+            className="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-muted-foreground hover:text-white transition-colors"
+            title="الإعدادات"
+          >
+            <span className="text-sm">⚙️</span>
+          </button>
           {!isGuest && dbUser?.avatar_url ? (
             <img src={dbUser.avatar_url} alt={displayName}
-              className="w-9 h-9 rounded-full border-2 border-primary object-cover cursor-pointer hover:opacity-80 transition-opacity"
+              className="w-8 h-8 rounded-full border border-primary/50 object-cover cursor-pointer hover:opacity-80 transition-opacity"
               onClick={() => navigate("/profile")} />
           ) : showContent && (
             <button onClick={() => navigate("/profile")}
-              className="w-9 h-9 rounded-full bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+              className="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-muted-foreground hover:text-white transition-colors"
               title="الملف الشخصي"
             >👤</button>
-          )}
-          {showContent && (
-            <button onClick={signOut}
-              className="w-9 h-9 rounded-full bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
-              title="تسجيل الخروج"
-              aria-label="تسجيل الخروج"
-            >
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-                <polyline points="16,17 21,12 16,7"/>
-                <line x1="21" y1="12" x2="9" y2="12"/>
-              </svg>
-            </button>
           )}
         </div>
       </header>
 
-      {/* Notifications */}
-      {showContent && notifications.length > 0 && (
-        <NotificationBanner notifications={notifications} />
-      )}
+      {/* ── Main body ────────────────────────────────────────────────────── */}
+      <div className="flex-1 overflow-y-auto pb-24">
+        {showContent && notifications.length > 0 && (
+          <NotificationBanner notifications={notifications} />
+        )}
 
-      {/* ── Main body ─────────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto">
-        {/* home-desktop activates CSS grid (340px | 1fr) at ≥768px via index.css */}
-        <div className="home-desktop py-5 px-4">
-
-            {/* ── LEFT COLUMN: Identity + stats ──────────────────────────── */}
-            <div className="md:w-[340px] md:flex-shrink-0 space-y-5">
-
-              {/* Hero logo */}
-              <div className="text-center pt-2 md:pt-6">
-                <div className="gold-glow mb-3 mx-auto w-fit rounded-3xl">
-                  <img src="/logo.png" alt="ميدان" className="app-logo" style={{ width: 120, height: "auto" }} />
-                </div>
-                <h1 className="text-4xl md:text-5xl font-black text-primary">ميدان</h1>
-                <p className="text-secondary text-sm md:text-base font-semibold mt-1">تحدي المعرفة العربي</p>
+        <div className="rp-narrow px-4 pt-4 space-y-4">
+          
+          {/* Guest Name Prompt */}
+          {isGuest && !hasGuestName && (
+            <div className="bg-card/60 backdrop-blur-md rounded-[20px] p-4 border border-white/10 space-y-3 fade-in-up shadow-xl">
+              <p className="text-sm font-bold text-center text-white/90">أدخل اسمك للبدء في التحدي:</p>
+              <div className="flex gap-2">
+                <input
+                  className="flex-1 h-12 bg-black/30 border border-white/10 rounded-xl px-3 text-right text-white placeholder:text-white/40 outline-none text-sm focus:border-primary/50 transition-colors"
+                  placeholder="اسمك هنا..."
+                  value={guestName}
+                  onChange={(e) => setGuestName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleGuestSaveName()}
+                  maxLength={20}
+                />
+                <Button onClick={handleGuestSaveName} disabled={!guestName.trim()} className="h-12 px-6 gradient-gold text-black font-black hover:opacity-90 shrink-0 text-base rounded-xl">ابدأ</Button>
               </div>
-
-              {/* Streak banner */}
-              {showContent && streak > 0 && (
-                <div className="bg-orange-500/10 border border-orange-500/25 rounded-2xl px-4 py-3 flex items-center gap-3">
-                  <span className="text-3xl">🔥</span>
-                  <div>
-                    <p className="font-bold text-orange-400 text-sm">{streak} يوم متتالي!</p>
-                    <p className="text-xs text-muted-foreground">
-                      {streak >= 30 ? "أسطوري 👑" : streak >= 7 ? "رائع! استمر ⚡" : "استمر تكسب شارات 🎯"}
-                    </p>
-                  </div>
-                  <div className="mr-auto text-xs text-muted-foreground">أفضل: {longestStreak} 🏆</div>
-                </div>
-              )}
-
-              {/* Guest name input */}
-              {isGuest && !hasGuestName ? (
-                <div className="space-y-3 fade-in-up">
-                  <p className="text-sm text-muted-foreground text-center">أدخل اسمك للبدء:</p>
-                  <div className="flex gap-2">
-                    <input
-                      className="flex-1 h-11 bg-card border border-border rounded-xl px-3 text-right text-foreground placeholder:text-muted-foreground outline-none"
-                      placeholder="اسمك هنا..."
-                      value={guestName}
-                      onChange={(e) => setGuestName(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleGuestSaveName()}
-                      maxLength={20}
-                    />
-                    <Button onClick={handleGuestSaveName} disabled={!guestName.trim()} className="gradient-gold text-background font-bold hover:opacity-90 shrink-0">ابدأ</Button>
-                  </div>
-                  <div className="text-center">
-                    <button onClick={signOut} className="text-xs text-muted-foreground hover:text-foreground transition-colors underline">
-                      سجّل الدخول بدلاً من ذلك →
-                    </button>
-                  </div>
-                </div>
-              ) : !isGuest && !dbUser ? (
-                <div className="flex justify-center py-4">
-                  <div className="w-6 h-6 border-2 border-primary/40 border-t-primary rounded-full animate-spin" />
-                </div>
-              ) : showContent && (
-                <>
-                  {/* Welcome */}
-                  {!isGuest && dbUser?.avatar_url ? (
-                    <div className="text-center">
-                      <div className="relative w-16 h-16 md:w-20 md:h-20 mx-auto mb-2 cursor-pointer" onClick={() => navigate("/profile")}>
-                        <img src={dbUser.avatar_url} alt={displayName}
-                          className="w-full h-full rounded-full border-3 border-primary object-cover gold-glow"
-                          style={{ border: "3px solid hsl(var(--primary))" }} />
-                        {isPremium && <span className="absolute -bottom-1 -right-1 text-base">👑</span>}
-                      </div>
-                      <h2 className="text-2xl md:text-3xl font-black flex items-center justify-center gap-2 cursor-pointer" onClick={() => navigate("/profile")}>
-                        {dbUser?.country && <span className="text-foreground">{getCountryFlag(dbUser.country)}</span>}
-                        <span className="gradient-text">أهلاً {googleDisplayName || displayName}!</span>
-                        <span className="text-foreground">{isPremium ? "👑" : "⚔️"}</span>
-                      </h2>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {isPremium ? "عضو ميدان برو" : "مستعد للتحدي؟"}
-                      </p>
-                      {!canCreate && <p className="text-xs text-destructive mt-1">وصلت للحد اليومي المجاني ⛔</p>}
-                    </div>
-                  ) : (
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-2 cursor-pointer" onClick={() => !isGuest && navigate("/profile")}>
-                        <p className="text-muted-foreground text-sm">
-                          مرحباً، <span className="text-foreground font-bold">{displayName}</span>
-                          {!isGuest && dbUser?.country && <span className="mr-1">{getCountryFlag(dbUser.country)}</span>}
-                          {isPremium && <span className="text-yellow-400 mr-1 text-xs">👑 برو</span>}
-                          {isGuest && <span className="text-muted-foreground text-xs mr-1">(ضيف)</span>}
-                        </p>
-                      </div>
-                      {!canCreate && <p className="text-xs text-destructive mt-1">وصلت للحد اليومي المجاني ⛔</p>}
-                    </div>
-                  )}
-
-                  {/* XP Bar */}
-                  {!isGuest && dbUser && (
-                    <XPBar xp={dbUser.xp ?? 0} coins={dbUser.coins ?? 0} />
-                  )}
-
-                  {/* Season Widget */}
-                  {!isGuest && dbUser && (
-                    <div
-                      className="rounded-2xl p-3 border border-white/10 flex items-center gap-3"
-                      style={{ background: "hsl(220 20% 12%)" }}
-                    >
-                      <span className="text-2xl">{seasonTier.icon}</span>
-                      <div className="flex-1">
-                        <p className="text-xs font-bold text-white">موسم الأسبوع</p>
-                        <p className="text-[10px] text-muted-foreground">{seasonTier.name} • {seasonPoints} نقطة</p>
-                      </div>
-                      <div className="text-left">
-                        <p className="text-[10px] text-muted-foreground">ينتهي خلال</p>
-                        <p className="text-xs font-bold text-yellow-400">{daysUntilReset} أيام</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Engagement: daily missions, weekly challenge, reward box, motivation */}
-                  {!isGuest && dbUser && (
-                    <EngagementSection onCoins={() => refreshUser()} />
-                  )}
-
-                  {/* Time-of-day greeting */}
-                  <div
-                    className="glass-card lift-hover px-4 py-3 flex items-center gap-3"
-                    style={{
-                      background:
-                        "linear-gradient(135deg,rgba(212,175,55,0.10),rgba(147,51,234,0.10))",
-                      borderImage: "linear-gradient(135deg,#D4AF37,#9333ea) 1",
-                    }}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-black gradient-text">{greeting.text}</p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">{greeting.sub}</p>
-                    </div>
-                  </div>
-
-                  {/* Today stats — local rolling counters */}
-                  {(todayStats.wins + todayStats.losses + todayStats.xp) > 0 && (
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="bg-card border border-green-500/20 rounded-xl p-2 text-center">
-                        <p className="text-lg font-black text-green-400">{todayStats.wins}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">انتصارات اليوم</p>
-                      </div>
-                      <div className="bg-card border border-red-500/20 rounded-xl p-2 text-center">
-                        <p className="text-lg font-black text-red-400">{todayStats.losses}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">هزائم اليوم</p>
-                      </div>
-                      <div className="bg-card border border-purple-500/20 rounded-xl p-2 text-center">
-                        <p className="text-lg font-black text-purple-400">+{todayStats.xp}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">XP اليوم</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Quick stats */}
-                  <div className="grid grid-cols-4 gap-2">
-                    {[
-                      { icon: "🏆", label: "الانتصارات", value: dbUser?.total_wins ?? localUser.wins },
-                      { icon: "⭐", label: "النقاط", value: dbUser?.total_points ?? 0 },
-                      { icon: "🏃", label: "أفضل بقاء", value: localUser.stats.survivalBest },
-                      { icon: "🔥", label: "الستريك", value: streak },
-                    ].map((s) => (
-                      <div key={s.label} className="glass-card lift-hover p-2 text-center">
-                        <p className="text-base leading-none mb-0.5">{s.icon}</p>
-                        <p className="text-lg md:text-xl font-black gradient-text">{s.value}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">{s.label}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Recent achievements */}
-                  {!isGuest && lastUnlocked.length > 0 && (
-                    <div className="space-y-1.5">
-                      <p className="text-[10px] text-muted-foreground font-semibold tracking-wider">آخر الإنجازات</p>
-                      <div className="flex gap-2">
-                        {lastUnlocked.map(a => (
-                          <button
-                            key={a.id}
-                            onClick={() => navigate("/achievements")}
-                            className="flex-1 rounded-xl p-2 border border-yellow-500/20 flex items-center gap-1.5 hover:border-yellow-500/40 transition-colors"
-                            style={{ background: "rgba(217,119,6,0.08)" }}
-                          >
-                            <span className="text-base">{a.icon}</span>
-                            <span className="text-[10px] text-yellow-400 font-bold leading-tight truncate">{a.title}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Bottom links */}
-                  <div className="flex flex-wrap justify-center gap-x-4 gap-y-2">
-                    <button onClick={() => navigate("/settings")} className="text-xs text-secondary hover:text-secondary/80 transition-colors">
-                      ⚙️ الإعدادات
-                    </button>
-                    <span className="text-border">|</span>
-                    <button onClick={() => navigate("/stats")} className="text-xs text-secondary hover:text-secondary/80 transition-colors">
-                      📊 إحصائياتي
-                    </button>
-                    <span className="text-border">|</span>
-                    <button onClick={() => navigate("/leaderboard")} className="text-xs text-yellow-400 hover:text-yellow-300 transition-colors">
-                      🏆 المتصدرون
-                    </button>
-                    {!isGuest && (
-                      <>
-                        <span className="text-border">|</span>
-                        <button onClick={() => navigate("/achievements")} className="text-xs text-purple-400 hover:text-purple-300 transition-colors">
-                          🏅 الإنجازات
-                        </button>
-                        <span className="text-border">|</span>
-                        <button onClick={() => navigate("/store")} className="text-xs text-yellow-400 hover:text-yellow-300 transition-colors">
-                          🛍️ المتجر
-                        </button>
-                      </>
-                    )}
-                    <span className="text-border">|</span>
-                    {isPremium ? (
-                      <span className="text-xs text-yellow-400 font-bold">👑 برو مفعّل</span>
-                    ) : (
-                      <button onClick={() => navigate("/premium")} className="text-xs text-yellow-400 hover:text-yellow-300 transition-colors font-bold">
-                        👑 ترقية إلى برو
-                      </button>
-                    )}
-                    {isGuest && (
-                      <>
-                        <span className="text-border">|</span>
-                        <button onClick={signOut} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
-                          🔵 سجّل الدخول
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </>
-              )}
-
-              {/* Feature pills — desktop: in left column */}
-              <div className="hidden md:flex flex-wrap justify-center gap-2 pt-2">
-                {["⚡ 5 أوضاع", "🏆 تنافس", "📅 تحدي يومي", "👥 تجمعات", "🎖️ إنجازات"].map((f) => (
-                  <span key={f} className="bg-card border border-border text-muted-foreground text-xs px-3 py-1.5 rounded-full">{f}</span>
-                ))}
+              <div className="text-center pt-1">
+                <button onClick={signOut} className="text-[11px] text-white/50 hover:text-white transition-colors underline">
+                  سجّل الدخول لحفظ تقدمك
+                </button>
               </div>
             </div>
+          )}
 
-            {/* ── RIGHT COLUMN: Game modes ──────────────────────────────── */}
-            {showContent ? (
-              <div className="flex-1 space-y-4 mt-5 md:mt-0 md:pt-6">
-                <div>
-                  <p className="text-xs text-muted-foreground font-semibold mb-3 text-center tracking-wider">اختر وضع اللعب</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
-                    {modes.map((mode) => (
-                      <button
-                        key={mode.id}
-                        onClick={mode.onClick}
-                        disabled={mode.disabled}
-                        className={`relative rounded-[20px] p-5 md:p-6 text-center press-shrink transition-all ${mode.disabled ? "opacity-50 cursor-not-allowed" : "hover:-translate-y-1 hover:shadow-2xl"}`}
-                        style={{
-                          background: mode.gradient,
-                          border: "1px solid rgba(255,255,255,0.12)",
-                          boxShadow: "0 8px 24px rgba(0,0,0,0.30)",
-                        }}
-                      >
-                        {mode.badge && (
-                          <span
-                            className="absolute -top-1.5 -right-1.5 min-w-[22px] h-[22px] px-1.5 rounded-full bg-red-500 text-white text-[11px] font-black flex items-center justify-center shadow-lg ring-2 ring-background"
-                            aria-label={`${mode.badge} تحديات معلقة`}
-                          >
-                            {mode.badge > 99 ? "99+" : mode.badge}
-                          </span>
-                        )}
-                        <span
-                          className="block mb-2 drop-shadow-[0_2px_8px_rgba(0,0,0,0.4)]"
-                          style={{ fontSize: 48, lineHeight: 1 }}
-                        >
-                          {mode.icon}
-                        </span>
-                        <p className="text-white font-black text-base md:text-lg leading-tight">{mode.label}</p>
-                        <p className="text-white/80 text-xs md:text-sm mt-1">{mode.sub}</p>
-                      </button>
-                    ))}
+          {/* Hero / Status Card */}
+          {showContent && (
+            <div className="glass-card p-3.5 flex items-center gap-3.5 relative overflow-hidden shadow-xl press-shrink" onClick={() => !isGuest && navigate("/profile")}>
+              <div className="absolute -right-4 -top-4 w-28 h-28 bg-primary/20 blur-2xl rounded-full pointer-events-none" />
+              <div className="relative shrink-0">
+                {dbUser?.avatar_url ? (
+                  <img src={dbUser.avatar_url} alt={displayName} className="w-14 h-14 rounded-[14px] border-2 border-primary/40 object-cover" />
+                ) : (
+                  <div className="w-14 h-14 rounded-[14px] border-2 border-primary/40 bg-black/30 flex items-center justify-center text-2xl">
+                    {dbUser?.country ? getCountryFlag(dbUser.country) : "👤"}
                   </div>
-                </div>
+                )}
+                {isPremium && <span className="absolute -bottom-1.5 -right-1.5 text-sm drop-shadow-md">👑</span>}
+              </div>
 
-                {/* Mobile-only feature pills */}
-                <div className="flex md:hidden flex-wrap justify-center gap-2">
-                  {["⚡ 5 أوضاع", "🏆 تنافس", "📅 تحدي يومي", "👥 تجمعات", "🎖️ إنجازات"].map((f) => (
-                    <span key={f} className="bg-card border border-border text-muted-foreground text-xs px-3 py-1.5 rounded-full">{f}</span>
-                  ))}
+              <div className="flex-1 min-w-0 flex flex-col justify-center">
+                <div className="flex items-center gap-2 mb-1">
+                  <h2 className="text-[15px] font-black truncate text-white leading-none">{googleDisplayName || displayName}</h2>
+                  {isGuest && <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-white/60 leading-none">ضيف</span>}
+                </div>
+                
+                {/* XP Progress */}
+                {!isGuest && (
+                  <div className="mt-1">
+                    <div className="flex justify-between items-center text-[9px] mb-1.5">
+                      <span className="text-white/80 font-bold">المستوى {lvl.current.level}</span>
+                      {lvl.next ? (
+                        <span className="text-white/50 font-medium">{xpCurrent} / {lvl.next.xp} XP</span>
+                      ) : (
+                        <span className="text-yellow-400 font-bold">الحد الأقصى 🌟</span>
+                      )}
+                    </div>
+                    <div className="h-1.5 bg-black/40 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${lvl.progress * 100}%`, background: "linear-gradient(90deg,#d97706,#f59e0b)" }} />
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {!isGuest && (
+                <div className="shrink-0 flex flex-col items-center justify-center w-12 h-12 rounded-[14px] bg-black/30 border border-white/5">
+                  <span className="text-xl leading-none drop-shadow-md">{lvl.current.icon}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Play Now CTA (Survival) */}
+          {showContent && (
+            <button
+              onClick={() => navigate("/survival")}
+              className="w-full relative overflow-hidden rounded-[20px] p-4 text-center press-shrink transition-all shadow-2xl"
+              style={{
+                background: "linear-gradient(135deg, #dc2626, #7f1d1d)",
+                border: "1px solid rgba(255,255,255,0.15)",
+              }}
+            >
+              <div className="shine"></div>
+              <div className="flex items-center justify-center gap-3 relative z-10">
+                <span className="text-3xl drop-shadow-md">🏃</span>
+                <div className="flex flex-col items-start">
+                  <span className="text-xl font-black text-white leading-tight">العب الآن ⚡</span>
+                  <span className="text-[10px] text-white/80 font-bold">وضع البقاء - كم تصمد؟</span>
                 </div>
               </div>
-            ) : (
-              /* Right side placeholder when not signed in yet */
-              <div className="flex-1 mt-5 md:mt-0" />
-            )}
+            </button>
+          )}
+
+          {/* Mode Grid (5 cards) */}
+          {showContent && (
+            <div className="grid grid-cols-2 gap-3">
+              {modes.slice(0, 4).map(mode => (
+                <button
+                  key={mode.id}
+                  onClick={mode.onClick}
+                  disabled={mode.disabled}
+                  className={`relative rounded-[16px] p-3 text-right press-shrink transition-all ${mode.disabled ? "opacity-50 grayscale cursor-not-allowed" : "hover:-translate-y-0.5 shadow-lg"}`}
+                  style={{
+                    background: mode.gradient,
+                    border: "1px solid rgba(255,255,255,0.12)",
+                  }}
+                >
+                  {mode.badge && (
+                    <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-[20px] px-1 rounded-full bg-red-500 text-white text-[10px] font-black flex items-center justify-center shadow-md ring-2 ring-background z-10">
+                      {mode.badge > 99 ? "99+" : mode.badge}
+                    </span>
+                  )}
+                  <span className="text-2xl mb-1.5 block drop-shadow-sm">{mode.icon}</span>
+                  <h3 className="text-sm font-black text-white leading-tight">{mode.label}</h3>
+                  <p className="text-[9px] text-white/70 font-bold mt-0.5">{mode.sub}</p>
+                </button>
+              ))}
+              
+              {/* 5th element spans both columns */}
+              <button
+                onClick={modes[4].onClick}
+                className="col-span-2 relative rounded-[16px] p-3.5 text-right flex items-center gap-3.5 press-shrink transition-all hover:-translate-y-0.5 shadow-lg"
+                style={{
+                  background: modes[4].gradient,
+                  border: "1px solid rgba(255,255,255,0.12)",
+                }}
+              >
+                <span className="text-3xl drop-shadow-sm shrink-0">{modes[4].icon}</span>
+                <div className="flex-1">
+                  <h3 className="text-[15px] font-black text-white leading-tight">{modes[4].label}</h3>
+                  <p className="text-[10px] text-white/70 font-bold mt-0.5">{modes[4].sub}</p>
+                </div>
+              </button>
+            </div>
+          )}
+
+          {/* Engagement */}
+          {showContent && !isGuest && dbUser && (
+            <EngagementSection onCoins={() => refreshUser()} />
+          )}
+
+          {/* Greeting Line */}
+          {showContent && (
+            <div className="text-center mt-6 mb-4">
+              <p className="text-[11px] font-black text-white/70">{greeting.text}</p>
+              <p className="text-[9px] text-white/40 mt-0.5 font-bold">{greeting.sub}</p>
+            </div>
+          )}
+
         </div>
       </div>
 
-      <footer className="py-3 text-center text-xs text-muted-foreground border-t border-border/30">
-        <span className="text-primary">ميدان</span> — {isGuest ? "الوضع الضيف (ميزات محدودة)" : "النسخة المجانية: 5 تحديات يومياً"}
-      </footer>
-
+      {/* ── Pending Challenges Sheet ─────────────────────────────────────── */}
       {showPendingSheet && (
-        <div
-          className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-3"
-          style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }}
-          onClick={() => setShowPendingSheet(false)}
-          dir="rtl"
-        >
-          <div
-            className="w-full max-w-md rounded-2xl border border-border shadow-2xl bg-card max-h-[85vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-4 py-3 border-b border-border flex items-center gap-2">
-              <span className="text-lg">⏳</span>
-              <h3 className="font-bold text-sm flex-1">تحدياتك المعلقة</h3>
-              <span className="text-xs text-muted-foreground">{pendingList.length}</span>
-              <button
-                onClick={() => setShowPendingSheet(false)}
-                className="text-muted-foreground hover:text-foreground text-sm px-2"
-                aria-label="إغلاق"
-              >
-                ✕
-              </button>
+        <div className="fixed inset-0 z-50 flex flex-col justify-end fade-in-up bg-background/80 backdrop-blur-sm" dir="rtl">
+          <div className="absolute inset-0" onClick={() => setShowPendingSheet(false)} />
+          <div className="bg-card border-t border-white/10 rounded-t-[32px] p-5 shadow-2xl relative z-10 max-h-[85vh] flex flex-col">
+            <div className="w-12 h-1.5 bg-white/10 rounded-full mx-auto mb-4" />
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-black text-white">تحديات بانتظارك ⚔️</h2>
+              <button onClick={() => setShowPendingSheet(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-black/20 text-white/50 hover:text-white transition-colors">✕</button>
             </div>
-
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {loadingPending ? (
-                <p className="text-center text-muted-foreground text-sm py-6">جاري التحميل...</p>
-              ) : pendingList.length === 0 ? (
-                <p className="text-center text-muted-foreground text-sm py-6">
-                  🎉 لا توجد تحديات معلقة
-                </p>
-              ) : (
-                pendingList.map((c) => {
-                  const when = new Date(c.created_at).toLocaleString("ar-EG", {
-                    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-                  });
-                  return (
-                    <div
-                      key={c.id}
-                      className="rounded-xl border border-border/60 bg-background p-3 space-y-2"
-                    >
-                      <div className="flex items-center gap-2 text-xs">
-                        <span className="font-bold text-foreground">
-                          {c.opponent_name?.trim() || "خصم لم ينضم بعد"}
-                        </span>
-                        <span className="text-muted-foreground">·</span>
-                        <span className="text-muted-foreground">{when}</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        🎯 {c.category} · {c.question_count} سؤال · نتيجتك: {c.creator_score ?? 0}/{c.question_count}
-                      </p>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => resendChallenge(c)}
-                          className="flex-1 px-3 py-2 rounded-lg text-xs font-bold text-white"
-                          style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}
-                        >
-                          إرسال مجدداً 🔄
-                        </button>
-                        <button
-                          onClick={() => confirmDeleteChallenge(c)}
-                          disabled={deletingId === c.id}
-                          className="px-3 py-2 rounded-lg text-xs font-bold border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-40"
-                        >
-                          {deletingId === c.id ? "جاري..." : "حذف 🗑️"}
-                        </button>
-                      </div>
+            
+            {loadingPending ? (
+              <div className="py-10 flex justify-center"><div className="w-8 h-8 border-4 border-primary/40 border-t-primary rounded-full animate-spin" /></div>
+            ) : pendingList.length === 0 ? (
+              <div className="text-center py-10">
+                <p className="text-4xl mb-3">👻</p>
+                <p className="text-white/60 text-sm font-bold">لا توجد تحديات معلقة!</p>
+              </div>
+            ) : (
+              <div className="space-y-3 overflow-y-auto pr-1 flex-1 custom-scrollbar">
+                {pendingList.map(c => (
+                  <div key={c.id} className="flex items-center gap-3 p-3 bg-black/20 border border-white/5 rounded-2xl">
+                    <div className="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center text-xl shrink-0 border border-orange-500/30">⚔️</div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-sm text-white truncate">{c.opponent_name || "لاعب مجهول"}</p>
                     </div>
-                  );
-                })
-              )}
-            </div>
-
-            <div className="p-3 border-t border-border">
-              <button
+                    <div className="flex flex-col gap-1.5 shrink-0">
+                      <Button size="sm" onClick={() => resendChallenge(c)} className="h-7 px-3 text-[10px] font-bold bg-white/10 hover:bg-white/20 text-white rounded-lg">تذكير 📱</Button>
+                      <Button size="sm" variant="destructive" onClick={() => confirmDeleteChallenge(c)} disabled={deletingId === c.id} className="h-7 px-3 text-[10px] font-bold rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400">
+                        {deletingId === c.id ? "..." : "حذف 🗑️"}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            <div className="mt-4 pt-4 border-t border-white/5">
+              <Button
                 onClick={() => { setShowPendingSheet(false); navigate("/create"); }}
+                className="w-full font-black gradient-gold text-black h-12 rounded-xl text-sm"
                 disabled={!canCreate}
-                className="w-full px-3 py-3 rounded-xl text-sm font-bold text-white disabled:opacity-40"
-                style={{ background: "linear-gradient(135deg, #f97316, #dc2626)" }}
               >
-                تحدي جديد +
-              </button>
+                {canCreate ? "إنشاء تحدي جديد ⚔️" : "وصلت للحد اليومي ⛔"}
+              </Button>
             </div>
           </div>
         </div>
