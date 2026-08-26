@@ -33,6 +33,8 @@ interface PlayerRow {
   last_answer: number | null;
 }
 
+const PARTY_ROOM_COLUMNS = "id, code, status, category, current_question, total_questions, answer_time, show_question_on_phone, scoring_type" as const;
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 const DEFAULT_QUESTION_TIME = 20;
 const MEDALS = ["🥇", "🥈", "🥉"];
@@ -144,7 +146,7 @@ export default function PartyGuest() {
     pollRef.current = setInterval(async () => {
       try {
         const { data: roomData } = await supabase
-          .from("party_rooms").select("*").eq("code", code).single();
+          .from("party_rooms").select(PARTY_ROOM_COLUMNS).eq("code", code).single();
         if (!roomData) return;
         // Connection healthy — clear any stale "lost" indicator
         setConnectionLost(false);
@@ -177,7 +179,7 @@ export default function PartyGuest() {
     setErrorMsg("");
     if (code.length !== 4) { setErrorMsg("أدخل رمزاً مكوناً من 4 أرقام."); return; }
     const { data, error } = await supabase
-      .from("party_rooms").select("*").eq("code", code).single();
+      .from("party_rooms").select(PARTY_ROOM_COLUMNS).eq("code", code).single();
     if (error || !data) { setErrorMsg("الغرفة غير موجودة. تحقق من الرمز."); return; }
     if (data.status === "finished") { setErrorMsg("انتهت هذه اللعبة بالفعل."); return; }
     setRoom(data as RoomData);
@@ -201,7 +203,7 @@ export default function PartyGuest() {
     const { data, error } = await supabase
       .from("party_players")
       .insert({ room_code: room.code, nickname: nickname.trim(), score: 0, answered_current: false })
-      .select().single();
+      .select("id").single();
     if (error || !data) { setErrorMsg("خطأ في الانضمام. حاول مجدداً."); return; }
 
     myIdRef.current = data.id;
