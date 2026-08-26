@@ -51,6 +51,8 @@ interface RankedMatch {
   winner_id: string | null;
 }
 
+const RANKED_MATCH_COLUMNS = "id, player1_id, player1_name, player2_id, player2_name, category, status, current_question_index, question_start_time, countdown_start, player1_score, player2_score, player1_answers, player2_answers, winner_id" as const;
+
 // ── Constants ───────────────────────────────────────────────────────────────
 
 const QUESTION_TIME_MS = 10000;
@@ -229,7 +231,7 @@ export default function RankedMode() {
 
     const { data: opponents } = await supabase
       .from("ranked_queue")
-      .select("*")
+      .select("user_id, username, preferred_categories")
       .eq("status", "waiting")
       .neq("user_id", myIdRef.current)
       .order("created_at", { ascending: true })
@@ -246,7 +248,7 @@ export default function RankedMode() {
       .update({ status: "matched" })
       .eq("user_id", opp.user_id)
       .eq("status", "waiting")
-      .select()
+      .select("user_id")
       .maybeSingle();
     if (!claimed) return false; // someone else grabbed them
 
@@ -256,7 +258,7 @@ export default function RankedMode() {
       .update({ status: "matched" })
       .eq("user_id", myIdRef.current)
       .eq("status", "waiting")
-      .select()
+      .select("user_id")
       .maybeSingle();
     if (!claimedSelf) {
       // Roll back opp claim so they can match again
@@ -297,7 +299,7 @@ export default function RankedMode() {
         player2_answers: [],
         winner_id: null,
       })
-      .select()
+      .select(RANKED_MATCH_COLUMNS)
       .single();
 
     if (error || !newMatch) {
@@ -323,7 +325,7 @@ export default function RankedMode() {
       if (phaseRef.current !== "searching") { clearInterval(interval); return; }
       const { data } = await supabase
         .from("ranked_matches")
-        .select("*")
+        .select(RANKED_MATCH_COLUMNS)
         .eq("player2_id", myId)
         .eq("status", "active")
         .order("created_at", { ascending: false })
@@ -417,7 +419,7 @@ export default function RankedMode() {
     if (!matchRef.current || finishedRef.current) return;
     const { data } = await supabase
       .from("ranked_matches")
-      .select("*")
+      .select(RANKED_MATCH_COLUMNS)
       .eq("id", matchRef.current.id)
       .maybeSingle();
     if (!data) return;
@@ -536,7 +538,7 @@ export default function RankedMode() {
         [scoreField]: newScore,
       })
       .eq("id", matchRef.current.id)
-      .select()
+      .select(RANKED_MATCH_COLUMNS)
       .maybeSingle();
 
     if (error) {
