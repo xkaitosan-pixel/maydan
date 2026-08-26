@@ -734,7 +734,7 @@ function StoreManager() {
     setErr("");
     const { data, error } = await supabase
       .from("store_items")
-      .select("*")
+      .select("id, name, type, price, css_effect, icon, is_premium, is_visible, created_at")
       .order("type")
       .order("price");
     if (error) {
@@ -773,7 +773,7 @@ function StoreManager() {
         is_premium: draft.is_premium,
         is_visible: draft.is_visible,
       })
-      .select()
+      .select("id, name, type, price, css_effect, icon, is_premium, is_visible, created_at")
       .single();
     setAdding(false);
     if (error) { flash(error.message, true); return; }
@@ -1231,7 +1231,7 @@ function CategoriesManager() {
     setErr("");
     const { data, error } = await supabase
       .from("categories")
-      .select("*")
+      .select("id, name, key, icon, parent_key, is_premium, sort_order, created_at")
       .order("sort_order")
       .order("name");
     if (error) {
@@ -1279,7 +1279,7 @@ function CategoriesManager() {
         is_premium: !!draft.is_premium,
         sort_order: Math.round(Number(draft.sort_order) || 0),
       })
-      .select()
+      .select("id, name, key, icon, parent_key, is_premium, sort_order, created_at")
       .single();
     setAdding(false);
     if (error) { flash(error.message.includes("unique") ? "هذا المفتاح مستخدم مسبقاً" : error.message, true); return; }
@@ -1608,7 +1608,10 @@ function AdminsManager() {
 
   async function fetchAdmins() {
     setLoadingA(true);
-    const { data } = await supabase.from("admins").select("*").order("created_at");
+    const { data } = await supabase
+      .from("admins")
+      .select("id, email, name, is_super, created_at")
+      .order("created_at");
     setAdmins(data ?? []);
     setLoadingA(false);
   }
@@ -1776,7 +1779,10 @@ export default function Admin() {
   async function loadQuestions() {
     setLoading(true);
     setStatus("جاري تحميل الأسئلة...");
-    const { data, error } = await supabase.from("questions").select("*").order("id");
+    const { data, error } = await supabase
+      .from("questions")
+      .select("id, question, options, correct, category, difficulty, image_url")
+      .order("id");
     setLoading(false);
     if (error) {
       setStatus(`❌ خطأ في الاتصال بقاعدة البيانات: ${error.message}`);
@@ -2112,7 +2118,7 @@ function ReportsManager({
     setErr("");
     let q = supabase
       .from("question_reports")
-      .select("*")
+      .select("id, question_id, question_text, report_type, comment, reported_by, status, created_at")
       .order("created_at", { ascending: false })
       .limit(500);
     if (filter === "pending") q = q.eq("status", "pending");
