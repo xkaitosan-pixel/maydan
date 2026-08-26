@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { lazy, Suspense, useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import {
   engagementFrom,
@@ -10,7 +10,7 @@ import {
   type MissionView,
 } from "@/lib/engagement";
 import { playSound } from "@/lib/sound";
-import RewardBox from "./RewardBox";
+const RewardBox = lazy(() => import("./RewardBox"));
 
 interface EngagementSectionProps {
   onCoins?: (newCoins: number) => void;
@@ -195,14 +195,16 @@ export default function EngagementSection({ onCoins }: EngagementSectionProps) {
       </div>
 
       {showBox && (
-        <RewardBox
-          userId={userId}
-          onClose={() => { setShowBox(false); sync(); }}
-          onOpened={async (r) => {
-            if (r.kind === "coins") onCoins?.((dbUser.coins ?? 0) + r.amount);
-            await refreshUser();
-          }}
-        />
+        <Suspense fallback={null}>
+          <RewardBox
+            userId={userId}
+            onClose={() => { setShowBox(false); sync(); }}
+            onOpened={async (r) => {
+              if (r.kind === "coins") onCoins?.((dbUser.coins ?? 0) + r.amount);
+              await refreshUser();
+            }}
+          />
+        </Suspense>
       )}
     </div>
   );
