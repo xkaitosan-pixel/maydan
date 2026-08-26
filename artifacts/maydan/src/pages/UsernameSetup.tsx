@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useAuth } from "@/lib/AuthContext";
+import { DB_USER_COLUMNS, useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { sanitizeNickname } from "@/lib/sanitize";
 import { friendlyErrorText } from "@/lib/errors";
@@ -62,7 +62,7 @@ export default function UsernameSetup() {
       .from("users")
       .update({ username: username.trim() })
       .eq("id", dbUser!.id)
-      .select()
+      .select(DB_USER_COLUMNS)
       .single();
 
     if (err || !data) {
