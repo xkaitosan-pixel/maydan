@@ -204,7 +204,7 @@ export default function PartyHost() {
   const fetchPlayers = useCallback(async (code: string) => {
     const { data } = await supabase
       .from("party_players")
-      .select("*")
+      .select("id, room_code, nickname, score, answered_current, last_answer")
       .eq("room_code", code)
       .order("score", { ascending: false });
     if (data) setPlayers(data as PartyPlayer[]);
@@ -338,7 +338,7 @@ export default function PartyHost() {
         // Fresh count directly from DB — no stale React state
         const { count: answeredCount } = await supabase
           .from("party_players")
-          .select("*", { count: "exact", head: true })
+          .select("id", { count: "exact", head: true })
           .eq("room_code", code)
           .eq("answered_current", true);
 
@@ -406,7 +406,9 @@ export default function PartyHost() {
 
     const q = partyQsRef.current[qIdx];
     const { data: allPlayers } = await supabase
-      .from("party_players").select("*").eq("room_code", codeRef.current);
+      .from("party_players")
+      .select("id, room_code, nickname, score, answered_current, last_answer")
+      .eq("room_code", codeRef.current);
 
     if (allPlayers && q) {
       for (const p of allPlayers as PartyPlayer[]) {
@@ -620,7 +622,10 @@ export default function PartyHost() {
             </button>
             <button
               onClick={async () => {
-                const joinUrl = `${window.location.origin}/party/guest?code=${roomCode}`;
+                const joinUrl = new URL(
+                  `party/guest?code=${roomCode}`,
+                  new URL(import.meta.env.BASE_URL, window.location.origin),
+                ).href;
                 if (navigator.share) {
                   try {
                     await navigator.share({
@@ -652,7 +657,10 @@ export default function PartyHost() {
           <div className="mt-5 flex flex-col items-center gap-2">
             <div className="bg-white p-3 rounded-2xl shadow-2xl" style={{ boxShadow: "0 8px 28px rgba(212,175,55,0.35)" }}>
               <QRCodeSVG
-                value={`${window.location.origin}/party/guest?code=${roomCode}`}
+                value={new URL(
+                  `party/guest?code=${roomCode}`,
+                  new URL(import.meta.env.BASE_URL, window.location.origin),
+                ).href}
                 size={180}
                 level="M"
               />
@@ -1029,7 +1037,8 @@ export default function PartyHost() {
 
   // ── FINISHED (podium + confetti) ──────────────────────────────────────────
   if (phase === "finished") {
-    const shareText = `🎉 انتهت لعبة ميدان!\n🥇 الفائز: ${sorted[0]?.nickname || "-"}\n🏆 الأعلى: ${sorted[0]?.score || 0} نقطة\nجرب أنت أيضاً!\n${window.location.origin}`;
+    const appUrl = new URL(import.meta.env.BASE_URL, window.location.origin).href;
+    const shareText = `🎉 انتهت لعبة ميدان!\n🥇 الفائز: ${sorted[0]?.nickname || "-"}\n🏆 الأعلى: ${sorted[0]?.score || 0} نقطة\nجرب أنت أيضاً!\n${appUrl}`;
     return (
       <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-5 gap-6 text-center relative overflow-hidden">
         <Confetti />
