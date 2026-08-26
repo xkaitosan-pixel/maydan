@@ -1,7 +1,31 @@
 import { supabase } from "./supabase";
 import { Question } from "./questions";
 
-const cache = new Map<string, Question[]>();
+const CACHE_TTL_MS = 10 * 60_000;
+const QUESTION_PAGE_SIZE = 1_000;
+const QUESTION_ID_BATCH_SIZE = 200;
+const QUESTION_COLUMNS = "id, question, options, correct, category, difficulty, image_url";
+
+interface CacheEntry<T> {
+  value: T;
+  expiresAt: number;
+}
+
+const categoryCache = new Map<string, CacheEntry<Question[]>>();
+const categoryInflight = new Map<string, Promise<Question[]>>();
+const idsCache = new Map<string, CacheEntry<Question[]>>();
+const idsInflight = new Map<string, Promise<Question[]>>();
+const questionCache = new Map<number, CacheEntry<Question>>();
+
+function freshValue<T>(entry: CacheEntry<T> | undefined): T | undefined {
+  return entry && entry.expiresAt > Date.now() ? entry.value : undefined;
+}
+
+function rememberQuestions(questions: Question[], expiresAt: number) {
+  for (const question of questions) {
+    questionCache.set(question.id, { value: question, expiresAt });
+  }
+}
 
 function shuffleArray<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -26,25 +50,51 @@ export function seededShuffleQuestions<T>(arr: T[], seed: string): T[] {
 }
 
 export async function loadCategoryQuestions(category: string): Promise<Question[]> {
-  if (cache.has(category)) return cache.get(category)!;
+  const cached = freshValue(categoryCache.get(category));
+  if (cached) return cached;
 
-  let query = supabase.from("questions").select("*").order("id");
+  const pending = categoryInflight.get(category);
+  if (pending) return pending;
 
-  if (category === "mix") {
-    query = query.neq("category", "legends");
-  } else {
-    query = query.eq("category", category);
+  const request = (async () => {
+    const questions: Question[] = [];
+    let offset = 0;
+
+    while (true) {
+      let query = supabase
+        .from("questions")
+        .select(QUESTION_COLUMNS)
+        .order("id")
+        .range(offset, offset + QUESTION_PAGE_SIZE - 1);
+
+      if (category === "mix") {
+        query = query.neq("category", "legends");
+      } else {
+        query = query.eq("category", category);
+      }
+
+      const { data, error } = await query;
+      if (error || !data) {
+        console.error("Failed to load questions:", error);
+        return [];
+      }
+
+      questions.push(...(data as Question[]));
+      if (data.length < QUESTION_PAGE_SIZE) break;
+      offset += QUESTION_PAGE_SIZE;
+    }
+
+    const expiresAt = Date.now() + CACHE_TTL_MS;
+    categoryCache.set(category, { value: questions, expiresAt });
+    rememberQuestions(questions, expiresAt);
+    return questions;
+  })();
+  categoryInflight.set(category, request);
+  try {
+    return await request;
+  } finally {
+    categoryInflight.delete(category);
   }
-
-  const { data, error } = await query;
-  if (error || !data) {
-    console.error("Failed to load questions:", error);
-    return [];
-  }
-
-  const qs = data as Question[];
-  cache.set(category, qs);
-  return qs;
 }
 
 export async function fetchGameQuestions(category: string, count?: number): Promise<Question[]> {
@@ -61,39 +111,72 @@ export async function fetchSeededQuestions(category: string, seed: string, count
 export async function fetchQuestionsByIds(ids: number[]): Promise<Question[]> {
   if (ids.length === 0) return [];
 
-  const allCached = [...cache.values()].flat();
-  const found = ids.map(id => allCached.find(q => q.id === id)).filter(Boolean) as Question[];
-  if (found.length === ids.length) return found;
+  const uniqueIds = Array.from(new Set(ids));
+  const key = [...uniqueIds].sort((a, b) => a - b).join(",");
+  const cachedResult = freshValue(idsCache.get(key));
+  if (cachedResult) {
+    const byId = new Map(cachedResult.map((question) => [question.id, question]));
+    return ids.map((id) => byId.get(id)).filter(Boolean) as Question[];
+  }
 
-  const { data, error } = await supabase.from("questions").select("*").in("id", ids);
-  if (error || !data) return [];
+  const individuallyCached = uniqueIds
+    .map((id) => freshValue(questionCache.get(id)))
+    .filter(Boolean) as Question[];
+  if (individuallyCached.length === uniqueIds.length) {
+    const byId = new Map(individuallyCached.map((question) => [question.id, question]));
+    return ids.map((id) => byId.get(id)).filter(Boolean) as Question[];
+  }
 
-  const qs = data as Question[];
-  ids.forEach(id => {
-    const q = qs.find(q => q.id === id);
-    if (q) {
-      const catKey = q.category;
-      if (!cache.has(catKey)) cache.set(catKey, []);
-      const catCache = cache.get(catKey)!;
-      if (!catCache.find(c => c.id === q.id)) catCache.push(q);
+  const pending = idsInflight.get(key);
+  if (pending) {
+    const questions = await pending;
+    const byId = new Map(questions.map((question) => [question.id, question]));
+    return ids.map((id) => byId.get(id)).filter(Boolean) as Question[];
+  }
+
+  const request = (async () => {
+    const questions: Question[] = [];
+    for (let offset = 0; offset < uniqueIds.length; offset += QUESTION_ID_BATCH_SIZE) {
+      const batch = uniqueIds.slice(offset, offset + QUESTION_ID_BATCH_SIZE);
+      const { data, error } = await supabase
+        .from("questions")
+        .select(QUESTION_COLUMNS)
+        .in("id", batch);
+      if (error || !data) {
+        console.error("Failed to load questions by id:", error);
+        return [];
+      }
+      questions.push(...(data as Question[]));
     }
-  });
 
-  return ids.map(id => qs.find(q => q.id === id)).filter(Boolean) as Question[];
+    const expiresAt = Date.now() + CACHE_TTL_MS;
+    idsCache.set(key, { value: questions, expiresAt });
+    rememberQuestions(questions, expiresAt);
+    const byId = new Map(questions.map((question) => [question.id, question]));
+    return uniqueIds.map((id) => byId.get(id)).filter(Boolean) as Question[];
+  })();
+  idsInflight.set(key, request);
+  try {
+    const questions = await request;
+    const byId = new Map(questions.map((question) => [question.id, question]));
+    return ids.map((id) => byId.get(id)).filter(Boolean) as Question[];
+  } finally {
+    idsInflight.delete(key);
+  }
 }
 
 export async function fetchMixedDifficultyDailyQuestions(seed: string): Promise<Question[]> {
-  const [easyRes, medRes, hardRes] = await Promise.all([
-    supabase.from("questions").select("*").eq("difficulty", "easy").neq("category", "legends"),
-    supabase.from("questions").select("*").eq("difficulty", "medium").neq("category", "legends"),
-    supabase.from("questions").select("*").eq("difficulty", "hard").neq("category", "legends"),
-  ]);
-  const easy   = seededShuffleQuestions((easyRes.data ?? []) as Question[], seed + "easy").slice(0, 4);
-  const medium = seededShuffleQuestions((medRes.data ?? []) as Question[], seed + "med").slice(0, 4);
-  const hard   = seededShuffleQuestions((hardRes.data ?? []) as Question[], seed + "hard").slice(0, 2);
+  const all = await loadCategoryQuestions("mix");
+  const easy = seededShuffleQuestions(all.filter((q) => q.difficulty === "easy"), seed + "easy").slice(0, 4);
+  const medium = seededShuffleQuestions(all.filter((q) => q.difficulty === "medium"), seed + "med").slice(0, 4);
+  const hard = seededShuffleQuestions(all.filter((q) => q.difficulty === "hard"), seed + "hard").slice(0, 2);
   return seededShuffleQuestions([...easy, ...medium, ...hard], seed);
 }
 
 export function clearQuestionCache() {
-  cache.clear();
+  categoryCache.clear();
+  idsCache.clear();
+  questionCache.clear();
+  categoryInflight.clear();
+  idsInflight.clear();
 }
