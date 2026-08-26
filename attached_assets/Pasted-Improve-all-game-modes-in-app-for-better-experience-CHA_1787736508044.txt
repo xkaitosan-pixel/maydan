@@ -1,0 +1,72 @@
+Improve all game modes in ميدان app for better experience.
+
+═══════════════════════════════
+CHALLENGE MODE (1v1):
+═══════════════════════════════
+1. Show a nice "vs" intro screen before starting:
+   [your avatar] ⚔️ [opponent avatar]
+   "استعد للتحدي!"
+2. Smooth question transitions
+3. Clear progress indicator (السؤال 3/10)
+4. Better results screen with animation
+
+═══════════════════════════════
+SURVIVAL MODE:
+═══════════════════════════════
+1. Show milestone celebrations:
+   - Every 10 correct: "🔥 10 متتالية!"
+   - Every 25: bigger celebration
+2. Show best score prominently
+3. Warning when on last life: "آخر فرصة! ❤️"
+4. Speed bonus for fast answers
+5. Better game-over screen with retry
+
+═══════════════════════════════
+DAILY CHALLENGE:
+═══════════════════════════════
+1. Show countdown to next daily challenge
+2. Better "already completed" screen
+3. Show your rank vs others clearly
+4. Nice reveal of correct answers after finish
+
+═══════════════════════════════
+RANKED MODE:
+═══════════════════════════════
+1. Better matchmaking screen:
+   "جاري البحث عن خصم... 🔍"
+   Show animated searching
+2. Clear vs screen before match
+3. Live opponent score during match
+4. Better win/loss screen with points change:
+   "+20 نقطة تصنيف 📈" or "-20 نقطة 📉"
+5. Show new rank after match
+
+═══════════════════════════════
+PARTY MODE:
+═══════════════════════════════
+1. Smoother host-guest sync
+2. Better waiting room experience
+3. More exciting question reveals
+4. Better final podium
+
+═══════════════════════════════
+GENERAL GAME IMPROVEMENTS:
+═══════════════════════════════
+1. Consistent question card design across all modes
+2. Smooth answer selection feedback
+3. Clear timer (circular) in all modes
+4. Consistent scoring display
+5. Better transitions between questions
+6. Pause option (where appropriate)
+7. Exit confirmation: "هل تريد الخروج؟ ستخسر تقدمك"
+
+═══════════════════════════════
+QUESTION DISPLAY:
+═══════════════════════════════
+1. If question has image, show it nicely
+2. Long questions: proper text sizing
+3. Long answer options: proper wrapping
+4. Category badge visible during game
+5. Difficulty indicator (سهل/متوسط/صعب)
+
+Push to GitHub.
