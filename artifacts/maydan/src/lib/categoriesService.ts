@@ -1,6 +1,27 @@
 import { supabase } from "./supabase";
 import { CATEGORIES, type Category } from "./questions";
 
+const CACHE_TTL_MS = 5 * 60_000;
+const MAX_CATEGORIES = 500;
+const MAX_COUNT_ROWS = 5_000;
+const CATEGORY_COLUMNS = "id, name, key, icon, parent_key, is_premium, sort_order, created_at";
+
+interface CacheEntry<T> {
+  value: T;
+  expiresAt: number;
+}
+
+let flatCache: CacheEntry<Array<Category & { parentKey: string | null }>> | null = null;
+let flatInflight: Promise<Array<Category & { parentKey: string | null }>> | null = null;
+let treeCache: CacheEntry<CategoryNode[]> | null = null;
+let treeInflight: Promise<CategoryNode[]> | null = null;
+let countsCache: CacheEntry<Record<string, number>> | null = null;
+let countsInflight: Promise<Record<string, number>> | null = null;
+
+function isFresh<T>(entry: CacheEntry<T> | null): entry is CacheEntry<T> {
+  return !!entry && entry.expiresAt > Date.now();
+}
+
 export interface DbCategory {
   id: string;
   name: string;
@@ -57,19 +78,32 @@ function dbRowToCategory(row: DbCategory): Category & { parentKey: string | null
  * Each item also exposes `parentKey` (null for top-level).
  */
 export async function fetchCategoriesFlat(): Promise<Array<Category & { parentKey: string | null }>> {
-  try {
-    const { data, error } = await supabase
-      .from("categories")
-      .select("*")
-      .order("sort_order")
-      .order("name");
-    if (!error && data && data.length > 0) {
-      return (data as DbCategory[]).map(dbRowToCategory);
+  if (isFresh(flatCache)) return flatCache.value;
+  if (flatInflight) return flatInflight;
+  flatInflight = (async () => {
+    let result: Array<Category & { parentKey: string | null }>;
+    try {
+      const { data, error } = await supabase
+        .from("categories")
+        .select(CATEGORY_COLUMNS)
+        .order("sort_order")
+        .order("name")
+        .limit(MAX_CATEGORIES);
+      result = !error && data && data.length > 0
+        ? (data as DbCategory[]).map(dbRowToCategory)
+        : CATEGORIES.map((c) => ({ ...c, parentKey: null }));
+    } catch (e) {
+      console.warn("[categoriesService] fetch failed, using fallback", e);
+      result = CATEGORIES.map((c) => ({ ...c, parentKey: null }));
     }
-  } catch (e) {
-    console.warn("[categoriesService] fetch failed, using fallback", e);
+    flatCache = { value: result, expiresAt: Date.now() + CACHE_TTL_MS };
+    return result;
+  })();
+  try {
+    return await flatInflight;
+  } finally {
+    flatInflight = null;
   }
-  return CATEGORIES.map((c) => ({ ...c, parentKey: null }));
 }
 
 /**
@@ -78,20 +112,30 @@ export async function fetchCategoriesFlat(): Promise<Array<Category & { parentKe
  * as top-level (orphan-safe).
  */
 export async function fetchCategoryTree(): Promise<CategoryNode[]> {
-  const flat = await fetchCategoriesFlat();
-  const byKey = new Map<string, CategoryNode>();
-  for (const c of flat) {
-    byKey.set(c.id, { ...c, parentKey: c.parentKey, children: [] });
-  }
-  const roots: CategoryNode[] = [];
-  for (const node of byKey.values()) {
-    if (node.parentKey && byKey.has(node.parentKey)) {
-      byKey.get(node.parentKey)!.children.push(node);
-    } else {
-      roots.push(node);
+  if (isFresh(treeCache)) return treeCache.value;
+  if (treeInflight) return treeInflight;
+  treeInflight = (async () => {
+    const flat = await fetchCategoriesFlat();
+    const byKey = new Map<string, CategoryNode>();
+    for (const c of flat) {
+      byKey.set(c.id, { ...c, parentKey: c.parentKey, children: [] });
     }
+    const roots: CategoryNode[] = [];
+    for (const node of byKey.values()) {
+      if (node.parentKey && byKey.has(node.parentKey)) {
+        byKey.get(node.parentKey)!.children.push(node);
+      } else {
+        roots.push(node);
+      }
+    }
+    treeCache = { value: roots, expiresAt: Date.now() + CACHE_TTL_MS };
+    return roots;
+  })();
+  try {
+    return await treeInflight;
+  } finally {
+    treeInflight = null;
   }
-  return roots;
 }
 
 /**
@@ -99,15 +143,28 @@ export async function fetchCategoryTree(): Promise<CategoryNode[]> {
  * table. Empty map on failure.
  */
 export async function fetchQuestionCounts(): Promise<Record<string, number>> {
-  try {
-    const { data, error } = await supabase.from("questions").select("category");
-    if (error || !data) return {};
-    const counts: Record<string, number> = {};
-    for (const row of data as Array<{ category: string }>) {
-      counts[row.category] = (counts[row.category] || 0) + 1;
+  if (isFresh(countsCache)) return countsCache.value;
+  if (countsInflight) return countsInflight;
+  countsInflight = (async () => {
+    try {
+      const { data, error } = await supabase
+        .from("questions")
+        .select("category")
+        .limit(MAX_COUNT_ROWS);
+      if (error || !data) return {};
+      const counts: Record<string, number> = {};
+      for (const row of data as Array<{ category: string }>) {
+        counts[row.category] = (counts[row.category] || 0) + 1;
+      }
+      countsCache = { value: counts, expiresAt: Date.now() + CACHE_TTL_MS };
+      return counts;
+    } catch {
+      return {};
     }
-    return counts;
-  } catch {
-    return {};
+  })();
+  try {
+    return await countsInflight;
+  } finally {
+    countsInflight = null;
   }
 }
