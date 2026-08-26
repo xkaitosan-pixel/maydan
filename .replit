@@ -34,3 +34,4 @@ VITE_SUPABASE_ANON_KEY = "sb_publishable_eZVVmvhqAYdiyPfBWqddTw_yk_1JxJy"
 
 [nix]
 channel = "stable-25_05"
+packages = ["glib", "nss", "nspr", "atk", "at-spi2-atk", "cups", "dbus", "libdrm", "mesa", "expat", "libxkbcommon", "pango", "cairo", "alsa-lib", "xorg.libX11", "xorg.libXcomposite", "xorg.libXdamage", "xorg.libXext", "xorg.libXfixes", "xorg.libXrandr", "xorg.libxcb", "libgbm"]
