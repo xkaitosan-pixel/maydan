@@ -2,9 +2,6 @@ import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react
 import { useLocation, useParams } from "wouter";
 import { getCategoryById, Question } from "@/lib/questions";
 import { fetchQuestionsByIds } from "@/lib/questionService";
-import QuestionImage from "@/components/QuestionImage";
-import CircularTimer from "@/components/CircularTimer";
-import ReportFlag from "@/components/ReportFlag";
 import { useAuth } from "@/lib/AuthContext";
 import { getChallenge, saveChallenge, getOrCreateUser, recordGamePlayed, recordCategoryAnswers, getAvailablePowerCards, useSkipCard, useTimeCard } from "@/lib/storage";
 import { completeDbChallenge } from "@/lib/db";
@@ -15,6 +12,13 @@ import { hapticCorrect, hapticWrong } from "@/lib/haptics";
 import { sanitizeNickname } from "@/lib/sanitize";
 import { XP_REWARDS } from "@/lib/gamification";
 import { shuffleQuestion } from "@/lib/shuffle";
+
+// New specialized components
+import { GameHeader } from "@/components/game/GameHeader";
+import { QuestionCard } from "@/components/game/QuestionCard";
+import { AnswerOptions } from "@/components/game/AnswerOptions";
+import { VersusIntro } from "@/components/game/VersusIntro";
+import { ExitConfirmation } from "@/components/game/ExitConfirmation";
 
 const QUESTION_TIME = 30;
 
@@ -42,7 +46,30 @@ export default function Quiz() {
   const [powerUsed, setPowerUsed] = useState<{ skip: boolean; time: boolean }>({ skip: false, time: false });
   const [loadedQs, setLoadedQs] = useState<Question[]>([]);
   const [showXPPop, setShowXPPop] = useState(false);
+  const [showIntro, setShowIntro] = useState(true);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const answeredRef = useRef(false);
+  const transitionTimeoutsRef = useRef<Set<NodeJS.Timeout>>(new Set());
+
+  const clearAllTimeouts = useCallback(() => {
+    transitionTimeoutsRef.current.forEach(clearTimeout);
+    transitionTimeoutsRef.current.clear();
+    if (timerRef.current) clearInterval(timerRef.current);
+  }, []);
+
+  useEffect(() => {
+    return () => clearAllTimeouts();
+  }, [clearAllTimeouts]);
+
+  const setTrackedTimeout = useCallback((cb: () => void, delay: number) => {
+    const id = setTimeout(() => {
+      transitionTimeoutsRef.current.delete(id);
+      cb();
+    }, delay);
+    transitionTimeoutsRef.current.add(id);
+    return id;
+  }, []);
 
   const challenge = getChallenge(challengeId);
   const category = challenge ? getCategoryById(challenge.categoryId) : null;
@@ -70,7 +97,6 @@ export default function Quiz() {
 
   // Guarantee clean visual state on every question change (sync, before paint)
   useLayoutEffect(() => {
-    console.log('[Quiz] Question changed, resetting selection', { currentIndex });
     setSelectedOption(null);
     setShowResult(false);
   }, [currentIndex]);
@@ -81,31 +107,34 @@ export default function Quiz() {
       finishQuiz(ans);
     } else {
       setIsTransitioning(true);
-      setTimeout(() => {
+      setTrackedTimeout(() => {
         setCurrentIndex(nextIndex);
         setSelectedOption(null);
         setShowResult(false);
         setTimeLeft(QUESTION_TIME);
         setIsTransitioning(false);
         setPowerUsed({ skip: false, time: false });
+        answeredRef.current = false;
       }, 600);
     }
-  }, [currentIndex, challenge]);
+  }, [currentIndex, challenge, setTrackedTimeout]);
 
   useEffect(() => {
-    if (showResult || !challenge || showNameInput || isReporting) return;
+    if (showResult || !challenge || showNameInput || isReporting || showIntro || showExitConfirm) return;
     if (timerRef.current) clearInterval(timerRef.current);
 
     timerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
           clearInterval(timerRef.current!);
+          if (answeredRef.current) return 0;
+          answeredRef.current = true;
           const newAnswers = [...answers];
           newAnswers[currentIndex] = null;
           setAnswers(newAnswers);
           setShowResult(true);
           playWrong();
-          setTimeout(() => goToNextQuestion(newAnswers), 1200);
+          setTrackedTimeout(() => goToNextQuestion(newAnswers), 1200);
           return 0;
         }
         if (prev <= 5) playTick();
@@ -113,10 +142,11 @@ export default function Quiz() {
       });
     }, 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [currentIndex, showResult, answers, challenge, showNameInput, isReporting]);
+  }, [currentIndex, showResult, answers, challenge, showNameInput, isReporting, showIntro, showExitConfirm, setTrackedTimeout, goToNextQuestion]);
 
   function handleAnswer(optionIndex: number) {
-    if (selectedOption !== null || showResult || isTransitioning) return;
+    if (answeredRef.current || selectedOption !== null || showResult || isTransitioning) return;
+    answeredRef.current = true;
     if (timerRef.current) clearInterval(timerRef.current);
     setSelectedOption(optionIndex);
     setShowResult(true);
@@ -128,18 +158,19 @@ export default function Quiz() {
       flashScreen("correct");
       hapticCorrect();
       setShowXPPop(true);
-      setTimeout(() => setShowXPPop(false), 1100);
+      setTrackedTimeout(() => setShowXPPop(false), 1100);
     } else {
       playWrong();
       flashScreen("wrong");
       hapticWrong();
     }
-    setTimeout(() => goToNextQuestion(newAnswers), 1200);
+    setTrackedTimeout(() => goToNextQuestion(newAnswers), 1200);
   }
 
   function handleSkip() {
-    if (powerUsed.skip || skipAvail <= 0 || showResult || isTransitioning) return;
+    if (answeredRef.current || powerUsed.skip || skipAvail <= 0 || showResult || isTransitioning) return;
     if (!useSkipCard()) return;
+    answeredRef.current = true;
     if (timerRef.current) clearInterval(timerRef.current);
     setPowerUsed(prev => ({ ...prev, skip: true }));
     setSkipAvail(prev => prev - 1);
@@ -161,6 +192,7 @@ export default function Quiz() {
   function finishQuiz(finalAnswers: (number | null)[]) {
     if (!challenge) return;
     if (timerRef.current) clearInterval(timerRef.current);
+    clearAllTimeouts(); // Ensure no pending transitions fire while navigating away
     const totalTime = Math.floor((Date.now() - startTime) / 1000);
     const questionList = challenge.questions.map(id => loadedQs.find(q => q.id === id)!);
     const score = finalAnswers.reduce<number>((acc, ans, idx) => acc + (ans === questionList[idx]?.correct ? 1 : 0), 0);
@@ -260,7 +292,28 @@ export default function Quiz() {
   }
 
   return (
-    <div className="min-h-screen gradient-hero flex flex-col">
+    <div className="min-h-[100dvh] gradient-hero flex flex-col">
+      <ExitConfirmation
+        open={showExitConfirm}
+        onOpenChange={setShowExitConfirm}
+        onExit={() => {
+          clearAllTimeouts();
+          navigate("/");
+        }}
+      />
+
+      {showIntro && challenge && category && (
+        <VersusIntro
+          player1Name={role === "creator" ? (dbUser?.username || "أنت") : challenge.creatorName}
+          player2Name={role === "creator" ? (challenge.challengerName || "المتحدي") : (challengerName || dbUser?.username || "أنت")}
+          categoryName={category.name}
+          categoryIcon={category.icon}
+          gradientFrom={category.gradientFrom}
+          gradientTo={category.gradientTo}
+          onComplete={() => setShowIntro(false)}
+        />
+      )}
+
       {/* Floating XP pop on correct answer */}
       {showXPPop && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 pointer-events-none animate-bounce">
@@ -271,112 +324,73 @@ export default function Quiz() {
           </div>
         </div>
       )}
-      {/* Header */}
-      <header className="p-4 border-b border-border/30">
-        <div className="flex justify-between items-center mb-2">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">{category?.icon}</span>
-            <span className="text-xs text-muted-foreground">{category?.name}</span>
-          </div>
-          <CircularTimer timeLeft={timeLeft} totalTime={QUESTION_TIME} size={68} />
-        </div>
-        <div className="flex gap-1 justify-center mt-2">
-          {questionIds.map((_, idx) => (
-            <div key={idx} className="h-1 rounded-full transition-all" style={{
-              width: idx === currentIndex ? 24 : idx < currentIndex ? 16 : 8,
-              backgroundColor: idx < currentIndex ? category?.gradientFrom || "hsl(45 85% 50%)" : idx === currentIndex ? category?.gradientTo || "hsl(270 60% 50%)" : "hsl(var(--muted))",
-            }} />
-          ))}
-        </div>
-        <p className="text-xs text-muted-foreground text-center mt-1">{currentIndex + 1} / {questionIds.length}</p>
-      </header>
+
+      <GameHeader
+        category={category ?? null}
+        currentIndex={currentIndex}
+        totalQuestions={questionIds.length}
+        timeLeft={timeLeft}
+        totalTime={QUESTION_TIME}
+        onExitClick={() => setShowExitConfirm(true)}
+      />
 
       <div className={`flex-1 flex flex-col p-4 ${isTransitioning ? "opacity-0 transition-opacity" : "opacity-100 transition-opacity"}`}>
-        <div key={currentIndex} className="flex-1 flex flex-col justify-center">
-          <div className="text-center mb-3">
-            <span className="text-xs px-3 py-1 rounded-full" style={{ background: `${category?.gradientFrom}22`, color: category?.gradientFrom, border: `1px solid ${category?.gradientFrom}44` }}>
-              {currentQuestion.difficulty === "easy" ? "سهل" : currentQuestion.difficulty === "medium" ? "متوسط" : "صعب"}
-            </span>
-          </div>
+        <div key={currentIndex} className="flex-1 flex flex-col max-w-md mx-auto w-full pb-8">
 
-          <div className="glass-card p-6 mb-4 text-center slide-in relative" style={{ boxShadow: "0 8px 32px rgba(0,0,0,0.3)" }}>
-            <ReportFlag
-              questionId={currentQuestion.id}
-              questionText={currentQuestion.question}
-              reporter={dbUser?.username ?? challengerName ?? null}
-              onOpenChange={setIsReporting}
+          <QuestionCard
+            question={currentQuestion.question}
+            difficulty={currentQuestion.difficulty}
+            imageUrl={currentQuestion.image_url}
+            questionId={currentQuestion.id.toString()}
+            reporterName={dbUser?.username ?? challengerName ?? null}
+            onReportOpenChange={setIsReporting}
+            categoryGradientFrom={category?.gradientFrom}
+            categoryGradientTo={category?.gradientTo}
+          />
+
+          <div className="mt-6 mb-6">
+            <AnswerOptions
+              options={currentQuestion.options}
+              selectedOption={selectedOption}
+              correctOption={currentQuestion.correct}
+              showResult={showResult}
+              onSelect={handleAnswer}
+              disabled={showResult || isTransitioning}
             />
-            {currentQuestion.image_url && (
-              <QuestionImage url={currentQuestion.image_url} maxHeight={200} className="mb-3" />
-            )}
-            <p className="text-xl font-bold leading-relaxed">{currentQuestion.question}</p>
-          </div>
-
-          <div key={`answers-${currentIndex}-${currentQuestion.id}`} className="grid grid-cols-1 gap-3 mb-4">
-            {currentQuestion.options.map((option, idx) => {
-              const isCorrect = showResult && idx === currentQuestion.correct;
-              const isWrongSelected = showResult && idx === selectedOption && idx !== currentQuestion.correct;
-              const isSelectedPending = !showResult && idx === selectedOption;
-              const style: React.CSSProperties = isCorrect
-                ? { background: "linear-gradient(135deg,#16a34a,#22c55e)", borderColor: "#22c55e", boxShadow: "0 0 22px rgba(34,197,94,0.55)", color: "#fff" }
-                : isWrongSelected
-                ? { background: "linear-gradient(135deg,#b91c1c,#ef4444)", borderColor: "#ef4444", boxShadow: "0 0 22px rgba(239,68,68,0.55)", color: "#fff" }
-                : isSelectedPending
-                ? { background: "rgba(212,175,55,0.15)", borderColor: "rgba(212,175,55,0.6)", color: "#fff" }
-                : { background: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.15)", color: "#fff" };
-              return (
-                <button
-                  key={`${currentQuestion.id}-${idx}`}
-                  onClick={() => handleAnswer(idx)}
-                  disabled={showResult || isTransitioning}
-                  className="press-shrink w-full text-right font-semibold text-base rounded-2xl border transition-all"
-                  style={{ ...style, height: 60, padding: "0 16px", borderWidth: 1.5 }}
-                >
-                  <span className="flex items-center gap-3">
-                    <span className="w-8 h-8 rounded-full border border-current flex items-center justify-center text-xs font-bold shrink-0">
-                      {["أ","ب","ج","د"][idx]}
-                    </span>
-                    <span className="flex-1">{option}</span>
-                    {isCorrect && <span className="text-xl">✓</span>}
-                    {isWrongSelected && <span className="text-xl">✗</span>}
-                  </span>
-                </button>
-              );
-            })}
           </div>
 
           {/* POWER CARDS */}
-          <div className="flex gap-3 justify-center">
+          <div className="flex gap-3 justify-center mt-auto">
             <button
               onClick={handleSkip}
               disabled={powerUsed.skip || skipAvail <= 0 || showResult || isTransitioning}
-              className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all ${
+              className={`flex items-center gap-1.5 px-4 py-3 rounded-xl text-sm font-bold border-2 transition-all ${
                 powerUsed.skip || skipAvail <= 0
-                  ? "border-border text-muted-foreground opacity-40 cursor-not-allowed"
-                  : "border-purple-500/40 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20"
+                  ? "border-border text-muted-foreground opacity-40 cursor-not-allowed bg-card"
+                  : "border-purple-500/40 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 hover:border-purple-500/60 press-shrink"
               }`}
             >
-              <span>🔄</span>
+              <span className="text-lg">🔄</span>
               <span>تخطي</span>
-              {skipAvail < 99 && <span className="text-xs opacity-70">({skipAvail})</span>}
+              {skipAvail < 99 && <span className="text-xs opacity-70 bg-purple-500/20 px-1.5 rounded-md">({skipAvail})</span>}
             </button>
             <button
               onClick={handleAddTime}
               disabled={powerUsed.time || timeAvail <= 0 || showResult}
-              className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all ${
+              className={`flex items-center gap-1.5 px-4 py-3 rounded-xl text-sm font-bold border-2 transition-all ${
                 powerUsed.time || timeAvail <= 0
-                  ? "border-border text-muted-foreground opacity-40 cursor-not-allowed"
-                  : "border-yellow-500/40 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20"
+                  ? "border-border text-muted-foreground opacity-40 cursor-not-allowed bg-card"
+                  : "border-yellow-500/40 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 hover:border-yellow-500/60 press-shrink"
               }`}
             >
-              <span>⏱️</span>
+              <span className="text-lg">⏱️</span>
               <span>+15 ثانية</span>
-              {timeAvail < 99 && <span className="text-xs opacity-70">({timeAvail})</span>}
+              {timeAvail < 99 && <span className="text-xs opacity-70 bg-yellow-500/20 px-1.5 rounded-md">({timeAvail})</span>}
             </button>
           </div>
 
           {showResult && selectedOption === null && (
-            <div className="text-center mt-3 text-muted-foreground text-sm">انتهى الوقت! ⏰</div>
+            <div className="text-center mt-4 text-destructive font-bold text-sm animate-pulse bg-destructive/10 py-2 rounded-lg">انتهى الوقت! ⏰</div>
           )}
         </div>
       </div>

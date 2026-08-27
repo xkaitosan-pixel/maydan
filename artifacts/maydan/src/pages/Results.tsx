@@ -3,14 +3,16 @@ import { useLocation, useParams } from "wouter";
 import { getCategoryById, Question } from "@/lib/questions";
 import { fetchQuestionsByIds } from "@/lib/questionService";
 import { shuffleQuestion } from "@/lib/shuffle";
-import { getChallenge, recordWin, getOrCreateUser, addLeaderboardEntry, getSurvivalRank, recordTodayWin, recordTodayLoss, recordTodayXP } from "@/lib/storage";
+import { getChallenge, saveChallenge, recordWin, getOrCreateUser, addLeaderboardEntry, getSurvivalRank, recordTodayWin, recordTodayLoss, recordTodayXP, type ChallengeData } from "@/lib/storage";
 import { playSound } from "@/lib/sound";
 import { useAuth } from "@/lib/AuthContext";
-import { insertScore, updateUserStats, addFriend, isFriend } from "@/lib/db";
+import { insertScore, updateUserStats, addFriend, isFriend, getDbChallenge } from "@/lib/db";
+import { challengeFromDb } from "@/lib/challengeSync";
 import { Button } from "@/components/ui/button";
 import AchievementPopup from "@/components/AchievementPopup";
 import FloatingReward from "@/components/FloatingReward";
 import ShareCard from "@/components/ShareCard";
+import { Podium } from "@/components/game/Podium";
 import { getSeasonTier } from "@/lib/gamification";
 import { awardGameRewards, XP_REWARDS, COIN_REWARDS } from "@/lib/gamification";
 import { recordEngagementGame } from "@/lib/engagement";
@@ -38,19 +40,52 @@ export default function Results() {
   const [friendAdded, setFriendAdded] = useState(false);
   const [addingFriend, setAddingFriend] = useState(false);
   const [signupPromptDismissed, setSignupPromptDismissed] = useState(false);
+  const [challenge, setChallenge] = useState<ChallengeData | null>(() => getChallenge(challengeId));
+  const [challengeLoading, setChallengeLoading] = useState(true);
+  const [challengeError, setChallengeError] = useState("");
 
-  const challenge = getChallenge(challengeId);
   const category = challenge ? getCategoryById(challenge.categoryId) : null;
   const user = getOrCreateUser();
+  const challengeQuestionsKey = challenge?.questions.join(",") ?? "";
 
   useEffect(() => {
+    let cancelled = false;
+    async function hydrateChallenge() {
+      const local = getChallenge(challengeId);
+      if (!cancelled && local) setChallenge(local);
+      if (!local || local.status === "waiting") {
+        const remote = await getDbChallenge(challengeId);
+        if (cancelled) return;
+        if (remote) {
+          const hydrated = challengeFromDb(remote);
+          saveChallenge(hydrated);
+          setChallenge(hydrated);
+        } else if (!local) {
+          setChallengeError("هذا التحدي غير موجود أو تعذّر تحميله.");
+        }
+      }
+      if (!cancelled) setChallengeLoading(false);
+    }
+    hydrateChallenge().catch(() => {
+      if (!cancelled) {
+        setChallengeError("تعذّر تحديث نتيجة التحدي. تحقق من اتصالك وحاول مجددًا.");
+        setChallengeLoading(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [challengeId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadedQs([]);
     if (challenge) {
       // Apply same deterministic shuffle as Quiz so saved answer indices map to correct options
-      fetchQuestionsByIds(challenge.questions).then((qs) =>
-        setLoadedQs(qs.map((q) => shuffleQuestion(q, q.id)))
-      );
+      fetchQuestionsByIds(challenge.questions).then((qs) => {
+        if (!cancelled) setLoadedQs(qs.map((q) => shuffleQuestion(q, q.id)));
+      });
     }
-  }, [challengeId]);
+    return () => { cancelled = true; };
+  }, [challengeId, challengeQuestionsKey]);
 
   useEffect(() => {
     if (!challenge || winRecorded) return;
@@ -132,7 +167,19 @@ export default function Results() {
     }
   }, [challenge, role, winRecorded]);
 
-  if (!challenge) { navigate("/"); return null; }
+  if (challengeLoading && !challenge) {
+    return <div className="min-h-[100dvh] gradient-hero flex items-center justify-center font-bold">جاري تحميل النتيجة...</div>;
+  }
+  if (!challenge) {
+    return (
+      <div className="min-h-[100dvh] gradient-hero flex items-center justify-center p-6 text-center">
+        <div className="max-w-sm rounded-2xl border border-border bg-card p-6" role="alert">
+          <p className="font-bold">{challengeError || "تعذّر فتح نتيجة التحدي."}</p>
+          <Button className="mt-4" onClick={() => navigate("/")}>العودة للرئيسية</Button>
+        </div>
+      </div>
+    );
+  }
 
   const questionList = challenge.questions.map(id => loadedQs.find(q => q.id === id)!);
   const total = questionList.length;
@@ -305,36 +352,26 @@ export default function Results() {
 
         {/* Score comparison */}
         {isCompleted ? (
-          <div className="bg-card border border-border rounded-2xl p-5 fade-in-up">
-            <div className="grid grid-cols-3 gap-4 items-center text-center">
-              <div>
-                <div className="relative w-14 h-14 mx-auto mb-2">
-                  {isWinner && (
-                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-xl drop-shadow-[0_0_4px_rgba(245,158,11,0.6)]">👑</span>
-                  )}
-                  <div className="w-14 h-14 rounded-full flex items-center justify-center border-2"
-                    style={{ background: `${category?.gradientFrom}22`, borderColor: category?.gradientFrom || "hsl(var(--primary))" }}>
-                    <span className="text-xl font-black" style={{ color: category?.gradientFrom }}>{myScore}</span>
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground">{myName}</p>
-                <p className="text-xs font-bold" style={{ color: category?.gradientFrom }}>{pct}%</p>
-              </div>
-              <div><p className="text-2xl font-black text-muted-foreground">VS</p></div>
-              <div>
-                <div className="relative w-14 h-14 mx-auto mb-2">
-                  {!isWinner && !isTie && (opponentScore ?? 0) > myScore && (
-                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-xl drop-shadow-[0_0_4px_rgba(245,158,11,0.6)]">👑</span>
-                  )}
-                  <div className={`w-14 h-14 rounded-full flex items-center justify-center border-2 ${(opponentScore ?? 0) > myScore ? "" : "border-border bg-muted"}`}
-                    style={(opponentScore ?? 0) > myScore ? { background: `${category?.gradientFrom}22`, borderColor: category?.gradientFrom } : {}}>
-                    <span className="text-xl font-black" style={(opponentScore ?? 0) > myScore ? { color: category?.gradientFrom } : { color: "hsl(var(--muted-foreground))" }}>{opponentScore}</span>
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground">{opponentName}</p>
-                <p className="text-xs text-muted-foreground">{Math.round(((opponentScore ?? 0) / total) * 100)}%</p>
-              </div>
-            </div>
+          <div className="bg-card/50 backdrop-blur-sm border border-border rounded-3xl p-1 mb-4 fade-in-up overflow-hidden">
+            <Podium
+              player1={{
+                name: myName,
+                score: myScore,
+                total,
+                isWinner: isWinner,
+                avatarUrl: role === "creator" ? dbUser?.avatar_url : undefined
+              }}
+              player2={{
+                name: opponentName,
+                score: opponentScore ?? 0,
+                total,
+                isWinner: !isWinner && !isTie,
+                avatarUrl: role === "challenger" ? dbUser?.avatar_url : undefined
+              }}
+              isTie={isTie}
+              gradientFrom={category?.gradientFrom}
+              gradientTo={category?.gradientTo}
+            />
           </div>
         ) : (
           <div className="bg-card border border-border rounded-2xl p-5 text-center fade-in-up space-y-4">

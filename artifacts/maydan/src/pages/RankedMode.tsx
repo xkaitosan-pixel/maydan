@@ -19,6 +19,7 @@ import FloatingReward from "@/components/FloatingReward";
 import ShareCard from "@/components/ShareCard";
 import { awardGameRewards, XP_REWARDS, COIN_REWARDS } from "@/lib/gamification";
 import { recordEngagementGame } from "@/lib/engagement";
+import { recordCompletedGameForInstall } from "@/lib/pwa";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -55,12 +56,15 @@ const RANKED_MATCH_COLUMNS = "id, player1_id, player1_name, player2_id, player2_
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
-const QUESTION_TIME_MS = 10000;
-const COUNTDOWN_MS = 3000;
-const SCOREBOARD_MS = 2500;
-const MATCH_QUESTIONS = 10;
+const E2E_TIMING =
+  import.meta.env.VITE_E2E_TIMING === "1" &&
+  new URLSearchParams(window.location.search).has("__e2e");
+const QUESTION_TIME_MS = E2E_TIMING ? 800 : 10000;
+const COUNTDOWN_MS = E2E_TIMING ? 150 : 3000;
+const SCOREBOARD_MS = E2E_TIMING ? 100 : 2500;
+const MATCH_QUESTIONS = E2E_TIMING ? 2 : 10;
 const SEARCH_TIMEOUT = 60;
-const POLL_MS = 500;
+const POLL_MS = E2E_TIMING ? 50 : 500;
 
 // Speed → points: 1–2s=10, 3–4s=8, 5–6s=6, 7–8s=4, 9–10s=2 (per spec)
 function pointsForElapsedMs(elapsedMs: number, correct: boolean): number {
@@ -107,11 +111,15 @@ export default function RankedMode() {
   const [rewardSummary, setRewardSummary] = useState<{ xp: number; coins: number; achievements: number } | null>(null);
   const [oppCountry, setOppCountry] = useState<string | null>(null);
   const [oppAvatar, setOppAvatar] = useState<string | null>(null);
+  const [resultingRankPoints, setResultingRankPoints] = useState<number | null>(null);
 
   const searchIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollSearchRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollMatchRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const transitionTimeoutsRef = useRef(new Set<ReturnType<typeof setTimeout>>());
+  const cancelledRef = useRef(false);
   const matchRef = useRef<RankedMatch | null>(null);
   const myIdRef = useRef(myId);
   const myNameRef = useRef(myName);
@@ -122,6 +130,7 @@ export default function RankedMode() {
   const displayedQIdxRef = useRef<number>(-1);  // qIdx currently shown to the user
   const finishedRef = useRef(false);
   const correctCountRef = useRef(0);
+  const countedCorrectQRef = useRef<number>(-1);
 
   useEffect(() => {
     myIdRef.current = myId;
@@ -150,20 +159,35 @@ export default function RankedMode() {
   }
 
   function cleanup() {
+    cancelledRef.current = true;
     if (searchIntervalRef.current) clearInterval(searchIntervalRef.current);
     if (pollSearchRef.current) clearInterval(pollSearchRef.current);
     if (pollMatchRef.current) clearInterval(pollMatchRef.current);
     if (timerRef.current) clearInterval(timerRef.current);
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    transitionTimeoutsRef.current.forEach(clearTimeout);
+    transitionTimeoutsRef.current.clear();
     searchIntervalRef.current = null;
     pollSearchRef.current = null;
     pollMatchRef.current = null;
     timerRef.current = null;
+    countdownIntervalRef.current = null;
+  }
+
+  function scheduleTransition(callback: () => void, delay: number) {
+    const timeoutId = setTimeout(() => {
+      transitionTimeoutsRef.current.delete(timeoutId);
+      if (!cancelledRef.current) callback();
+    }, delay);
+    transitionTimeoutsRef.current.add(timeoutId);
+    return timeoutId;
   }
 
   // ── MATCHMAKING ──────────────────────────────────────────────────────────
 
   async function enterQueue() {
     if (!myId) return;
+    cancelledRef.current = false;
     if (!canPlayRanked()) {
       alert("لقد استنفدت جولاتك المصنّفة اليوم (5/يوم). ترقّ إلى ميدان برو لجولات غير محدودة.");
       navigate("/premium");
@@ -218,7 +242,7 @@ export default function RankedMode() {
     pollSearchRef.current = setInterval(async () => {
       const found = await findOpponent(category);
       if (found) clearSearchTimers();
-    }, 2000);
+    }, E2E_TIMING ? 50 : 2000);
   }
 
   function clearSearchTimers() {
@@ -239,6 +263,10 @@ export default function RankedMode() {
 
     if (!opponents || opponents.length === 0) return false;
     const opp = opponents[0];
+
+    // Only one deterministic side may create the match. This prevents the
+    // symmetric race where both clients claim each other and insert two rows.
+    if (myIdRef.current.localeCompare(opp.user_id) > 0) return false;
 
     // Atomic claim: only succeed if the row is still 'waiting'. Conditional
     // UPDATE is the cheapest cross-DB-safe way to prevent two clients from
@@ -314,6 +342,7 @@ export default function RankedMode() {
   }
 
   async function cancelSearch() {
+    cancelledRef.current = true;
     await supabase.from("ranked_queue").update({ status: "cancelled" }).eq("user_id", myId);
     setPhaseSafe("select_cats");
   }
@@ -335,13 +364,14 @@ export default function RankedMode() {
         clearSearchTimers();
         await startMatch(data[0] as RankedMatch);
       }
-    }, 1500);
+    }, E2E_TIMING ? 50 : 1500);
     return () => clearInterval(interval);
   }, [phase, myId]);
 
   // ── MATCH SETUP ──────────────────────────────────────────────────────────
 
   async function startMatch(m: RankedMatch) {
+    if (cancelledRef.current) return;
     matchRef.current = m;
     setMatch(m);
     submittedQRef.current = -1;
@@ -349,8 +379,10 @@ export default function RankedMode() {
     displayedQIdxRef.current = -1;
     finishedRef.current = false;
     correctCountRef.current = 0;
+    countedCorrectQRef.current = -1;
 
     const qs = await getMatchQuestions(m.id, m.category);
+    if (cancelledRef.current) return;
     const sq = qs.map((q) => shuffleQuestion(q, q.id));
     matchQsRef.current = sq;
     setMatchQs(sq);
@@ -370,26 +402,33 @@ export default function RankedMode() {
   }
 
   function runCountdown(m: RankedMatch) {
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
     const start = m.countdown_start ?? Date.now();
     const tick = () => {
+      if (cancelledRef.current || phaseRef.current !== "matched") {
+        if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+        return;
+      }
       const elapsed = Date.now() - start;
       const left = Math.max(0, Math.ceil((COUNTDOWN_MS - elapsed) / 1000));
       setCountdown(left);
       if (elapsed >= COUNTDOWN_MS) {
-        clearInterval(interval);
+        if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
         hostStartFirstQuestion();
         // Both clients will pick up question 0 on the next pollTick.
       }
     };
+    countdownIntervalRef.current = setInterval(tick, 200);
     tick();
-    const interval = setInterval(tick, 200);
   }
 
   // Called only by the host (P1) at the very end of countdown to publish the
   // first authoritative question_start_time. Both clients then react to that
   // change via pollTick → showQuestion(0).
   async function hostStartFirstQuestion() {
-    if (!matchRef.current) return;
+    if (cancelledRef.current || phaseRef.current !== "matched" || !matchRef.current) return;
     if (matchRef.current.player1_id !== myIdRef.current) return;
     const now = Date.now();
     await supabase.from("ranked_matches").update({
@@ -468,7 +507,7 @@ export default function RankedMode() {
       submittedQRef.current !== qIdx &&
       timedOut
     ) {
-      await writeMyAnswer(null, qIdx, 0, QUESTION_TIME_MS);
+      await writeMyAnswer(null, qIdx, 0, QUESTION_TIME_MS, false);
     }
 
     // ── 4. Both answered → q_result, then scoreboard ──────────────────────
@@ -478,11 +517,11 @@ export default function RankedMode() {
       setOppTotalScore(isP1 ? cur.player2_score : cur.player1_score);
       setPhaseSafe("q_result");
       const lockedIdx = qIdx;
-      setTimeout(() => {
+      scheduleTransition(() => {
         if (phaseRef.current === "q_result" && displayedQIdxRef.current === lockedIdx) {
           setPhaseSafe("scoreboard");
         }
-      }, 1500);
+      }, E2E_TIMING ? 300 : 1500);
     }
 
     // ── 5. Host: advance the question on the server ───────────────────────
@@ -493,13 +532,13 @@ export default function RankedMode() {
       (bothAnswered || timedOut)
     ) {
       advancedFromRef.current = qIdx;
-      setTimeout(() => advanceQuestionOnServer(qIdx), SCOREBOARD_MS + 1500);
+      scheduleTransition(() => { void advanceQuestionOnServer(qIdx); }, SCOREBOARD_MS + 1500);
     }
   }
 
   // Host-only. Pure server-side advance — local UI re-syncs via pollTick.
   async function advanceQuestionOnServer(fromIdx: number) {
-    if (!matchRef.current || finishedRef.current) return;
+    if (cancelledRef.current || !matchRef.current || finishedRef.current) return;
     const nextIdx = fromIdx + 1;
 
     if (nextIdx >= MATCH_QUESTIONS) {
@@ -516,7 +555,7 @@ export default function RankedMode() {
 
   // ── Submitting answers ───────────────────────────────────────────────────
 
-  async function writeMyAnswer(ans: number | null, qIdx: number, pts: number, ms: number) {
+  async function writeMyAnswer(ans: number | null, qIdx: number, pts: number, ms: number, correct: boolean) {
     if (!matchRef.current) return;
     if (submittedQRef.current === qIdx) return;
     submittedQRef.current = qIdx;
@@ -541,15 +580,19 @@ export default function RankedMode() {
       .select(RANKED_MATCH_COLUMNS)
       .maybeSingle();
 
-    if (error) {
+    if (error || !data) {
       console.warn("writeMyAnswer error", error);
+      submittedQRef.current = -1;
+      setSelected(null);
       return;
     }
-    if (data) {
-      matchRef.current = data as RankedMatch;
-      setMatch(data as RankedMatch);
-      setMyTotalScore(isP1 ? (data as RankedMatch).player1_score : (data as RankedMatch).player2_score);
+    if (correct && countedCorrectQRef.current !== qIdx) {
+      countedCorrectQRef.current = qIdx;
+      correctCountRef.current += 1;
     }
+    matchRef.current = data as RankedMatch;
+    setMatch(data as RankedMatch);
+    setMyTotalScore(isP1 ? (data as RankedMatch).player1_score : (data as RankedMatch).player2_score);
   }
 
   function handleAnswer(idx: number) {
@@ -562,9 +605,9 @@ export default function RankedMode() {
     const correct = !!q && idx === q.correct;
     const pts = pointsForElapsedMs(elapsed, correct);
     setSelected(idx);
-    if (correct) { correctCountRef.current += 1; playCorrect(); flashScreen("correct"); }
+    if (correct) { playCorrect(); flashScreen("correct"); }
     else { playWrong(); flashScreen("wrong"); }
-    void writeMyAnswer(idx, qIdx, pts, elapsed);
+    void writeMyAnswer(idx, qIdx, pts, elapsed, correct);
   }
 
   // ── Finish ───────────────────────────────────────────────────────────────
@@ -609,10 +652,12 @@ export default function RankedMode() {
     if (w === "me") playGameOver();
     else if (w === "opponent") playWrong();
     setPhaseSafe("finished");
+    recordCompletedGameForInstall();
 
     const won = w === "me";
     const draw = w === "draw";
     const delta = won ? 20 : draw ? 0 : -20;
+    setResultingRankPoints(Math.max(0, myPoints + delta));
     if (delta !== 0) {
       supabase.from("ranked_queue")
         .select("rank_points")
@@ -623,6 +668,7 @@ export default function RankedMode() {
             const newPts = Math.max(0, (data.rank_points ?? 0) + delta);
             supabase.from("ranked_queue").update({ rank_points: newPts }).eq("user_id", myIdRef.current).then(() => {
               setMyPoints(newPts);
+              setResultingRankPoints(newPts);
             });
           }
         });
@@ -768,22 +814,26 @@ export default function RankedMode() {
   // ── SEARCHING ──────────────────────────────────────────────────────────────
   if (phase === "searching") {
     return (
-      <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-6 gap-8 text-center">
-        <div className="fade-in-up space-y-4">
-          <div className="relative w-24 h-24 mx-auto">
-            <div className="w-24 h-24 rounded-full border-4 border-secondary/30 border-t-secondary animate-spin" />
-            <div className="absolute inset-0 flex items-center justify-center text-3xl">⚔️</div>
+      <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-5 sm:p-8 gap-8 text-center overflow-hidden">
+        <div className="fade-in-up space-y-5 w-full max-w-sm" data-testid="status-ranked-searching" aria-live="polite">
+          <div className="relative w-32 h-32 mx-auto">
+            <div className="absolute inset-0 rounded-full bg-secondary/10 animate-ping motion-reduce:animate-none" />
+            <div className="absolute inset-2 rounded-full border-4 border-secondary/25 border-t-secondary animate-spin motion-reduce:animate-none" />
+            <div className="absolute inset-0 flex items-center justify-center text-4xl animate-pulse motion-reduce:animate-none">⚔️</div>
           </div>
-          <h1 className="text-xl font-black text-primary">جاري البحث عن خصم...</h1>
-          <p className="text-muted-foreground text-sm">سيبدأ البحث تلقائياً عند إيجاد لاعب</p>
-          <div className="flex items-center justify-center gap-1">
+          <div>
+            <h1 className="text-2xl font-black text-primary">جاري البحث عن خصم...</h1>
+            <p className="text-muted-foreground text-sm leading-relaxed mt-2">نبحث عن منافس مناسب لرتبتك وفئاتك</p>
+          </div>
+          <div className="flex items-center justify-center gap-2 rounded-full bg-card border border-border w-fit mx-auto px-5 py-2.5">
             <span className="text-muted-foreground text-sm">⏱️</span>
-            <span className="text-xl font-black tabular-nums text-primary">{searchTimer}s</span>
+            <span className="text-xl font-black tabular-nums text-primary" data-testid="text-ranked-search-time">{searchTimer}ث</span>
           </div>
         </div>
         <button
           onClick={() => { clearSearchTimers(); cancelSearch(); }}
-          className="px-6 py-3 rounded-xl bg-card border border-border text-sm font-bold text-muted-foreground"
+          data-testid="button-cancel-ranked-search"
+          className="min-h-12 px-8 py-3 rounded-xl bg-card border border-border text-sm font-bold text-foreground active:scale-[0.98]"
         >
           إلغاء البحث
         </button>
@@ -794,28 +844,28 @@ export default function RankedMode() {
   // ── MATCHED COUNTDOWN ─────────────────────────────────────────────────────
   if (phase === "matched" && match) {
     return (
-      <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-6 gap-6 text-center">
-        <div className="fade-in-up">
-          <p className="text-green-400 font-bold text-sm mb-4">✓ وُجد خصم!</p>
-          <div className="flex items-center gap-8 mb-6">
-            <div className="text-center">
-              <div className="w-16 h-16 rounded-full bg-primary/15 border-2 border-primary flex items-center justify-center mx-auto mb-2 text-2xl font-black text-primary">
+      <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-4 sm:p-8 gap-6 text-center overflow-hidden">
+        <div className="fade-in-up w-full max-w-lg" data-testid="status-ranked-match-found" aria-live="assertive">
+          <p className="text-green-500 font-black text-base mb-5">✓ تم العثور على منافس!</p>
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 sm:gap-8 mb-8 bg-card/70 border border-border rounded-3xl p-4 sm:p-6 shadow-xl">
+            <div className="text-center min-w-0">
+              <div className="w-20 h-20 rounded-full bg-primary/15 border-2 border-primary flex items-center justify-center mx-auto mb-2 text-3xl font-black text-primary">
                 {myName.charAt(0)}
               </div>
-              <p className="text-sm font-bold">{myName}</p>
+              <p className="text-sm font-bold break-words">{myName}</p>
               <p className="text-xs text-muted-foreground">أنت</p>
             </div>
-            <div className="text-4xl font-black text-muted-foreground">VS</div>
-            <div className="text-center">
-              <div className="w-16 h-16 rounded-full bg-secondary/15 border-2 border-secondary flex items-center justify-center mx-auto mb-2 text-2xl font-black text-secondary">
+            <div className="text-2xl sm:text-4xl font-black text-primary animate-pulse motion-reduce:animate-none" aria-label="ضد">VS</div>
+            <div className="text-center min-w-0">
+              <div className="w-20 h-20 rounded-full bg-secondary/15 border-2 border-secondary flex items-center justify-center mx-auto mb-2 text-3xl font-black text-secondary">
                 {opponentName?.charAt(0) ?? "؟"}
               </div>
-              <p className="text-sm font-bold">{opponentName}</p>
+              <p className="text-sm font-bold break-words" data-testid="text-ranked-opponent-name">{opponentName}</p>
               <p className="text-xs text-muted-foreground">الخصم</p>
             </div>
           </div>
-          <div className="text-6xl font-black text-primary">{countdown}</div>
-          <p className="text-muted-foreground text-sm mt-2">تبدأ اللعبة...</p>
+          <div className="text-7xl font-black text-primary tabular-nums animate-pulse motion-reduce:animate-none" data-testid="text-ranked-countdown">{countdown}</div>
+          <p className="text-muted-foreground text-sm mt-3">استعد... المواجهة تبدأ الآن</p>
         </div>
       </div>
     );
@@ -827,19 +877,19 @@ export default function RankedMode() {
     const oppS = isP1 ? match.player2_score : match.player1_score;
     return (
       <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-6 gap-6 text-center">
-        <div className="fade-in-up space-y-5 w-full max-w-sm">
+        <div className="fade-in-up space-y-5 w-full max-w-sm" data-testid="status-ranked-scoreboard">
           <p className="text-xs text-muted-foreground font-bold">السؤال {currentQIdx + 1}/{MATCH_QUESTIONS}</p>
           <h2 className="text-lg font-black text-primary">📊 النتيجة الحالية</h2>
           <div className="bg-card border border-border rounded-2xl p-5 flex justify-around">
             <div className="text-center">
               <p className="text-xs text-muted-foreground mb-1">أنت</p>
-              <p className="text-4xl font-black text-primary">{myS}</p>
+              <p className="text-4xl font-black text-primary" data-testid="text-ranked-my-score">{myS}</p>
               <p className="text-xs text-muted-foreground mt-1 truncate">{myName}</p>
             </div>
             <div className="text-3xl font-black text-muted-foreground self-center">vs</div>
             <div className="text-center">
               <p className="text-xs text-muted-foreground mb-1">الخصم</p>
-              <p className="text-4xl font-black text-secondary">{oppS}</p>
+              <p className="text-4xl font-black text-secondary" data-testid="text-ranked-scoreboard-opponent-score">{oppS}</p>
               <p className="text-xs text-muted-foreground mt-1 truncate">{opponentName}</p>
             </div>
           </div>
@@ -858,7 +908,7 @@ export default function RankedMode() {
     const myScoreVal = isP1 ? match.player1_score : match.player2_score;
     const oppScoreVal = isP1 ? match.player2_score : match.player1_score;
     return (
-      <div className="min-h-screen gradient-hero flex flex-col">
+      <div className="min-h-screen gradient-hero flex flex-col" data-testid={phase === "q_result" ? "status-ranked-reveal" : "status-ranked-question"}>
         <header className="p-3 border-b border-border/30 space-y-2">
           <div className="flex items-center gap-2">
             <div className="flex-1 flex items-center gap-2 bg-card/60 rounded-xl p-2 border border-primary/20">
@@ -874,7 +924,7 @@ export default function RankedMode() {
                   {myFlag && <span className="text-xs">{myFlag}</span>}
                   <p className="text-[11px] font-bold truncate">{myName}</p>
                 </div>
-                <p className="text-lg font-black text-primary leading-none">{myScoreVal}</p>
+                <p className="text-lg font-black text-primary leading-none" data-testid="text-ranked-live-score">{myScoreVal}</p>
               </div>
             </div>
 
@@ -887,7 +937,7 @@ export default function RankedMode() {
               )}
             </div>
 
-            <div className="flex-1 flex items-center gap-2 bg-card/60 rounded-xl p-2 border border-secondary/20 flex-row-reverse text-right">
+            <div className="flex-1 flex items-center gap-2 bg-secondary/10 rounded-xl p-2 border-2 border-secondary/50 flex-row-reverse text-right shadow-sm" data-testid="status-ranked-opponent-live-score">
               {oppAvatar ? (
                 <img src={oppAvatar} alt="" className="w-9 h-9 rounded-full border-2 border-secondary object-cover shrink-0" />
               ) : (
@@ -900,7 +950,7 @@ export default function RankedMode() {
                   {oppFlag && <span className="text-xs">{oppFlag}</span>}
                   <p className="text-[11px] font-bold truncate">{opponentName}</p>
                 </div>
-                <p className="text-lg font-black text-secondary leading-none">{oppScoreVal}</p>
+                <p className="text-2xl font-black text-secondary leading-none tabular-nums" data-testid="text-ranked-opponent-score">{oppScoreVal}</p>
               </div>
             </div>
           </div>
@@ -910,7 +960,7 @@ export default function RankedMode() {
         <div key={`ranked-${currentQIdx}`} className="flex-1 flex flex-col justify-center p-4 gap-4">
           <div className="bg-card border border-border rounded-2xl p-4 text-center relative">
             <ReportFlag questionId={currentQ.id} questionText={currentQ.question} reporter={myName ?? null} />
-            <p className="text-base font-bold leading-relaxed">{currentQ.question}</p>
+            <p className="text-base font-bold leading-relaxed break-words [overflow-wrap:anywhere]">{currentQ.question}</p>
           </div>
 
           {phase === "q_result" && qResult && (
@@ -925,7 +975,7 @@ export default function RankedMode() {
 
           <div className="grid grid-cols-1 gap-3">
             {currentQ.options.map((opt, idx) => {
-              let cls = "w-full p-3.5 rounded-xl text-right font-bold text-sm border-2 transition-none";
+              let cls = "w-full min-h-14 p-3.5 rounded-xl text-right font-bold text-sm border-2 transition-none break-words [overflow-wrap:anywhere]";
               if (phase === "q_result") {
                 if (idx === currentQ.correct) cls += " border-green-500 bg-green-500/15 text-green-400";
                 else if (idx === selected) cls += " border-red-500 bg-red-500/15 text-red-400";
@@ -940,6 +990,7 @@ export default function RankedMode() {
                   key={idx}
                   onClick={() => handleAnswer(idx)}
                   disabled={phase === "q_result" || selected !== null}
+                  data-testid={`button-ranked-answer-${idx}`}
                   className={cls}
                 >
                   <span className="flex items-center gap-3">
@@ -975,16 +1026,18 @@ export default function RankedMode() {
   if (phase === "finished") {
     const won = winner === "me";
     const draw = winner === "draw";
-    const delta = won ? +20 : draw ? 0 : -5;
+    const delta = won ? +20 : draw ? 0 : -20;
+    const finalRankPoints = resultingRankPoints ?? myPoints;
+    const resultingRank = getRankInfo(finalRankPoints);
     return (
-      <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-5 gap-6 text-center">
+      <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-4 sm:p-6 gap-6 text-center overflow-y-auto">
         {showReward && (
           <FloatingReward xp={showReward.xp} coins={showReward.coins} onDone={() => setShowReward(null)} />
         )}
         {newAchievements.length > 0 && (
           <AchievementPopup unlockedIds={newAchievements} onDone={() => setNewAchievements([])} />
         )}
-        <div className="fade-in-up">
+        <div className="fade-in-up" data-testid="status-ranked-final-result" aria-live="assertive">
           <p className="text-7xl mb-3">{won ? "🏆" : draw ? "🤝" : "😔"}</p>
           <h1 className="text-3xl font-black" style={{ color: won ? "#f59e0b" : draw ? "#94a3b8" : "#ef4444" }}>
             {won ? "فزت!" : draw ? "تعادل!" : "خسرت!"}
@@ -995,13 +1048,13 @@ export default function RankedMode() {
           <div className="flex justify-around">
             <div className="text-center">
               <p className="text-xs text-muted-foreground mb-1">أنت</p>
-              <p className="text-4xl font-black text-primary">{myTotalScore}</p>
+              <p className="text-4xl font-black text-primary" data-testid="text-ranked-final-my-score">{myTotalScore}</p>
               <p className="text-xs text-muted-foreground">{myName}</p>
             </div>
             <div className="text-3xl font-black text-muted-foreground self-center">vs</div>
             <div className="text-center">
               <p className="text-xs text-muted-foreground mb-1">الخصم</p>
-              <p className="text-4xl font-black text-secondary">{oppTotalScore}</p>
+              <p className="text-4xl font-black text-secondary" data-testid="text-ranked-final-opponent-score">{oppTotalScore}</p>
               <p className="text-xs text-muted-foreground">{opponentName}</p>
             </div>
           </div>
@@ -1009,10 +1062,13 @@ export default function RankedMode() {
 
         <div className={`w-full max-w-sm rounded-2xl p-4 border text-center ${won ? "bg-green-500/10 border-green-500/30" : draw ? "bg-slate-400/10 border-slate-400/30" : "bg-red-500/10 border-red-500/30"}`}>
           <p className="text-sm text-muted-foreground">نقاط الرتبة</p>
-          <p className={`text-2xl font-black ${delta > 0 ? "text-green-400" : delta < 0 ? "text-red-400" : "text-muted-foreground"}`}>
+          <p className={`text-3xl font-black ${delta > 0 ? "text-green-500" : delta < 0 ? "text-red-500" : "text-muted-foreground"}`} data-testid="text-ranked-rating-delta">
             {delta > 0 ? "+" : ""}{delta}
           </p>
-          <p className="text-xs text-muted-foreground mt-1">المجموع: {myPoints} نقطة · {myRank.icon} {myRank.label}</p>
+          <p className="text-sm text-foreground mt-2 font-bold" data-testid="text-ranked-resulting-rank">
+            الرتبة الناتجة: {resultingRank.icon} {resultingRank.label}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1" data-testid="text-ranked-resulting-points">المجموع: {finalRankPoints} نقطة</p>
         </div>
 
         {!isGuest && (
@@ -1061,7 +1117,8 @@ export default function RankedMode() {
         </div>
 
         <div className="flex gap-3">
-          <button onClick={() => { cleanup(); setMatch(null); setSelected(null); setQResult(null); setCurrentQIdx(0); finishedRef.current = false; setPhaseSafe("select_cats"); }}
+          <button onClick={() => { cleanup(); setMatch(null); setSelected(null); setQResult(null); setCurrentQIdx(0); setResultingRankPoints(null); finishedRef.current = false; setPhaseSafe("select_cats"); }}
+            data-testid="button-ranked-play-again"
             className="px-6 py-3 rounded-xl font-bold text-background"
             style={{ background: "linear-gradient(135deg,#7c3aed,#8b5cf6)" }}>
             تحدٍّ جديد

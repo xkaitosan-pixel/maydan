@@ -15,6 +15,9 @@ import { getDailyPercentile } from "@/lib/db";
 import { getCountryFlag } from "@/lib/countryUtils";
 import ShareCard from "@/components/ShareCard";
 import ReportFlag from "@/components/ReportFlag";
+import { syncOrQueueDailyScore } from "@/lib/offlineQueue";
+import { recordCompletedGameForInstall } from "@/lib/pwa";
+import { getStableGuestId } from "@/lib/guestIdentity";
 
 const DAILY_Q_COUNT = 10;
 const QUESTION_TIME = 15;
@@ -59,6 +62,10 @@ export default function DailyChallenge() {
   const [answers, setAnswers] = useState<(number | null)[]>([]);
   const [showReveal, setShowReveal] = useState(false);
   const [combo, setCombo] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [secondsToNext, setSecondsToNext] = useState(0);
+  const [personalRank, setPersonalRank] = useState<number | null>(null);
 
   function comboMultiplier(c: number): number {
     if (c >= 10) return 2.5;
@@ -69,14 +76,52 @@ export default function DailyChallenge() {
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const answeredRef = useRef(false);
-  const questionStartRef = useRef(0);
+  const timerStartedRef = useRef(0);
+  const timerPausedAtRef = useRef<number | null>(null);
+  const timerPausedTotalRef = useRef(0);
+  const isPausedRef = useRef(false);
   const scoreRef = useRef(0);
   const correctRef = useRef(0);
+  const sessionActiveRef = useRef(true);
+  const exitWasPausedRef = useRef(false);
+  const transitionTimeoutsRef = useRef(new Set<ReturnType<typeof setTimeout>>());
+
+  function clearTransitionTimeouts() {
+    transitionTimeoutsRef.current.forEach(clearTimeout);
+    transitionTimeoutsRef.current.clear();
+  }
+
+  function scheduleTransition(callback: () => void, delay: number) {
+    const timeout = setTimeout(() => {
+      transitionTimeoutsRef.current.delete(timeout);
+      if (sessionActiveRef.current) callback();
+    }, delay);
+    transitionTimeoutsRef.current.add(timeout);
+  }
 
   const today = getTodayDate();
-  const userId = dbUser?.id ?? (isGuest ? "guest_" + (localStorage.getItem("maydan_guest_id") ?? Math.random().toString(36).slice(2)) : null);
+  const guestIdRef = useRef<string | null>(null);
+  if (isGuest && !guestIdRef.current) guestIdRef.current = getStableGuestId(localStorage);
+  const userId = dbUser?.id ?? (isGuest ? `guest_${guestIdRef.current}` : null);
   const displayName = dbUser?.display_name ?? dbUser?.username ?? googleDisplayName ?? "زائر";
   const country = dbUser?.country ?? "";
+  const answerStorageKey = `maydan_daily_answers_${today}_${userId ?? "anonymous"}`;
+
+  useEffect(() => {
+    const update = () => {
+      const now = new Date();
+      const midnight = new Date(now);
+      midnight.setHours(24, 0, 0, 0);
+      setSecondsToNext(Math.max(0, Math.floor((midnight.getTime() - now.getTime()) / 1000)));
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [today]);
+
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
 
   useEffect(() => {
     if (!userId) { setPhase("intro"); return; }
@@ -85,6 +130,7 @@ export default function DailyChallenge() {
 
   async function loadState() {
     const qs = await fetchMixedDifficultyDailyQuestions("daily_" + today);
+    if (!sessionActiveRef.current) return;
     // Deterministic shuffle by q.id — every player sees the same option order
     setQuestions(qs.map((q) => shuffleQuestion(q, q.id)));
 
@@ -99,7 +145,14 @@ export default function DailyChallenge() {
       setMyEntry(existing);
       setScore(existing.score);
       scoreRef.current = existing.score;
+      try {
+        const saved = localStorage.getItem(answerStorageKey);
+        if (saved) setAnswers(JSON.parse(saved));
+      } catch {
+        // A corrupt local review must not block the completed state.
+      }
       await loadLeaderboard();
+      await loadPersonalRank(existing.score);
       setPhase("already_done");
     } else {
       await loadLeaderboard();
@@ -116,11 +169,26 @@ export default function DailyChallenge() {
       .limit(10);
     if (result.data) {
       setLeaderboard(result.data as DailyEntry[]);
-      setTotalPlayers(result.data.length);
     }
+    const countResult = await supabase
+      .from("daily_scores")
+      .select("user_id", { count: "exact", head: true })
+      .eq("date", today);
+    setTotalPlayers(countResult.count ?? result.data?.length ?? 0);
+  }
+
+  async function loadPersonalRank(entryScore: number) {
+    const result = await supabase
+      .from("daily_scores")
+      .select("user_id", { count: "exact", head: true })
+      .eq("date", today)
+      .gt("score", entryScore);
+    setPersonalRank((result.count ?? 0) + 1);
   }
 
   function startChallenge() {
+    sessionActiveRef.current = true;
+    clearTransitionTimeouts();
     scoreRef.current = 0;
     correctRef.current = 0;
     setScore(0);
@@ -129,7 +197,45 @@ export default function DailyChallenge() {
     answeredRef.current = false;
     setSelected(null);
     setWasCorrect(null);
+    setAnswers([]);
+    localStorage.removeItem(answerStorageKey);
+    setIsPaused(false);
+    setShowExitConfirm(false);
     startTimer();
+  }
+
+  function pauseChallenge() {
+    isPausedRef.current = true;
+    if (timerPausedAtRef.current === null) timerPausedAtRef.current = Date.now();
+    setIsPaused(true);
+  }
+
+  function resumeChallenge() {
+    if (timerPausedAtRef.current !== null) {
+      timerPausedTotalRef.current += Date.now() - timerPausedAtRef.current;
+      timerPausedAtRef.current = null;
+    }
+    isPausedRef.current = false;
+    setIsPaused(false);
+  }
+
+  function requestExit() {
+    exitWasPausedRef.current = isPaused;
+    pauseChallenge();
+    setShowExitConfirm(true);
+  }
+
+  function cancelExit() {
+    setShowExitConfirm(false);
+    if (exitWasPausedRef.current) return;
+    resumeChallenge();
+  }
+
+  function confirmExit() {
+    sessionActiveRef.current = false;
+    clearTransitionTimeouts();
+    if (timerRef.current) clearInterval(timerRef.current);
+    navigate("/");
   }
 
   const [isReporting, setIsReporting] = useState(false);
@@ -138,21 +244,24 @@ export default function DailyChallenge() {
 
   function startTimer() {
     setTimeLeft(QUESTION_TIME);
-    questionStartRef.current = Date.now();
+    timerStartedRef.current = Date.now();
+    timerPausedAtRef.current = null;
+    timerPausedTotalRef.current = 0;
     if (timerRef.current) clearInterval(timerRef.current);
-    let pausedAt: number | null = null;
-    let pausedTotal = 0;
-    const start = Date.now();
     timerRef.current = setInterval(() => {
-      if (isReportingRef.current) {
-        if (pausedAt === null) pausedAt = Date.now();
+      if (!sessionActiveRef.current) {
+        clearInterval(timerRef.current!);
         return;
       }
-      if (pausedAt !== null) {
-        pausedTotal += Date.now() - pausedAt;
-        pausedAt = null;
+      if (isReportingRef.current || isPausedRef.current) {
+        if (timerPausedAtRef.current === null) timerPausedAtRef.current = Date.now();
+        return;
       }
-      const elapsed = (Date.now() - start - pausedTotal) / 1000;
+      if (timerPausedAtRef.current !== null) {
+        timerPausedTotalRef.current += Date.now() - timerPausedAtRef.current;
+        timerPausedAtRef.current = null;
+      }
+      const elapsed = (Date.now() - timerStartedRef.current - timerPausedTotalRef.current) / 1000;
       const rem = Math.max(0, QUESTION_TIME - Math.floor(elapsed));
       setTimeLeft(rem);
       if (rem <= 3 && rem > 0) playSound("tick");
@@ -164,13 +273,14 @@ export default function DailyChallenge() {
   }
 
   function handleAnswer(idx: number) {
-    if (answeredRef.current) return;
+    if (!sessionActiveRef.current || isPausedRef.current || answeredRef.current) return;
     answeredRef.current = true;
     if (timerRef.current) clearInterval(timerRef.current);
 
     const q = questions[qIdx];
     const correct = q && idx === q.correct;
-    const elapsedSec = (Date.now() - questionStartRef.current) / 1000;
+    const activePause = timerPausedAtRef.current === null ? 0 : Date.now() - timerPausedAtRef.current;
+    const elapsedSec = Math.max(0, (Date.now() - timerStartedRef.current - timerPausedTotalRef.current - activePause) / 1000);
 
     if (correct) {
       playSound("correct");
@@ -189,6 +299,7 @@ export default function DailyChallenge() {
     setAnswers((prev) => {
       const next = [...prev];
       next[qIdx] = idx === -1 ? null : idx;
+      localStorage.setItem(answerStorageKey, JSON.stringify(next));
       return next;
     });
     if (correct) {
@@ -201,7 +312,7 @@ export default function DailyChallenge() {
       setCombo(0);
     }
 
-    setTimeout(() => {
+    scheduleTransition(() => {
       const nextIdx = qIdx + 1;
       if (nextIdx >= DAILY_Q_COUNT) {
         finishChallenge(scoreRef.current);
@@ -216,12 +327,15 @@ export default function DailyChallenge() {
   }
 
   async function finishChallenge(finalScore: number) {
+    if (!sessionActiveRef.current) return;
     setPhase("finished");
+    setIsPaused(false);
     // Today-stats: count as win if ≥70 % accuracy
-    const accPct = Math.round((finalScore / Math.max(1, DAILY_Q_COUNT * (BASE_POINTS + MAX_SPEED_BONUS))) * 100);
+    const accPct = Math.round((correctRef.current / DAILY_Q_COUNT) * 100);
     if (accPct >= 70) recordTodayWin(); else recordTodayLoss();
     recordTodayXP(Math.round(finalScore / 5));
     playSound("gameover");
+    recordCompletedGameForInstall();
     if (dbUser?.id) {
       recordEngagementGame(dbUser.id, { won: accPct >= 70, correct: correctRef.current }).catch(() => {});
     }
@@ -237,17 +351,32 @@ export default function DailyChallenge() {
       completed_at: new Date().toISOString(),
     };
 
-    await supabase
-      .from("daily_scores")
-      .upsert(entry, { onConflict: "user_id,date" });
+    await syncOrQueueDailyScore({
+      user_id: entry.user_id,
+      date: entry.date ?? today,
+      display_name: entry.display_name,
+      country: entry.country,
+      score: entry.score,
+      total: entry.total,
+      completed_at: entry.completed_at,
+    });
+    if (!sessionActiveRef.current) return;
     setMyEntry(entry);
     await loadLeaderboard();
+    if (!sessionActiveRef.current) return;
+    await loadPersonalRank(finalScore);
     // Fetch percentile (how the user compares to today's other players)
-    getDailyPercentile(today, finalScore).then((p) => setPercentile(p));
+    getDailyPercentile(today, finalScore).then((p) => {
+      if (sessionActiveRef.current) setPercentile(p);
+    });
   }
 
   useEffect(() => {
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+    return () => {
+      sessionActiveRef.current = false;
+      if (timerRef.current) clearInterval(timerRef.current);
+      clearTransitionTimeouts();
+    };
   }, []);
 
   const ANSWER_COLORS = [
@@ -260,6 +389,7 @@ export default function DailyChallenge() {
   const currentQ = questions[qIdx];
   const timerPct = (timeLeft / QUESTION_TIME) * 100;
   const isDanger = timeLeft <= 5;
+  const countdownText = `${String(Math.floor(secondsToNext / 3600)).padStart(2, "0")}:${String(Math.floor((secondsToNext % 3600) / 60)).padStart(2, "0")}:${String(secondsToNext % 60).padStart(2, "0")}`;
 
   if (phase === "loading") {
     return (
@@ -270,16 +400,7 @@ export default function DailyChallenge() {
   }
 
   if (phase === "already_done") {
-    const myRank = myEntry ? leaderboard.findIndex(e => e.user_id === userId) + 1 : null;
-    const secondsUntilMidnight = () => {
-      const now = new Date();
-      const midnight = new Date(now);
-      midnight.setHours(24, 0, 0, 0);
-      const diff = Math.floor((midnight.getTime() - now.getTime()) / 1000);
-      const h = Math.floor(diff / 3600);
-      const m = Math.floor((diff % 3600) / 60);
-      return `${h}س ${m}د`;
-    };
+    const myRank = personalRank;
     return (
       <div className="min-h-screen gradient-hero flex flex-col" dir="rtl">
         <header className="p-4 flex items-center gap-3 border-b border-border/30">
@@ -295,8 +416,14 @@ export default function DailyChallenge() {
             {myRank && myRank > 0 && (
               <p className="text-muted-foreground text-sm mt-1">مركزك اليوم: <span className="font-black text-foreground">#{myRank}</span> من {totalPlayers}</p>
             )}
-            <p className="text-xs text-muted-foreground mt-3">التحدي القادم في: {secondsUntilMidnight()}</p>
+            <div data-testid="text-daily-countdown-completed" className="mt-4 rounded-xl border border-primary/20 bg-background/60 p-3">
+              <p className="text-xs text-muted-foreground">التحدي القادم بعد</p>
+              <p className="mt-1 font-mono text-2xl font-black tabular-nums text-primary" dir="ltr">{countdownText}</p>
+            </div>
           </div>
+          {answers.length > 0 && questions.length > 0 && (
+            <DailyAnswerReview questions={questions} answers={answers} />
+          )}
           <LeaderboardCard leaderboard={leaderboard} userId={userId} />
         </div>
       </div>
@@ -321,6 +448,10 @@ export default function DailyChallenge() {
             </div>
             <p className="text-xs text-muted-foreground mt-1">فرصة واحدة يومياً · نفس الأسئلة لجميع اللاعبين</p>
             <p className="text-xs text-muted-foreground mt-1">أتمّ اليوم: {totalPlayers} لاعب</p>
+            <div data-testid="text-daily-countdown-intro" className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-3">
+              <p className="text-xs text-muted-foreground">ينتهي تحدي اليوم بعد</p>
+              <p className="mt-1 font-mono text-xl font-black tabular-nums text-primary" dir="ltr">{countdownText}</p>
+            </div>
             <div className="mt-4 bg-primary/5 border border-primary/20 rounded-xl p-3 text-xs">
               <p className="font-bold text-primary">نظام النقاط ⚡</p>
               <p className="text-muted-foreground mt-1">إجابة صحيحة: 100 نقطة + مكافأة السرعة حتى 50 نقطة</p>
@@ -340,7 +471,34 @@ export default function DailyChallenge() {
   if (phase === "question" && currentQ) {
     return (
       <div className="min-h-screen gradient-hero flex flex-col" dir="rtl">
+        {(isPaused || showExitConfirm) && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5" role="dialog" aria-modal="true">
+            <div className="w-full max-w-sm rounded-2xl border border-border bg-background p-5 text-center shadow-2xl">
+              {showExitConfirm ? (
+                <>
+                  <h2 className="text-xl font-black">الخروج من التحدي؟</h2>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">لديك محاولة واحدة فقط اليوم. مغادرتك الآن ستفقد تقدمك الحالي.</p>
+                  <div className="mt-5 grid grid-cols-2 gap-3">
+                    <button data-testid="button-confirm-exit-daily" onClick={confirmExit} className="min-h-11 rounded-xl bg-red-600 px-3 font-bold text-white">خروج</button>
+                    <button data-testid="button-cancel-exit-daily" onClick={cancelExit} className="min-h-11 rounded-xl border border-border bg-card px-3 font-bold">متابعة</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-5xl">⏸️</p>
+                  <h2 className="mt-2 text-2xl font-black">التحدي متوقف</h2>
+              <p className="mt-1 text-sm text-muted-foreground">المؤقت ومكافأة السرعة متوقفان</p>
+                  <button data-testid="button-resume-daily" onClick={resumeChallenge} className="mt-5 min-h-12 w-full rounded-xl bg-primary px-4 font-black text-primary-foreground">▶ استئناف</button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
         <header className="p-4 border-b border-border/30">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <button data-testid="button-exit-daily" onClick={requestExit} className="min-h-9 rounded-lg border border-border bg-card px-3 text-xs font-bold">خروج</button>
+            <button data-testid="button-pause-daily" onClick={pauseChallenge} className="min-h-9 rounded-lg border border-border bg-card px-3 text-xs font-bold">⏸ إيقاف</button>
+          </div>
           <div className="flex justify-between items-center">
             <span className="text-sm font-bold text-muted-foreground">{qIdx + 1} / {DAILY_Q_COUNT}</span>
             <CircularTimer timeLeft={timeLeft} totalTime={QUESTION_TIME} size={72} />
@@ -369,7 +527,7 @@ export default function DailyChallenge() {
             <p className="text-lg font-black text-center leading-relaxed">{currentQ.question}</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {currentQ.options.map((opt, idx) => {
               const color = ANSWER_COLORS[idx];
               const isSelected = selected === idx;
@@ -407,30 +565,35 @@ export default function DailyChallenge() {
   }
 
   if (phase === "finished") {
-    const myRank = leaderboard.findIndex(e => e.user_id === userId) + 1;
+    const myRank = personalRank;
     const maxPossible = DAILY_Q_COUNT * (BASE_POINTS + MAX_SPEED_BONUS);
     const pct = Math.round((score / maxPossible) * 100);
     return (
-      <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-5 gap-6 text-center" dir="rtl">
+      <div className="min-h-screen gradient-hero flex flex-col items-center justify-start overflow-y-auto p-5 gap-6 text-center" dir="rtl">
         <div className="fade-in-up">
           <p className="text-7xl mb-3">{score >= 1200 ? "🏆" : score >= 700 ? "🎉" : "💪"}</p>
           <h1 className="text-3xl font-black text-primary">انتهى تحدي اليوم!</h1>
           <p className="text-4xl font-black mt-2 text-primary">{score}</p>
           <p className="text-sm text-muted-foreground">نقطة · {pct}% من الأقصى</p>
-          {myRank > 0 && (
-            <p className="text-primary font-bold mt-2">مركزك اليوم: #{myRank} من {leaderboard.length}</p>
+          {myRank !== null && myRank > 0 && (
+            <p data-testid="text-daily-personal-rank" className="text-primary font-bold mt-2">مركزك اليوم: #{myRank} من {totalPlayers}</p>
           )}
           {percentile !== null && percentile > 0 && (
             <p className="text-sm font-bold mt-1" style={{ color: "#22c55e" }}>
               ⚡ تفوّقت على {percentile}% من اللاعبين اليوم
             </p>
           )}
+          <div data-testid="text-daily-countdown-finished" className="mx-auto mt-4 w-full max-w-xs rounded-xl border border-primary/20 bg-card p-3">
+            <p className="text-xs text-muted-foreground">التحدي القادم بعد</p>
+            <p className="mt-1 font-mono text-xl font-black tabular-nums text-primary" dir="ltr">{countdownText}</p>
+          </div>
         </div>
 
         {/* Answer reveal toggle */}
         {answers.length > 0 && questions.length > 0 && (
           <div className="w-full max-w-sm">
             <button
+              data-testid="button-toggle-daily-review"
               onClick={() => setShowReveal((v) => !v)}
               className="w-full py-2.5 rounded-xl border border-border bg-card font-bold text-sm hover:border-primary/40 transition-colors"
             >
@@ -452,15 +615,13 @@ export default function DailyChallenge() {
                           return (
                             <div
                               key={idx}
-                              className="text-xs rounded-lg px-2.5 py-1.5 flex items-center gap-2"
-                              style={{
-                                background: isCorrect
-                                  ? "rgba(34,197,94,0.15)"
+                              className={`text-xs rounded-lg px-2.5 py-1.5 flex items-center gap-2 break-words ${
+                                isCorrect
+                                  ? "bg-green-500/15 text-green-700 dark:text-green-300"
                                   : isMine
-                                  ? "rgba(239,68,68,0.15)"
-                                  : "rgba(255,255,255,0.03)",
-                                color: isCorrect ? "#22c55e" : isMine ? "#ef4444" : "rgba(255,255,255,0.7)",
-                              }}
+                                  ? "bg-red-500/15 text-red-700 dark:text-red-300"
+                                  : "bg-muted/40 text-muted-foreground"
+                              }`}
                             >
                               <span className="shrink-0">{isCorrect ? "✓" : isMine ? "✗" : "•"}</span>
                               <span className="flex-1">{opt}</span>
@@ -507,6 +668,56 @@ export default function DailyChallenge() {
   }
 
   return null;
+}
+
+function DailyAnswerReview({ questions, answers }: { questions: Question[]; answers: (number | null)[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="w-full">
+      <button
+        data-testid="button-toggle-completed-daily-review"
+        onClick={() => setOpen((value) => !value)}
+        className="min-h-11 w-full rounded-xl border border-border bg-card px-3 font-bold"
+      >
+        {open ? "إخفاء مراجعة الإجابات ▲" : "📖 مراجعة إجاباتك"}
+      </button>
+      {open && (
+        <div data-testid="panel-completed-daily-review" className="mt-3 space-y-2">
+          {questions.map((question, questionIndex) => {
+            const answer = answers[questionIndex];
+            return (
+              <article key={question.id} className="rounded-xl border border-border bg-card p-3 text-right">
+                <p className="text-xs text-muted-foreground">السؤال {questionIndex + 1}</p>
+                <p className="my-2 break-words text-sm font-bold leading-relaxed">{question.question}</p>
+                <div className="space-y-1">
+                  {question.options.map((option, optionIndex) => {
+                    const correct = optionIndex === question.correct;
+                    const chosen = optionIndex === answer;
+                    return (
+                      <p
+                        key={optionIndex}
+                        className={`break-words rounded-lg px-3 py-2 text-xs ${
+                          correct
+                            ? "bg-green-500/15 text-green-700 dark:text-green-300"
+                            : chosen
+                            ? "bg-red-500/15 text-red-700 dark:text-red-300"
+                            : "bg-muted/40 text-muted-foreground"
+                        }`}
+                      >
+                        <span className="ml-2">{correct ? "✓" : chosen ? "✗" : "•"}</span>
+                        {option}
+                        {chosen && <strong className="mr-2">إجابتك</strong>}
+                      </p>
+                    );
+                  })}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function LeaderboardCard({ leaderboard, userId }: { leaderboard: DailyEntry[]; userId: string | null }) {

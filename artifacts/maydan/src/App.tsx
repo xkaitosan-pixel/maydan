@@ -45,6 +45,7 @@ const NotificationSystem = lazy(() => import("@/components/NotificationSystem"))
 const InstallPrompt = lazy(() => import("@/components/InstallPrompt"));
 const ScreenFlashHost = lazy(() => import("@/components/ScreenFlashHost"));
 const BottomNav = lazy(() => import("@/components/BottomNav"));
+const PwaRuntime = lazy(() => import("@/components/PwaRuntime"));
 const Toaster = lazy(() =>
   import("@/components/ui/toaster").then((module) => ({ default: module.Toaster })),
 );
@@ -218,21 +219,26 @@ function ProfileLoadingScreen({
   hasError: boolean;
   onRetry: () => void;
 }) {
-  return (
-    <div className="min-h-screen gradient-hero flex flex-col items-center justify-center gap-4 px-6 text-center">
-      <AppShellSkeleton />
-      {hasError && (
-        <div className="fixed inset-x-4 bottom-8 mx-auto max-w-sm rounded-2xl border border-destructive/30 bg-card/95 p-4 shadow-xl">
-          <p className="mb-3 text-sm text-foreground">تعذر تحميل ملفك الشخصي.</p>
+  if (hasError) {
+    return (
+      <div className="min-h-[100dvh] gradient-hero flex items-center justify-center px-6 text-center">
+        <div className="w-full max-w-sm rounded-2xl border border-destructive/30 bg-card p-6 shadow-xl" role="alert">
+          <p className="mb-3 font-bold text-foreground">تعذر تحميل ملفك الشخصي.</p>
+          <p className="mb-5 text-sm text-muted-foreground">تحقق من اتصالك ثم أعد المحاولة.</p>
           <button
             type="button"
             onClick={onRetry}
-            className="rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground"
+            className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground"
           >
             إعادة المحاولة
           </button>
         </div>
-      )}
+      </div>
+    );
+  }
+  return (
+    <div className="min-h-screen gradient-hero flex flex-col items-center justify-center gap-4 px-6 text-center">
+      <AppShellSkeleton />
     </div>
   );
 }
@@ -255,6 +261,9 @@ function DeferredRoutedUi() {
     <>
       <Suspense fallback={null}>
         <NotificationSystem />
+      </Suspense>
+      <Suspense fallback={null}>
+        <PwaRuntime />
       </Suspense>
       <Suspense fallback={null}>
         <BottomNav />

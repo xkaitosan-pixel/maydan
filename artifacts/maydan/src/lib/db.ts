@@ -88,7 +88,6 @@ export async function insertScore(entry: {
     return false;
   }
   invalidateLeaderboardCache();
-  console.log("[ميدان] Score saved ✓", { username: entry.username, score: entry.score, mode: entry.game_mode, id: data?.[0]?.id });
   return true;
 }
 
