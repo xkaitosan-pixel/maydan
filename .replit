@@ -9,6 +9,7 @@ id = "artifacts/mockup-sandbox"
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
+build = "pnpm --filter @workspace/maydan run release:check"
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]

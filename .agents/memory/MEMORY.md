@@ -1,4 +1,5 @@
 - [Maydan engagement state storage](engagement-state-storage.md) — engagement state nests at users.achievements.engagement; always read via engagementFrom(), never normalizeEngagement(raw blob).
 - [GitHub push path](github-push-path.md) — git credentials are blocked here; commit via sandbox child_process, push via connectors-sdk GitHub Contents API to xkaitosan-pixel/maydan main.
 - [Sub-path production tests](subpath-production-tests.md) — mount built files beneath the configured base path; Vite preview does not emulate this deployment shape.
+- [Release gate artifact state](release-gate-artifact-state.md) — sub-path browser checks mutate dist; release gates must finish with a real production build and use stable worker readiness signals.
 - [Party timing authority](party-timing-authority.md) — Party deadlines and speed points require DB timestamps plus capability-bound writes; never trust guest time or host observation time.

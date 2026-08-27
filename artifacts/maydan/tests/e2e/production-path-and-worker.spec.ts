@@ -74,18 +74,9 @@ test("waits to activate an updated worker, then serves the new cache to a fresh 
       `${scope}service-worker.js`,
       { scope },
     );
-    if (!registration.active) {
-      await new Promise<void>((resolve, reject) => {
-        const worker = registration.installing ?? registration.waiting;
-        if (!worker) {
-          reject(new Error("Service worker did not begin installing"));
-          return;
-        }
-        worker.addEventListener("statechange", () => {
-          if (worker.state === "activated") resolve();
-          if (worker.state === "redundant") reject(new Error("Service worker became redundant"));
-        });
-      });
+    const readyRegistration = await navigator.serviceWorker.ready;
+    if (!readyRegistration.active) {
+      throw new Error("Service worker did not activate");
     }
   }, appBase);
   if (!await firstPage.evaluate(() => !!navigator.serviceWorker.controller)) {

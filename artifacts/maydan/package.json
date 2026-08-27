@@ -9,7 +9,11 @@
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --config vitest.config.ts",
-    "test:e2e": "playwright test --config playwright.config.ts"
+    "test:e2e": "playwright test --config playwright.config.ts",
+    "release:check:unit": "echo '=== Maydan release check: unit/auth regressions ===' && pnpm run test",
+    "release:check:browser": "echo '=== Maydan release check: production browser/base-path/service-worker regressions ===' && pnpm exec playwright install chromium && pnpm run test:e2e",
+    "release:check:production-build": "echo '=== Maydan release check: final root-path production build ===' && pnpm run build",
+    "release:check": "pnpm run release:check:unit && pnpm run release:check:browser && pnpm run release:check:production-build"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
