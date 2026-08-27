@@ -3,3 +3,4 @@
 - [Sub-path production tests](subpath-production-tests.md) — mount built files beneath the configured base path; Vite preview does not emulate this deployment shape.
 - [Release gate artifact state](release-gate-artifact-state.md) — sub-path browser checks mutate dist; release gates must finish with a real production build and use stable worker readiness signals.
 - [Party timing authority](party-timing-authority.md) — Party deadlines and speed points require DB timestamps plus capability-bound writes; never trust guest time or host observation time.
+- [Multiplayer browser fixtures](multiplayer-browser-fixtures.md) — dual-session mocks must reproduce authorization, timing, idempotency, scoring, and retention—not only happy-path state.

@@ -50,6 +50,10 @@ const PARTY_ROOM_COLUMNS = "id, code, status, category, current_question, total_
 // ── Constants ─────────────────────────────────────────────────────────────────
 const DEFAULT_QUESTION_TIME = 20;
 const MEDALS = ["🥇", "🥈", "🥉"];
+const E2E_TIMING =
+  import.meta.env.VITE_E2E_TIMING === "1" &&
+  new URLSearchParams(window.location.search).has("__e2e");
+const PARTY_POLL_MS = E2E_TIMING ? 100 : 1000;
 
 const ANSWER_COLORS = [
   { bg: "#e74c3c", dark: "#c0392b", emoji: "🔴", label: "أ" },
@@ -303,7 +307,7 @@ export default function PartyGuest() {
         consecutiveFailsRef.current += 1;
         if (consecutiveFailsRef.current >= 3) setConnectionLost(true);
       }
-    }, 1000);
+    }, PARTY_POLL_MS);
   }
 
   // ── Step 1: look up room by code ─────────────────────────────────────────

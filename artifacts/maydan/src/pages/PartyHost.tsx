@@ -31,6 +31,12 @@ interface PartyPlayer {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const MEDALS = ["🥇", "🥈", "🥉"];
+const E2E_TIMING =
+  import.meta.env.VITE_E2E_TIMING === "1" &&
+  new URLSearchParams(window.location.search).has("__e2e");
+const PARTY_POLL_MS = E2E_TIMING ? 100 : 1000;
+const ALL_ANSWERED_DELAY_MS = E2E_TIMING ? 50 : 1500;
+const REVEAL_DURATION_MS = E2E_TIMING ? 1200 : 5000;
 
 const ANSWER_COLORS = [
   { bg: "#e74c3c", dark: "#c0392b", emoji: "🔴", letter: "أ" },
@@ -207,7 +213,7 @@ export default function PartyHost() {
         clearInterval(autoAdvanceRef.current!);
         goNext();
       }
-    }, 1000);
+    }, PARTY_POLL_MS);
     return () => { if (autoAdvanceRef.current) clearInterval(autoAdvanceRef.current); };
   }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -231,7 +237,7 @@ export default function PartyHost() {
       if (phaseRef.current === "lobby" || phaseRef.current === "reveal" || phaseRef.current === "leaderboard") {
         fetchPlayers(code);
       }
-    }, 1000);
+    }, PARTY_POLL_MS);
   }
 
   function startHostHeartbeat(code: string) {
@@ -545,10 +551,10 @@ export default function PartyHost() {
             ) return;
             setAllAnsweredAlert(false);
             revealAnswers(lockedQuestionIdx);
-          }, 1500);
+          }, ALL_ANSWERED_DELAY_MS);
         }
       } catch { /* network hiccup, retry next tick */ }
-    }, 1000);
+    }, PARTY_POLL_MS);
   }
 
   // ── Timer ────────────────────────────────────────────────────────────────
@@ -620,7 +626,7 @@ export default function PartyHost() {
       await fetchPlayers(revealCode);
       phaseRef.current = "leaderboard";
       setPhase("leaderboard");
-    }, 5000);
+    }, REVEAL_DURATION_MS);
   }
 
   // ── Atomically settle and reveal answers ─────────────────────────────────
@@ -1005,7 +1011,7 @@ export default function PartyHost() {
     if (isLandscape) {
       // ── LANDSCAPE / TV layout ─────────────────────────────────────────────
       return (
-        <div className="landscape-host" style={{
+        <div className="landscape-host" data-testid="status-host-question" style={{
           position: "fixed",
           top: 0, left: 0, right: 0, bottom: 0,
           width: "100dvw", height: "100dvh",
@@ -1104,7 +1110,7 @@ export default function PartyHost() {
 
     // ── PORTRAIT layout ───────────────────────────────────────────────────
     return (
-      <div className="min-h-screen gradient-hero flex flex-col">
+      <div className="min-h-screen gradient-hero flex flex-col" data-testid="status-host-question">
         <HostConnectionBanner />
         {/* All-answered celebration banner */}
         {allAnsweredAlert && (
