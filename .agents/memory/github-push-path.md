@@ -4,6 +4,6 @@ description: How to push code changes to GitHub when git credentials are unavail
 ---
 Remote: `xkaitosan-pixel/maydan`, default branch `main`. There is no `origin` git remote (only a gitsafe backup), and both `gitPush` and sandbox `listConnections('github')` fail/return empty (credentials withheld) even though the GitHub connection is `added`.
 
-**Why:** the git-credential path is blocked in this workspace, but the connector proxy works.
+**Why:** the git-credential path is blocked in this workspace. The connector proxy allows reads and some small writes, but Cloudflare may selectively reject project file bodies across Git Data, Contents, and GraphQL APIs even after retries.
 
-**How to apply:** commit locally via CodeExecution "use impure" `child_process` (bash git is blocked), then push file changes with `@replit/connectors-sdk` `connectors.proxy("github", ...)` against the Contents API (GET for sha, PUT with base64 content) from a plain node script.
+**How to apply:** try normal git push first, then `@replit/connectors-sdk`. Stage connector writes on a temporary branch and move `main` only after tree verification; if Cloudflare rejects a file across APIs, delete the temporary branch and report the block rather than partially updating `main`.
