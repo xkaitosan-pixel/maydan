@@ -114,7 +114,6 @@ export default function Survival() {
 
   // Guarantee clean visual state on every question change (sync, before paint)
   useLayoutEffect(() => {
-    console.log('[Survival] Question changed, resetting selection', { qid: currentQ?.id });
     setSelectedOption(null);
     setShowResult(false);
   }, [currentQ?.id]);

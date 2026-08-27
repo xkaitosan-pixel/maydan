@@ -2,6 +2,7 @@ const CACHE_VERSION = "maydan-__BUILD_ID__";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const PRECACHE_ASSETS = __PRECACHE_ASSETS__;
+const OFFLINE_HTML = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ميدان — غير متصل</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#071426;color:#fff;font-family:system-ui;padding:24px;text-align:center}main{max-width:360px}button{min-height:44px;border:0;border-radius:12px;padding:0 20px;font-weight:700;background:#f4c34e;color:#071426}</style><main><h1>لا يوجد اتصال بالإنترنت</h1><p>تعذّر تحميل هذه الصفحة الآن. أعد الاتصال ثم حاول مرة أخرى.</p><button onclick="location.reload()">إعادة المحاولة</button></main></html>`;
 
 const scopeUrl = new URL(self.registration.scope);
 const scopePath = scopeUrl.pathname.endsWith("/")
@@ -75,7 +76,10 @@ self.addEventListener("fetch", (event) => {
           return (
             (await caches.match(request)) ||
             (await caches.match(scopeUrl.href)) ||
-            Response.error()
+            new Response(OFFLINE_HTML, {
+              status: 503,
+              headers: { "Content-Type": "text/html; charset=utf-8" },
+            })
           );
         }),
     );
@@ -100,5 +104,9 @@ self.addEventListener("message", (event) => {
     })
     .filter((url) => url && url.origin === self.location.origin && url.pathname.startsWith(scopePath))
     .map((url) => url.href);
-  event.waitUntil(caches.open(STATIC_CACHE).then((cache) => cache.addAll(safeUrls)));
+  event.waitUntil(
+    caches.open(STATIC_CACHE).then(async (cache) => {
+      await Promise.allSettled(safeUrls.map((url) => cache.add(url)));
+    }),
+  );
 });

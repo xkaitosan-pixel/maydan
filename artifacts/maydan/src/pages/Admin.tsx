@@ -1945,7 +1945,6 @@ export default function Admin() {
       )}
 
       {/* ── Bulk Import Modal ── */}
-      {bulkOpen && (console.log("[bulk-import] rendering BulkImportModal (bulkOpen=true)"), null)}
       {bulkOpen && (
         <BulkImportModal
           existing={questions}
@@ -2050,7 +2049,6 @@ export default function Admin() {
             loadQuestions={loadQuestions}
             openAdd={openAdd}
             openBulk={() => {
-              console.log("[bulk-import] openBulk() invoked → setBulkOpen(true)");
               setBulkOpen(true);
             }}
             openEdit={openEdit} deleteQuestion={deleteQuestion}
@@ -2354,7 +2352,6 @@ function QuestionsTab(props: {
             </button>
             <button
               onClick={() => {
-                console.log("[bulk-import] button clicked, calling openBulk()");
                 openBulk();
               }}
               className="px-4 py-2 rounded-xl font-bold text-sm text-white"

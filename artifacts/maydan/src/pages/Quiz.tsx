@@ -97,7 +97,6 @@ export default function Quiz() {
 
   // Guarantee clean visual state on every question change (sync, before paint)
   useLayoutEffect(() => {
-    console.log('[Quiz] Question changed, resetting selection', { currentIndex });
     setSelectedOption(null);
     setShowResult(false);
   }, [currentIndex]);

@@ -17,6 +17,7 @@ import ShareCard from "@/components/ShareCard";
 import ReportFlag from "@/components/ReportFlag";
 import { syncOrQueueDailyScore } from "@/lib/offlineQueue";
 import { recordCompletedGameForInstall } from "@/lib/pwa";
+import { getStableGuestId } from "@/lib/guestIdentity";
 
 const DAILY_Q_COUNT = 10;
 const QUESTION_TIME = 15;
@@ -99,7 +100,9 @@ export default function DailyChallenge() {
   }
 
   const today = getTodayDate();
-  const userId = dbUser?.id ?? (isGuest ? "guest_" + (localStorage.getItem("maydan_guest_id") ?? Math.random().toString(36).slice(2)) : null);
+  const guestIdRef = useRef<string | null>(null);
+  if (isGuest && !guestIdRef.current) guestIdRef.current = getStableGuestId(localStorage);
+  const userId = dbUser?.id ?? (isGuest ? `guest_${guestIdRef.current}` : null);
   const displayName = dbUser?.display_name ?? dbUser?.username ?? googleDisplayName ?? "زائر";
   const country = dbUser?.country ?? "";
   const answerStorageKey = `maydan_daily_answers_${today}_${userId ?? "anonymous"}`;
@@ -328,7 +331,7 @@ export default function DailyChallenge() {
     setPhase("finished");
     setIsPaused(false);
     // Today-stats: count as win if ≥70 % accuracy
-    const accPct = Math.round((finalScore / Math.max(1, DAILY_Q_COUNT * (BASE_POINTS + MAX_SPEED_BONUS))) * 100);
+    const accPct = Math.round((correctRef.current / DAILY_Q_COUNT) * 100);
     if (accPct >= 70) recordTodayWin(); else recordTodayLoss();
     recordTodayXP(Math.round(finalScore / 5));
     playSound("gameover");

@@ -3,10 +3,11 @@ import { useLocation, useParams } from "wouter";
 import { getCategoryById, Question } from "@/lib/questions";
 import { fetchQuestionsByIds } from "@/lib/questionService";
 import { shuffleQuestion } from "@/lib/shuffle";
-import { getChallenge, recordWin, getOrCreateUser, addLeaderboardEntry, getSurvivalRank, recordTodayWin, recordTodayLoss, recordTodayXP } from "@/lib/storage";
+import { getChallenge, saveChallenge, recordWin, getOrCreateUser, addLeaderboardEntry, getSurvivalRank, recordTodayWin, recordTodayLoss, recordTodayXP, type ChallengeData } from "@/lib/storage";
 import { playSound } from "@/lib/sound";
 import { useAuth } from "@/lib/AuthContext";
-import { insertScore, updateUserStats, addFriend, isFriend } from "@/lib/db";
+import { insertScore, updateUserStats, addFriend, isFriend, getDbChallenge } from "@/lib/db";
+import { challengeFromDb } from "@/lib/challengeSync";
 import { Button } from "@/components/ui/button";
 import AchievementPopup from "@/components/AchievementPopup";
 import FloatingReward from "@/components/FloatingReward";
@@ -39,19 +40,52 @@ export default function Results() {
   const [friendAdded, setFriendAdded] = useState(false);
   const [addingFriend, setAddingFriend] = useState(false);
   const [signupPromptDismissed, setSignupPromptDismissed] = useState(false);
+  const [challenge, setChallenge] = useState<ChallengeData | null>(() => getChallenge(challengeId));
+  const [challengeLoading, setChallengeLoading] = useState(true);
+  const [challengeError, setChallengeError] = useState("");
 
-  const challenge = getChallenge(challengeId);
   const category = challenge ? getCategoryById(challenge.categoryId) : null;
   const user = getOrCreateUser();
+  const challengeQuestionsKey = challenge?.questions.join(",") ?? "";
 
   useEffect(() => {
+    let cancelled = false;
+    async function hydrateChallenge() {
+      const local = getChallenge(challengeId);
+      if (!cancelled && local) setChallenge(local);
+      if (!local || local.status === "waiting") {
+        const remote = await getDbChallenge(challengeId);
+        if (cancelled) return;
+        if (remote) {
+          const hydrated = challengeFromDb(remote);
+          saveChallenge(hydrated);
+          setChallenge(hydrated);
+        } else if (!local) {
+          setChallengeError("هذا التحدي غير موجود أو تعذّر تحميله.");
+        }
+      }
+      if (!cancelled) setChallengeLoading(false);
+    }
+    hydrateChallenge().catch(() => {
+      if (!cancelled) {
+        setChallengeError("تعذّر تحديث نتيجة التحدي. تحقق من اتصالك وحاول مجددًا.");
+        setChallengeLoading(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [challengeId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadedQs([]);
     if (challenge) {
       // Apply same deterministic shuffle as Quiz so saved answer indices map to correct options
-      fetchQuestionsByIds(challenge.questions).then((qs) =>
-        setLoadedQs(qs.map((q) => shuffleQuestion(q, q.id)))
-      );
+      fetchQuestionsByIds(challenge.questions).then((qs) => {
+        if (!cancelled) setLoadedQs(qs.map((q) => shuffleQuestion(q, q.id)));
+      });
     }
-  }, [challengeId]);
+    return () => { cancelled = true; };
+  }, [challengeId, challengeQuestionsKey]);
 
   useEffect(() => {
     if (!challenge || winRecorded) return;
@@ -133,7 +167,19 @@ export default function Results() {
     }
   }, [challenge, role, winRecorded]);
 
-  if (!challenge) { navigate("/"); return null; }
+  if (challengeLoading && !challenge) {
+    return <div className="min-h-[100dvh] gradient-hero flex items-center justify-center font-bold">جاري تحميل النتيجة...</div>;
+  }
+  if (!challenge) {
+    return (
+      <div className="min-h-[100dvh] gradient-hero flex items-center justify-center p-6 text-center">
+        <div className="max-w-sm rounded-2xl border border-border bg-card p-6" role="alert">
+          <p className="font-bold">{challengeError || "تعذّر فتح نتيجة التحدي."}</p>
+          <Button className="mt-4" onClick={() => navigate("/")}>العودة للرئيسية</Button>
+        </div>
+      </div>
+    );
+  }
 
   const questionList = challenge.questions.map(id => loadedQs.find(q => q.id === id)!);
   const total = questionList.length;

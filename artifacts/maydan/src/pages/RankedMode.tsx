@@ -130,6 +130,7 @@ export default function RankedMode() {
   const displayedQIdxRef = useRef<number>(-1);  // qIdx currently shown to the user
   const finishedRef = useRef(false);
   const correctCountRef = useRef(0);
+  const countedCorrectQRef = useRef<number>(-1);
 
   useEffect(() => {
     myIdRef.current = myId;
@@ -263,6 +264,10 @@ export default function RankedMode() {
     if (!opponents || opponents.length === 0) return false;
     const opp = opponents[0];
 
+    // Only one deterministic side may create the match. This prevents the
+    // symmetric race where both clients claim each other and insert two rows.
+    if (myIdRef.current.localeCompare(opp.user_id) > 0) return false;
+
     // Atomic claim: only succeed if the row is still 'waiting'. Conditional
     // UPDATE is the cheapest cross-DB-safe way to prevent two clients from
     // creating duplicate matches for the same opponent.
@@ -374,6 +379,7 @@ export default function RankedMode() {
     displayedQIdxRef.current = -1;
     finishedRef.current = false;
     correctCountRef.current = 0;
+    countedCorrectQRef.current = -1;
 
     const qs = await getMatchQuestions(m.id, m.category);
     if (cancelledRef.current) return;
@@ -501,7 +507,7 @@ export default function RankedMode() {
       submittedQRef.current !== qIdx &&
       timedOut
     ) {
-      await writeMyAnswer(null, qIdx, 0, QUESTION_TIME_MS);
+      await writeMyAnswer(null, qIdx, 0, QUESTION_TIME_MS, false);
     }
 
     // ── 4. Both answered → q_result, then scoreboard ──────────────────────
@@ -549,7 +555,7 @@ export default function RankedMode() {
 
   // ── Submitting answers ───────────────────────────────────────────────────
 
-  async function writeMyAnswer(ans: number | null, qIdx: number, pts: number, ms: number) {
+  async function writeMyAnswer(ans: number | null, qIdx: number, pts: number, ms: number, correct: boolean) {
     if (!matchRef.current) return;
     if (submittedQRef.current === qIdx) return;
     submittedQRef.current = qIdx;
@@ -574,15 +580,19 @@ export default function RankedMode() {
       .select(RANKED_MATCH_COLUMNS)
       .maybeSingle();
 
-    if (error) {
+    if (error || !data) {
       console.warn("writeMyAnswer error", error);
+      submittedQRef.current = -1;
+      setSelected(null);
       return;
     }
-    if (data) {
-      matchRef.current = data as RankedMatch;
-      setMatch(data as RankedMatch);
-      setMyTotalScore(isP1 ? (data as RankedMatch).player1_score : (data as RankedMatch).player2_score);
+    if (correct && countedCorrectQRef.current !== qIdx) {
+      countedCorrectQRef.current = qIdx;
+      correctCountRef.current += 1;
     }
+    matchRef.current = data as RankedMatch;
+    setMatch(data as RankedMatch);
+    setMyTotalScore(isP1 ? (data as RankedMatch).player1_score : (data as RankedMatch).player2_score);
   }
 
   function handleAnswer(idx: number) {
@@ -595,9 +605,9 @@ export default function RankedMode() {
     const correct = !!q && idx === q.correct;
     const pts = pointsForElapsedMs(elapsed, correct);
     setSelected(idx);
-    if (correct) { correctCountRef.current += 1; playCorrect(); flashScreen("correct"); }
+    if (correct) { playCorrect(); flashScreen("correct"); }
     else { playWrong(); flashScreen("wrong"); }
-    void writeMyAnswer(idx, qIdx, pts, elapsed);
+    void writeMyAnswer(idx, qIdx, pts, elapsed, correct);
   }
 
   // ── Finish ───────────────────────────────────────────────────────────────

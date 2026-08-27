@@ -25,13 +25,19 @@ export default function UsernameSetup() {
     if (username && USERNAME_REGEX.test(username)) {
       setStatus("checking");
       debounceRef.current = setTimeout(async () => {
-        const { data } = await supabase
+        const { data, error: checkError } = await supabase
           .from("users")
           .select("id")
           .eq("username", username)
           .neq("id", dbUser?.id ?? "")
           .maybeSingle();
-        setStatus(data ? "taken" : "available");
+        if (checkError) {
+          setStatus("idle");
+          setError("تعذّر التحقق من الاسم. تحقق من اتصالك.");
+        } else {
+          setError("");
+          setStatus(data ? "taken" : "available");
+        }
       }, 400);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -43,13 +49,19 @@ export default function UsernameSetup() {
     if (!USERNAME_REGEX.test(username)) { setStatus("invalid"); return; }
     setStatus("checking");
     debounceRef.current = setTimeout(async () => {
-      const { data } = await supabase
+      const { data, error: checkError } = await supabase
         .from("users")
         .select("id")
         .eq("username", username.trim())
         .neq("id", dbUser?.id ?? "")
         .maybeSingle();
-      setStatus(data ? "taken" : "available");
+      if (checkError) {
+        setStatus("idle");
+        setError("تعذّر التحقق من الاسم. تحقق من اتصالك.");
+      } else {
+        setError("");
+        setStatus(data ? "taken" : "available");
+      }
     }, 600);
   }, [username, dbUser?.id]);
 
@@ -98,7 +110,7 @@ export default function UsernameSetup() {
 
         {googleDisplayName ? (
           <>
-            <h1 className="text-2xl font-black text-foreground mt-1">
+            <h1 className="text-2xl font-black text-foreground mt-1 max-w-sm break-words [overflow-wrap:anywhere]">
               أهلاً {googleDisplayName}! 👑
             </h1>
             <p className="text-muted-foreground text-sm mt-1">مرحباً بك في ميدان 🎉</p>

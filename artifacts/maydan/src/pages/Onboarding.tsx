@@ -24,7 +24,6 @@ export default function Onboarding() {
   function backgroundSave(label: string, payload: Record<string, unknown>) {
     if (!dbUser?.id || isGuest) return;
     const id = dbUser.id;
-    console.log(`[onboarding] saving ${label}`, payload);
     const update = supabase.from("users").update(payload).eq("id", id);
     const timeout = new Promise<{ error: Error }>((resolve) =>
       setTimeout(
@@ -37,7 +36,6 @@ export default function Onboarding() {
         const err = (res as { error?: unknown }).error;
         if (err) console.warn(`[onboarding] ${label} save failed:`, err);
         else {
-          console.log(`[onboarding] ${label} saved`);
           refreshUser().catch((e) =>
             console.warn(`[onboarding] refresh after ${label} failed`, e),
           );

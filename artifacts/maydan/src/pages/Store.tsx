@@ -10,12 +10,40 @@ type Tab = "frames" | "power_cards";
 
 export default function Store() {
   const [, navigate] = useLocation();
-  const { dbUser, refreshUser } = useAuth();
+  const { dbUser, refreshUser, signOut } = useAuth();
   const [tab, setTab] = useState<Tab>("frames");
   const [buying, setBuying] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
 
-  if (!dbUser) return null;
+  if (!dbUser) {
+    return (
+      <div className="min-h-[100dvh] gradient-hero star-bg flex items-center justify-center p-6 text-center">
+        <div className="w-full max-w-sm rounded-3xl border border-border bg-card p-6">
+          <div className="mb-3 text-5xl" aria-hidden="true">🛍️</div>
+          <h1 className="text-xl font-black text-foreground">المتجر متاح للحسابات</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            سجّل الدخول لحفظ رصيدك ومشترياتك بأمان عبر أجهزتك.
+          </p>
+          <div className="mt-5 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => { void signOut().then(() => navigate("/")); }}
+              className="min-h-11 rounded-xl gradient-gold px-5 font-bold text-background"
+            >
+              تسجيل الدخول
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate("/")}
+              className="min-h-11 rounded-xl border border-border px-5 font-bold text-foreground"
+            >
+              العودة للرئيسية
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const aData    = parseAchievementsData(dbUser.achievements);
   const coins    = dbUser.coins ?? 0;
