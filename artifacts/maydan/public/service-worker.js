@@ -1,6 +1,7 @@
 const CACHE_VERSION = "maydan-__BUILD_ID__";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
+const PRECACHE_ASSETS = __PRECACHE_ASSETS__;
 
 const scopeUrl = new URL(self.registration.scope);
 const scopePath = scopeUrl.pathname.endsWith("/")
@@ -39,7 +40,10 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(SHELL_CACHE)
-      .then((cache) => cache.add(new Request(scopeUrl.href, { cache: "reload" })))
+      .then((cache) => cache.addAll([
+        new Request(scopeUrl.href, { cache: "reload" }),
+        ...PRECACHE_ASSETS.map((asset) => new Request(new URL(asset, scopeUrl).href, { cache: "reload" })),
+      ]))
   );
 });
 
@@ -86,4 +90,15 @@ self.addEventListener("fetch", (event) => {
       return fetch(request).then((response) => cacheResponse(STATIC_CACHE, request, response));
     }),
   );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type !== "CACHE_URLS" || !Array.isArray(event.data.urls)) return;
+  const safeUrls = event.data.urls
+    .map((value) => {
+      try { return new URL(value, scopeUrl); } catch { return null; }
+    })
+    .filter((url) => url && url.origin === self.location.origin && url.pathname.startsWith(scopePath))
+    .map((url) => url.href);
+  event.waitUntil(caches.open(STATIC_CACHE).then((cache) => cache.addAll(safeUrls)));
 });

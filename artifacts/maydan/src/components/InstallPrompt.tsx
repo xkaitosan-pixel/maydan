@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
+import { Download, Share, X } from "lucide-react";
+import {
+  getCompletedGamesForInstall,
+  isInstalledPwa,
+  PWA_GAME_COMPLETED_EVENT,
+} from "@/lib/pwa";
 
 const DISMISS_KEY = "maydan_install_prompt_dismissed";
-const DELAY_MS = 30_000;
+const MIN_COMPLETED_GAMES = 2;
+const DISMISS_COOLDOWN_MS = 30 * 24 * 60 * 60_000;
 
 interface BIPEvent extends Event {
   prompt: () => Promise<void>;
@@ -17,24 +24,17 @@ function isMobile(): boolean {
   );
 }
 
-function isStandalone(): boolean {
-  if (typeof window === "undefined") return false;
-  return (
-    window.matchMedia("(display-mode: standalone)").matches ||
-    // iOS Safari
-    (navigator as any).standalone === true
-  );
-}
-
 export default function InstallPrompt() {
   const [bip, setBip] = useState<BIPEvent | null>(null);
   const [visible, setVisible] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
+  const [showIOSHelp, setShowIOSHelp] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (isStandalone()) return;
-    if (localStorage.getItem(DISMISS_KEY)) return;
+    if (isInstalledPwa()) return;
+    const dismissedAt = Number(localStorage.getItem(DISMISS_KEY));
+    if (dismissedAt && Date.now() - dismissedAt < DISMISS_COOLDOWN_MS) return;
     if (!isMobile()) return;
 
     const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -46,7 +46,11 @@ export default function InstallPrompt() {
     };
     window.addEventListener("beforeinstallprompt", onBIP);
 
-    const t = setTimeout(() => setVisible(true), DELAY_MS);
+    const showWhenEligible = () => {
+      if (getCompletedGamesForInstall() >= MIN_COMPLETED_GAMES) setVisible(true);
+    };
+    showWhenEligible();
+    window.addEventListener(PWA_GAME_COMPLETED_EVENT, showWhenEligible);
 
     const onInstalled = () => {
       setVisible(false);
@@ -59,7 +63,7 @@ export default function InstallPrompt() {
     return () => {
       window.removeEventListener("beforeinstallprompt", onBIP);
       window.removeEventListener("appinstalled", onInstalled);
-      clearTimeout(t);
+      window.removeEventListener(PWA_GAME_COMPLETED_EVENT, showWhenEligible);
     };
   }, []);
 
@@ -85,11 +89,7 @@ export default function InstallPrompt() {
       }
       setBip(null);
     } else if (isIOS) {
-      // iOS doesn't support beforeinstallprompt — show instructions instead
-      alert(
-        'لإضافة ميدان لشاشتك الرئيسية:\n١. اضغط زر المشاركة في Safari\n٢. اختر "إضافة إلى الشاشة الرئيسية"',
-      );
-      dismiss();
+      setShowIOSHelp(true);
     } else {
       dismiss();
     }
@@ -100,8 +100,9 @@ export default function InstallPrompt() {
   return (
     <div
       dir="rtl"
-      className="fixed bottom-3 left-3 right-3 z-[60] mx-auto max-w-md rounded-2xl border border-primary/30 p-3 flex items-center gap-3 shadow-xl"
+      className="fixed left-3 right-3 z-[60] mx-auto max-w-md rounded-2xl border border-primary/30 p-4 shadow-xl"
       style={{
+        bottom: "calc(4.25rem + env(safe-area-inset-bottom, 0px))",
         background: "linear-gradient(135deg, rgba(13,13,26,0.96), rgba(26,13,46,0.96))",
         backdropFilter: "blur(12px)",
         animation: "mdyInstallSlide 0.35s ease-out",
@@ -113,36 +114,29 @@ export default function InstallPrompt() {
           to   { transform: translateY(0); opacity: 1; }
         }
       `}</style>
-      <div
-        className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 text-2xl"
-        style={{
-          background: "linear-gradient(135deg, rgba(217,119,6,0.45), rgba(124,58,237,0.45))",
-        }}
-      >
-        📱
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-bold text-white leading-snug">
-          أضف ميدان لشاشتك الرئيسية
-        </p>
-        <p className="text-[11px] text-muted-foreground mt-0.5">
-          العب بسهولة من شاشة هاتفك مباشرة
-        </p>
-      </div>
-      <button
-        onClick={install}
-        className="px-3 py-2 rounded-xl text-xs font-bold text-background shrink-0"
-        style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}
-      >
-        تثبيت
+      <button onClick={dismiss} aria-label="لاحقًا" className="absolute left-2 top-2 p-2 text-white/60">
+        <X className="h-4 w-4" />
       </button>
-      <button
-        onClick={dismiss}
-        aria-label="إغلاق"
-        className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 hover:bg-white/10 text-white/70"
-      >
-        ✕
-      </button>
+      <div className="flex items-center gap-3">
+        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/20 text-primary">
+          <Download className="h-6 w-6" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-black text-white">ثبّت ميدان على هاتفك</p>
+          <p className="mt-0.5 text-xs text-white/65">العب أسرع — بدون متصفح</p>
+        </div>
+      </div>
+      {showIOSHelp ? (
+        <div className="mt-3 rounded-xl bg-white/7 p-3 text-xs leading-6 text-white/80">
+          <p className="flex items-center gap-2 font-bold text-white"><Share className="h-4 w-4" /> في Safari اضغط مشاركة</p>
+          <p>ثم اختر «إضافة إلى الشاشة الرئيسية» واضغط «إضافة».</p>
+        </div>
+      ) : (
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button onClick={install} className="rounded-xl bg-primary px-3 py-2.5 text-xs font-black text-primary-foreground">تثبيت</button>
+          <button onClick={dismiss} className="rounded-xl bg-white/8 px-3 py-2.5 text-xs font-bold text-white/75">لاحقًا</button>
+        </div>
+      )}
     </div>
   );
 }

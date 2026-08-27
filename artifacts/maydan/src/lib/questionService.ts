@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { Question } from "./questions";
+import { cacheQuestionsForOffline, getOfflineQuestions } from "./offlineQuestions";
 
 const CACHE_TTL_MS = 10 * 60_000;
 const QUESTION_PAGE_SIZE = 1_000;
@@ -29,6 +30,7 @@ function rememberQuestions(questions: Question[], expiresAt: number) {
   for (const question of questions) {
     questionCache.set(question.id, { value: question, expiresAt });
   }
+  cacheQuestionsForOffline(questions);
 }
 
 function shuffleArray<T>(arr: T[]): T[] {
@@ -102,7 +104,7 @@ async function countMatchingQuestions(category: string, difficulty?: Difficulty)
     const { count, error } = await query;
     if (error) {
       console.error("Failed to count questions:", error);
-      return 0;
+      return getOfflineQuestions({ category, difficulty }).length;
     }
 
     const value = count ?? 0;
@@ -128,7 +130,7 @@ async function fetchQuestionRange(
   const { data, error } = await query;
   if (error || !data) {
     console.error("Failed to load bounded question range:", error);
-    return [];
+    return getOfflineQuestions({ category, difficulty }).slice(start, end + 1);
   }
   return data as Question[];
 }
@@ -151,7 +153,12 @@ async function fetchBoundedSeededQuestions(
 
   const request = (async () => {
     const total = await countMatchingQuestions(category, difficulty);
-    if (total === 0) return [];
+    if (total === 0) {
+      return seededShuffleQuestions(
+        getOfflineQuestions({ category, difficulty }),
+        seed,
+      ).slice(0, safeCount);
+    }
 
     const requested = Math.min(safeCount, total);
     const start = seedHash(seed) % total;
@@ -161,7 +168,11 @@ async function fetchBoundedSeededQuestions(
       ranges.push(fetchQuestionRange(category, 0, requested - firstCount - 1, difficulty));
     }
 
-    const questions = seededShuffleQuestions((await Promise.all(ranges)).flat(), seed);
+    const loaded = (await Promise.all(ranges)).flat();
+    const questions = seededShuffleQuestions(
+      loaded.length ? loaded : getOfflineQuestions({ category, difficulty }),
+      seed,
+    ).slice(0, requested);
     const expiresAt = Date.now() + CACHE_TTL_MS;
     selectionCache.set(key, { value: questions, expiresAt });
     rememberQuestions(questions, expiresAt);
@@ -202,7 +213,7 @@ export async function loadCategoryQuestions(category: string): Promise<Question[
       const { data, error } = await query;
       if (error || !data) {
         console.error("Failed to load questions:", error);
-        return [];
+        return getOfflineQuestions({ category });
       }
 
       questions.push(...(data as Question[]));
@@ -273,7 +284,7 @@ export async function fetchQuestionsByIds(ids: number[]): Promise<Question[]> {
         .in("id", batch);
       if (error || !data) {
         console.error("Failed to load questions by id:", error);
-        return [];
+        return getOfflineQuestions({ ids: uniqueIds });
       }
       questions.push(...(data as Question[]));
     }

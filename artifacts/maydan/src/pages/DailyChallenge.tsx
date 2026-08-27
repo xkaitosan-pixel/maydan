@@ -15,6 +15,8 @@ import { getDailyPercentile } from "@/lib/db";
 import { getCountryFlag } from "@/lib/countryUtils";
 import ShareCard from "@/components/ShareCard";
 import ReportFlag from "@/components/ReportFlag";
+import { syncOrQueueDailyScore } from "@/lib/offlineQueue";
+import { recordCompletedGameForInstall } from "@/lib/pwa";
 
 const DAILY_Q_COUNT = 10;
 const QUESTION_TIME = 15;
@@ -330,6 +332,7 @@ export default function DailyChallenge() {
     if (accPct >= 70) recordTodayWin(); else recordTodayLoss();
     recordTodayXP(Math.round(finalScore / 5));
     playSound("gameover");
+    recordCompletedGameForInstall();
     if (dbUser?.id) {
       recordEngagementGame(dbUser.id, { won: accPct >= 70, correct: correctRef.current }).catch(() => {});
     }
@@ -345,9 +348,15 @@ export default function DailyChallenge() {
       completed_at: new Date().toISOString(),
     };
 
-    await supabase
-      .from("daily_scores")
-      .upsert(entry, { onConflict: "user_id,date" });
+    await syncOrQueueDailyScore({
+      user_id: entry.user_id,
+      date: entry.date ?? today,
+      display_name: entry.display_name,
+      country: entry.country,
+      score: entry.score,
+      total: entry.total,
+      completed_at: entry.completed_at,
+    });
     if (!sessionActiveRef.current) return;
     setMyEntry(entry);
     await loadLeaderboard();

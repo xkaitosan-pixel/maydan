@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 export default defineConfig(async ({ command }) => {
   // PORT is only required in dev/preview (not during vite build)
   const rawPort = process.env.PORT;
@@ -35,13 +35,39 @@ export default defineConfig(async ({ command }) => {
             name: "version-service-worker-cache",
             apply: "build" as const,
             async closeBundle() {
-              const workerPath = path.resolve(import.meta.dirname, "dist/public/service-worker.js");
+              const outputDir = path.resolve(import.meta.dirname, "dist/public");
+              const workerPath = path.join(outputDir, "service-worker.js");
+              const files = await readdir(outputDir, { recursive: true });
+              const precacheAssets = files
+                .map((file) => file.replaceAll(path.sep, "/"))
+                .filter((file) =>
+                  file === "manifest.json"
+                  || file === "favicon.svg"
+                  || /^assets\/.+\.(?:js|css)$/.test(file)
+                  || /^(?:logo|icon-\d+|icon-maskable|apple-touch-icon)\.png$/.test(file),
+                );
               const source = await readFile(workerPath, "utf8");
               await writeFile(
                 workerPath,
-                source.replace("__BUILD_ID__", serviceWorkerBuildId),
+                source
+                  .replace("__BUILD_ID__", serviceWorkerBuildId)
+                  .replace("__PRECACHE_ASSETS__", JSON.stringify(precacheAssets)),
                 "utf8",
               );
+
+              const manifestPath = path.join(outputDir, "manifest.json");
+              const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+                start_url: string;
+                scope: string;
+                icons: Array<{ src: string }>;
+              };
+              manifest.start_url = basePath;
+              manifest.scope = basePath;
+              manifest.icons = manifest.icons.map((icon) => ({
+                ...icon,
+                src: `${basePath}${icon.src.replace(/^\/+/, "")}`,
+              }));
+              await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
             },
           }]
         : []),

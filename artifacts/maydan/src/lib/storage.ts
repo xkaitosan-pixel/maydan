@@ -1,3 +1,5 @@
+import { recordCompletedGameForInstall } from "./pwa";
+
 export interface PowerCards {
   skipUsed: number;
   timeUsed: number;
@@ -298,6 +300,7 @@ export function recordGamePlayed(): void {
   const user = getOrCreateUser();
   user.stats.totalGames += 1;
   saveUser(user);
+  recordCompletedGameForInstall();
 }
 
 export function recordWin(): void {
@@ -313,6 +316,7 @@ export function recordSurvivalGame(score: number): void {
   user.stats.totalGames += 1;
   if (score > user.stats.survivalBest) user.stats.survivalBest = score;
   saveUser(user);
+  recordCompletedGameForInstall();
 }
 
 export function recordCategoryAnswers(categoryId: string, correct: number, total: number): void {

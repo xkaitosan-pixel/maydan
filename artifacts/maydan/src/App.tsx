@@ -45,6 +45,7 @@ const NotificationSystem = lazy(() => import("@/components/NotificationSystem"))
 const InstallPrompt = lazy(() => import("@/components/InstallPrompt"));
 const ScreenFlashHost = lazy(() => import("@/components/ScreenFlashHost"));
 const BottomNav = lazy(() => import("@/components/BottomNav"));
+const PwaRuntime = lazy(() => import("@/components/PwaRuntime"));
 const Toaster = lazy(() =>
   import("@/components/ui/toaster").then((module) => ({ default: module.Toaster })),
 );
@@ -255,6 +256,9 @@ function DeferredRoutedUi() {
     <>
       <Suspense fallback={null}>
         <NotificationSystem />
+      </Suspense>
+      <Suspense fallback={null}>
+        <PwaRuntime />
       </Suspense>
       <Suspense fallback={null}>
         <BottomNav />

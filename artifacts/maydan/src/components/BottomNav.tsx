@@ -3,15 +3,10 @@ import { useLocation } from "wouter";
 import { Home, Swords, Calendar, Trophy, User } from "lucide-react";
 
 const HIDE_PREFIXES = [
-  "/quiz",
-  "/survival",
-  "/ranked",
-  "/party",
-  "/daily",
   "/onboarding",
   "/auth",
-  "/results",
 ];
+const PROTECTED_PREFIXES = ["/quiz", "/survival", "/ranked", "/party/", "/daily"];
 
 const ITEMS: Array<{ path: string; label: string; Icon: typeof Home }> = [
   { path: "/", label: "الرئيسية", Icon: Home },
@@ -43,6 +38,13 @@ export default function BottomNav() {
 
   if (hidden) return null;
 
+  function goTo(path: string) {
+    if (path === location) return;
+    const needsConfirmation = PROTECTED_PREFIXES.some((prefix) => location.startsWith(prefix));
+    if (needsConfirmation && !window.confirm("هل تريد الخروج من اللعب؟ قد تفقد تقدمك الحالي.")) return;
+    navigate(path);
+  }
+
   return (
     <nav
       dir="rtl"
@@ -60,7 +62,7 @@ export default function BottomNav() {
           return (
             <li key={path} className="flex-1">
               <button
-                onClick={() => navigate(path)}
+                onClick={() => goTo(path)}
                 className="w-full h-full flex flex-col items-center justify-center gap-0.5 transition-colors"
                 style={{
                   color: active ? "#f5d98a" : "rgba(255,255,255,0.55)",

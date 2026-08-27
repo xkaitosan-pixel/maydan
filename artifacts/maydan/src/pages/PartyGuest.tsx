@@ -20,6 +20,7 @@ import {
   serializePartyGuestSession,
   type ResumablePartyStatus,
 } from "@/lib/partySession";
+import { recordCompletedGameForInstall } from "@/lib/pwa";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type GuestPhase = "enter_code" | "enter_name" | "waiting" | "question" | "answered" | "reveal" | "leaderboard" | "finished";
@@ -485,6 +486,7 @@ export default function PartyGuest() {
       if (phaseRef.current === "finished") return;
       phaseRef.current = "finished";
       setPhase("finished");
+      recordCompletedGameForInstall();
       fetchPlayers(updatedRoom.code);
       playSound("gameover");
       // Victory fanfare for top-3 finishers (deferred slightly to layer over gameover)

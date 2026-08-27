@@ -19,6 +19,7 @@ import FloatingReward from "@/components/FloatingReward";
 import ShareCard from "@/components/ShareCard";
 import { awardGameRewards, XP_REWARDS, COIN_REWARDS } from "@/lib/gamification";
 import { recordEngagementGame } from "@/lib/engagement";
+import { recordCompletedGameForInstall } from "@/lib/pwa";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -641,6 +642,7 @@ export default function RankedMode() {
     if (w === "me") playGameOver();
     else if (w === "opponent") playWrong();
     setPhaseSafe("finished");
+    recordCompletedGameForInstall();
 
     const won = w === "me";
     const draw = w === "draw";

@@ -12,11 +12,12 @@
     <meta name="author" content="ميدان" />
     <meta name="robots" content="index, follow" />
     <meta name="language" content="Arabic" />
-    <meta name="theme-color" content="#0D0D1A" />
+    <meta name="theme-color" content="#0B1D36" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="ميدان" />
     <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="format-detection" content="telephone=no" />
 
     <!-- Open Graph / WhatsApp / Facebook -->
     <meta property="og:type" content="website" />
@@ -39,10 +40,10 @@
     <meta name="twitter:image" content="https://maydan.replit.app/opengraph.jpg" />
 
     <!-- Favicon & Manifest -->
-    <link rel="icon" type="image/png" href="/logo.png" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/icon-192.png" />
-    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/png" href="%BASE_URL%logo.png" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="%BASE_URL%apple-touch-icon.png" />
+    <link rel="manifest" href="%BASE_URL%manifest.json" />
 
     <!-- Canonical -->
     <link rel="canonical" href="https://maydan.replit.app/" />
@@ -51,8 +52,17 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet" />
+    <style>
+      #pwa-splash{position:fixed;inset:0;z-index:99999;display:grid;place-items:center;background:#071426;transition:opacity .24s ease,visibility .24s ease}
+      #pwa-splash.is-hidden{opacity:0;visibility:hidden}
+      #pwa-splash img{width:112px;height:112px;object-fit:contain;filter:drop-shadow(0 12px 36px rgba(245,158,11,.22))}
+      #pwa-splash span{display:block;margin-top:16px;text-align:center;color:#f8fafc;font:700 25px/1.4 system-ui,sans-serif}
+    </style>
   </head>
   <body>
+    <div id="pwa-splash" aria-hidden="true">
+      <div><img src="%BASE_URL%logo.png" alt="" /><span>ميدان</span></div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

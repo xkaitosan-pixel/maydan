@@ -7,6 +7,11 @@ import { initSoundOnFirstGesture } from "./lib/sound";
 initTheme();
 initSoundOnFirstGesture();
 createRoot(document.getElementById("root")!).render(<App />);
+requestAnimationFrame(() => {
+  const splash = document.getElementById("pwa-splash");
+  splash?.classList.add("is-hidden");
+  window.setTimeout(() => splash?.remove(), 300);
+});
 
 // Keep registration dependency-free and out of development, where a stale
 // worker can otherwise mask source changes. BASE_URL supports sub-path deploys.
