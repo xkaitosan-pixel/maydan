@@ -69,7 +69,34 @@ export default function Survival() {
   const [perAnswerXP, setPerAnswerXP] = useState(false);
   const [rewardSummary, setRewardSummary] = useState<{ xp: number; coins: number; achievements: number } | null>(null);
   const [combo, setCombo] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [milestone, setMilestone] = useState<number | null>(null);
+  const [showFastBonus, setShowFastBonus] = useState(false);
+  const answeredRef = useRef(false);
+  const sessionActiveRef = useRef(true);
+  const leaveWasPausedRef = useRef(false);
+  const scheduledTimeoutsRef = useRef(new Set<ReturnType<typeof setTimeout>>());
   const personalBest = getOrCreateUser().stats.survivalBest;
+
+  const clearScheduledTimeouts = useCallback(() => {
+    scheduledTimeoutsRef.current.forEach(clearTimeout);
+    scheduledTimeoutsRef.current.clear();
+  }, []);
+
+  const scheduleSessionUpdate = useCallback((callback: () => void, delay: number) => {
+    const timeout = setTimeout(() => {
+      scheduledTimeoutsRef.current.delete(timeout);
+      if (sessionActiveRef.current) callback();
+    }, delay);
+    scheduledTimeoutsRef.current.add(timeout);
+  }, []);
+
+  useEffect(() => () => {
+    sessionActiveRef.current = false;
+    if (timerRef.current) clearInterval(timerRef.current);
+    clearScheduledTimeouts();
+  }, [clearScheduledTimeouts]);
 
   // Visual-only combo multiplier: x1 (combo<3) → x1.5 (3-5) → x2 (6-9) → x2.5 (10+)
   function comboMultiplier(c: number): number {
@@ -98,10 +125,12 @@ export default function Survival() {
       navigate("/premium");
       return;
     }
+    sessionActiveRef.current = true;
+    clearScheduledTimeouts();
     incrementSurvivalCount();
     const rawPool = await fetchGameQuestions(selectedCategory);
     const pool = rawPool.map((q) => shuffleQuestion(q));
-    if (!pool.length) return;
+    if (!pool.length || !sessionActiveRef.current) return;
     questionPoolRef.current = pool;
     const first = pool[0];
     const t = BASE_TIME;
@@ -117,6 +146,11 @@ export default function Survival() {
     setCorrectAnswers({});
     setTotalAnswers({});
     setPowerUsed({ skip: false, time: false });
+    setIsPaused(false);
+    setShowLeaveConfirm(false);
+    setMilestone(null);
+    setShowFastBonus(false);
+    answeredRef.current = false;
     loadPowerCards();
     setPhase("playing");
   }
@@ -124,10 +158,14 @@ export default function Survival() {
   // Timer effect
   const [isReporting, setIsReporting] = useState(false);
   useEffect(() => {
-    if (phase !== "playing" || showResult || !currentQ || isReporting) return;
+    if (phase !== "playing" || showResult || !currentQ || isReporting || isPaused) return;
     if (timerRef.current) clearInterval(timerRef.current);
 
     timerRef.current = setInterval(() => {
+      if (!sessionActiveRef.current) {
+        clearInterval(timerRef.current!);
+        return;
+      }
       setTimeLeft(prev => {
         if (prev <= 1) {
           clearInterval(timerRef.current!);
@@ -140,11 +178,12 @@ export default function Survival() {
     }, 1000);
 
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [phase, showResult, currentQ?.id, isReporting]);
+  }, [phase, showResult, currentQ?.id, isReporting, isPaused]);
 
   const handleTimeOut = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
-    if (!currentQ) return;
+    if (!sessionActiveRef.current || !currentQ || answeredRef.current) return;
+    answeredRef.current = true;
     setShowResult(true);
     playSound("wrong");
     setTotalAnswers(prev => ({ ...prev, [currentQ.category]: (prev[currentQ.category] || 0) + 1 }));
@@ -152,16 +191,17 @@ export default function Survival() {
     setLives(prev => {
       const newLives = prev - 1;
       if (newLives <= 0) {
-        setTimeout(() => endGame(score), 900);
+          scheduleSessionUpdate(() => endGame(score), 900);
       } else {
-        setTimeout(() => nextQuestion(), 900);
+          scheduleSessionUpdate(() => nextQuestion(), 900);
       }
       return newLives;
     });
-  }, [currentQ, score]);
+  }, [currentQ, score, scheduleSessionUpdate]);
 
   function handleAnswer(idx: number) {
-    if (selectedOption !== null || showResult || !currentQ) return;
+    if (!sessionActiveRef.current || answeredRef.current || selectedOption !== null || showResult || !currentQ || isPaused) return;
+    answeredRef.current = true;
     if (timerRef.current) clearInterval(timerRef.current);
 
     setSelectedOption(idx);
@@ -176,6 +216,14 @@ export default function Survival() {
     if (isCorrect) {
       const newScore = score + 1;
       setScore(newScore);
+      if (timeLeft >= Math.ceil(maxTime * 0.6)) {
+        setShowFastBonus(true);
+        scheduleSessionUpdate(() => setShowFastBonus(false), 800);
+      }
+      if (newScore === 10 || newScore === 25) {
+        setMilestone(newScore);
+        scheduleSessionUpdate(() => setMilestone(null), 1400);
+      }
       setCombo(c => {
         const next = c + 1;
         if (next === 3 || next === 6 || next === 10) playSound("combo", next);
@@ -183,16 +231,16 @@ export default function Survival() {
       });
       setCorrectAnswers(prev => ({ ...prev, [cat]: (prev[cat] || 0) + 1 }));
       setPerAnswerXP(true);
-      setTimeout(() => setPerAnswerXP(false), 900);
-      setTimeout(() => nextQuestion(newScore), 900);
+      scheduleSessionUpdate(() => setPerAnswerXP(false), 900);
+      scheduleSessionUpdate(() => nextQuestion(newScore), 900);
     } else {
       setCombo(0);
       setLives(prev => {
         const newLives = prev - 1;
         if (newLives <= 0) {
-          setTimeout(() => endGame(score), 900);
+          scheduleSessionUpdate(() => endGame(score), 900);
         } else {
-          setTimeout(() => nextQuestion(score), 900);
+          scheduleSessionUpdate(() => nextQuestion(score), 900);
         }
         return newLives;
       });
@@ -200,6 +248,7 @@ export default function Survival() {
   }
 
   function nextQuestion(currentScore?: number) {
+    if (!sessionActiveRef.current) return;
     const s = currentScore ?? score;
     const pool = questionPoolRef.current.filter(q => !usedIds.has(q.id));
     if (!pool.length) { endGame(s); return; }
@@ -213,9 +262,11 @@ export default function Survival() {
     setSelectedOption(null);
     setShowResult(false);
     setPowerUsed({ skip: false, time: false });
+    answeredRef.current = false;
   }
 
   function endGame(finalScore: number) {
+    if (!sessionActiveRef.current) return;
     if (timerRef.current) clearInterval(timerRef.current);
     // Record stats
     recordSurvivalGame(finalScore);
@@ -252,6 +303,7 @@ export default function Survival() {
             categories_played: selectedCategory,
           },
         }).then(result => {
+          if (!sessionActiveRef.current) return;
           setShowReward({ xp: result.xpGained, coins: result.coinsGained });
           setRewardSummary({ xp: result.xpGained, coins: result.coinsGained, achievements: result.newlyUnlocked.length });
           if (result.newlyUnlocked.length > 0) {
@@ -270,16 +322,38 @@ export default function Survival() {
     // Today-stats: ≥15 = win, otherwise loss
     if (finalScore >= 15) recordTodayWin(); else recordTodayLoss();
     setScore(finalScore);
+    setIsPaused(false);
     setPhase("gameover");
   }
 
   function handleSkip() {
-    if (powerUsed.skip || skipAvail <= 0 || !currentQ) return;
+    if (powerUsed.skip || skipAvail <= 0 || !currentQ || isPaused || answeredRef.current) return;
+    answeredRef.current = true;
     if (!useSkipCard()) return;
     if (timerRef.current) clearInterval(timerRef.current);
     setPowerUsed(prev => ({ ...prev, skip: true }));
     setSkipAvail(prev => prev - 1);
     nextQuestion(score);
+  }
+
+  function leaveGame() {
+    if (timerRef.current) clearInterval(timerRef.current);
+    sessionActiveRef.current = false;
+    clearScheduledTimeouts();
+    setShowLeaveConfirm(false);
+    setIsPaused(false);
+    setPhase("select");
+  }
+
+  function requestLeave() {
+    leaveWasPausedRef.current = isPaused;
+    setIsPaused(true);
+    setShowLeaveConfirm(true);
+  }
+
+  function cancelLeave() {
+    setShowLeaveConfirm(false);
+    setIsPaused(leaveWasPausedRef.current);
   }
 
   function handleAddTime() {
@@ -503,11 +577,11 @@ export default function Survival() {
             </svg>
             مشاركة النتيجة
           </button>
-          <div className="flex gap-3">
-            <button onClick={startGame} className="flex-1 h-12 rounded-xl font-bold text-white" style={{ background: "linear-gradient(135deg,#dc2626,#ef4444)" }}>
-              🔄 العب مرة أخرى
+          <div className="space-y-3">
+            <button data-testid="button-retry-survival" onClick={startGame} className="w-full min-h-14 rounded-xl px-4 font-black text-lg text-white shadow-lg shadow-red-500/20" style={{ background: "linear-gradient(135deg,#b91c1c,#ef4444)" }}>
+              🔥 حاول تحطيم رقمك — العب مجدداً
             </button>
-            <button onClick={() => navigate("/")} className="flex-1 h-12 rounded-xl border border-border text-foreground font-bold bg-card hover:bg-card/80 transition-colors">
+            <button onClick={() => navigate("/")} className="w-full h-12 rounded-xl border border-border text-foreground font-bold bg-card hover:bg-card/80 transition-colors">
               🏠 الرئيسية
             </button>
           </div>
@@ -522,6 +596,41 @@ export default function Survival() {
 
   return (
     <div className="min-h-screen gradient-hero flex flex-col">
+      {milestone && (
+        <div data-testid="status-survival-milestone" role="status" className="fixed inset-x-4 top-1/3 z-50 mx-auto max-w-sm rounded-3xl border border-yellow-500/40 bg-card p-6 text-center shadow-2xl motion-safe:animate-bounce">
+          <p className="text-5xl">{milestone === 25 ? "👑" : "🏆"}</p>
+          <p className="mt-2 text-2xl font-black text-yellow-500">{milestone} إجابة صحيحة!</p>
+          <p className="text-sm text-muted-foreground">إنجاز رائع، واصل التحدي</p>
+        </div>
+      )}
+      {showFastBonus && (
+        <div data-testid="status-fast-answer-bonus" role="status" className="fixed top-24 left-1/2 z-40 -translate-x-1/2 rounded-full border border-cyan-500/30 bg-card px-4 py-2 text-sm font-black text-cyan-600 shadow-lg dark:text-cyan-300">
+          ⚡ شارة سرعة فقط — لا تغيّر النقاط
+        </div>
+      )}
+      {(isPaused || showLeaveConfirm) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5" role="dialog" aria-modal="true">
+          <div className="w-full max-w-sm rounded-2xl border border-border bg-background p-5 text-center shadow-2xl">
+            {showLeaveConfirm ? (
+              <>
+                <h2 className="text-xl font-black">مغادرة الجولة؟</h2>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">ستفقد كل تقدم هذه الجولة ولن تُسجّل نتيجتك الحالية.</p>
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  <button data-testid="button-confirm-leave-survival" onClick={leaveGame} className="min-h-11 rounded-xl bg-red-600 px-3 font-bold text-white">غادر الجولة</button>
+                  <button data-testid="button-cancel-leave-survival" onClick={cancelLeave} className="min-h-11 rounded-xl border border-border bg-card px-3 font-bold">واصل اللعب</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-5xl">⏸️</p>
+                <h2 className="mt-2 text-2xl font-black">اللعبة متوقفة</h2>
+                <p className="mt-1 text-sm text-muted-foreground">المؤقت متوقف حتى تستأنف</p>
+                <button data-testid="button-resume-survival" onClick={() => setIsPaused(false)} className="mt-5 min-h-12 w-full rounded-xl bg-primary px-4 font-black text-primary-foreground">▶ استئناف</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {/* Per-answer XP pop */}
       {perAnswerXP && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 pointer-events-none animate-bounce">
@@ -535,6 +644,14 @@ export default function Survival() {
       <div className="rp-narrow flex flex-col flex-1 w-full">
       {/* Status bar */}
       <header className="p-4 border-b border-border/30 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <button data-testid="button-leave-survival" onClick={requestLeave} className="min-h-9 rounded-lg border border-border bg-card px-3 text-xs font-bold">خروج</button>
+          <div data-testid="text-survival-personal-best" className="min-w-0 rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-center">
+            <span className="text-xs text-muted-foreground">أفضل نتيجة شخصية</span>
+            <strong className="mr-2 text-lg text-yellow-600 dark:text-yellow-300">{Math.max(personalBest, score)}</strong>
+          </div>
+          <button data-testid="button-pause-survival" onClick={() => setIsPaused(true)} className="min-h-9 rounded-lg border border-border bg-card px-3 text-xs font-bold">⏸ إيقاف</button>
+        </div>
         <div className="flex justify-between items-center">
           {/* Lives */}
           <div key={`lives-${lives}`} className="flex gap-1.5">
@@ -563,6 +680,11 @@ export default function Survival() {
           {/* Timer */}
           <CircularTimer timeLeft={timeLeft} totalTime={maxTime} size={68} />
         </div>
+        {lives === 1 && (
+          <p data-testid="status-final-life-warning" role="alert" className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-center text-sm font-black text-red-600 dark:text-red-300">
+            ⚠️ الروح الأخيرة — الخطأ القادم ينهي الجولة
+          </p>
+        )}
 
         {/* Speed + combo */}
         <div className="text-center text-xs text-muted-foreground flex items-center justify-center gap-3 flex-wrap">

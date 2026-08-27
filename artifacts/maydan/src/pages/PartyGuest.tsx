@@ -9,6 +9,17 @@ import CircularTimer from "@/components/CircularTimer";
 import { playSound } from "@/lib/sound";
 import { useBackgroundMusic } from "@/lib/useBackgroundMusic";
 import { flashScreen } from "@/lib/flash";
+import {
+  isCurrentPartyAnswerResponse,
+  partyRoundPointsFromAcceptedResponse,
+} from "@/lib/partyScoring";
+import {
+  PARTY_GUEST_SESSION_KEY,
+  guestResumePhase,
+  parsePartyGuestSession,
+  serializePartyGuestSession,
+  type ResumablePartyStatus,
+} from "@/lib/partySession";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type GuestPhase = "enter_code" | "enter_name" | "waiting" | "question" | "answered" | "reveal" | "leaderboard" | "finished";
@@ -23,6 +34,7 @@ interface RoomData {
   answer_time?: number;
   show_question_on_phone?: boolean;
   scoring_type?: string;
+  question_start_time?: number | null;
 }
 
 interface PlayerRow {
@@ -33,7 +45,7 @@ interface PlayerRow {
   last_answer: number | null;
 }
 
-const PARTY_ROOM_COLUMNS = "id, code, status, category, current_question, total_questions, answer_time, show_question_on_phone, scoring_type" as const;
+const PARTY_ROOM_COLUMNS = "id, code, status, category, current_question, total_questions, answer_time, show_question_on_phone, scoring_type, question_start_time" as const;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const DEFAULT_QUESTION_TIME = 20;
@@ -45,12 +57,6 @@ const ANSWER_COLORS = [
   { bg: "#f39c12", dark: "#d68910", emoji: "🟡", label: "ج" },
   { bg: "#27ae60", dark: "#1e8449", emoji: "🟢", label: "د" },
 ];
-
-function calcPoints(elapsedMs: number, answerTimeSec: number, scoring: string): number {
-  if (scoring === "equal") return 1000;
-  const maxMs = answerTimeSec * 1000;
-  return Math.max(100, Math.round(1000 - (Math.min(elapsedMs, maxMs) / maxMs) * 900));
-}
 
 function seededShuffle<T>(arr: T[], seed: string): T[] {
   let hash = 0;
@@ -93,26 +99,116 @@ export default function PartyGuest() {
   const [consecutiveCorrect, setConsecutiveCorrect] = useState(0);
   const [showStreakBanner, setShowStreakBanner] = useState(false);
   const [connectionLost, setConnectionLost] = useState(false);
+  const [answerRejected, setAnswerRejected] = useState(false);
+  const [restoringSession, setRestoringSession] = useState(true);
   const consecutiveFailsRef = useRef(0);
 
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastMaintenanceAtRef = useRef(0);
   const myIdRef = useRef("");
+  const playerTokenRef = useRef("");
   const phaseRef = useRef<GuestPhase>("enter_code");
   const questionStartRef = useRef(0);
   const currentQIdxRef = useRef(-1);
   const consecutiveRef = useRef(0);
+  const answeringRef = useRef(false);
+  const deadlineLockedRef = useRef(false);
   // Track last seen DB state to avoid re-triggering transitions on every poll tick
   const lastSeenRef = useRef({ status: "", qIdx: -1 });
 
-  // Auto-proceed when code arrives via QR scan URL (?code=XXXX)
+  // Restore a capability-bound session before processing a QR/deep-link.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const urlCode = params.get("code")?.replace(/\D/g, "");
-    if (urlCode && urlCode.length === 4) {
-      lookupRoomByCode(urlCode);
-    }
+    let cancelled = false;
+    const restore = async () => {
+      const stored = parsePartyGuestSession(sessionStorage.getItem(PARTY_GUEST_SESSION_KEY));
+      const canRestore = stored && (!urlCode || urlCode === stored.roomCode);
+      if (canRestore) {
+        const maintenance = await maintainRoom(stored.roomCode, true);
+        if (maintenance === "deleted" || maintenance === "missing") {
+          sessionStorage.removeItem(PARTY_GUEST_SESSION_KEY);
+          setErrorMsg("انتهت الغرفة وتم تنظيفها بعد انقطاع المضيف.");
+          return;
+        }
+        const [{ data: playerData, error: playerError }, { data: roomData, error: roomError }] =
+          await Promise.all([
+            supabase.rpc("resume_party_player", {
+              p_room_code: stored.roomCode,
+              p_player_id: stored.playerId,
+              p_player_token: stored.token,
+            }),
+            supabase.from("party_rooms")
+              .select(PARTY_ROOM_COLUMNS)
+              .eq("code", stored.roomCode)
+              .single(),
+          ]);
+        const resumedPlayer = Array.isArray(playerData) ? playerData[0] : playerData;
+        if (!cancelled && (playerError || roomError)) {
+          setErrorMsg(`تعذر استعادة الجلسة: ${playerError?.message ?? roomError?.message}`);
+          return;
+        }
+        if (!cancelled && !playerError && !roomError && resumedPlayer && roomData) {
+          const player = resumedPlayer as PlayerRow;
+          const restoredRoom = roomData as RoomData;
+          const validStatuses = ["lobby", "question", "reveal", "leaderboard", "finished"];
+          if (validStatuses.includes(restoredRoom.status)) {
+            myIdRef.current = stored.playerId;
+            playerTokenRef.current = stored.token;
+            currentQIdxRef.current = restoredRoom.current_question;
+            questionStartRef.current = Number(restoredRoom.question_start_time) || 0;
+            lastSeenRef.current = {
+              status: restoredRoom.status,
+              qIdx: restoredRoom.current_question,
+            };
+            setMyId(stored.playerId);
+            setNickname(player.nickname);
+            setMyScore(player.score);
+            setRoom(restoredRoom);
+            setCurrentQIdx(restoredRoom.current_question);
+            const qs = (await getPartyQuestions(
+              restoredRoom.code,
+              restoredRoom.category || "mix",
+              restoredRoom.total_questions || 10,
+            )).map(q => shuffleQuestion(q, q.id));
+            if (cancelled) return;
+            setPartyQs(qs);
+            const restoredPhase = guestResumePhase(
+              restoredRoom.status as ResumablePartyStatus,
+              player.answered_current,
+            );
+            if (player.answered_current) setSelected(player.last_answer);
+            if (restoredPhase === "answered") {
+              answeringRef.current = true;
+              deadlineLockedRef.current = true;
+            } else if (restoredPhase === "question") {
+              answeringRef.current = false;
+              deadlineLockedRef.current = false;
+              setSelected(null);
+              startTimer(questionStartRef.current, restoredRoom.answer_time);
+            }
+            phaseRef.current = restoredPhase;
+            setPhase(restoredPhase);
+            subscribeToRoom(restoredRoom.code);
+            startRoomPolling(restoredRoom.code);
+            void fetchPlayers(restoredRoom.code);
+            return;
+          }
+        }
+        sessionStorage.removeItem(PARTY_GUEST_SESSION_KEY);
+      } else if (sessionStorage.getItem(PARTY_GUEST_SESSION_KEY) && !stored) {
+        sessionStorage.removeItem(PARTY_GUEST_SESSION_KEY);
+      }
+      if (!cancelled && urlCode && urlCode.length === 4) {
+        await lookupRoomByCode(urlCode);
+      }
+    };
+    void restore()
+      .catch(() => setErrorMsg("تعذر استعادة الجلسة. تحقق من الاتصال ثم أعد تحميل الصفحة."))
+      .finally(() => { if (!cancelled) setRestoringSession(false); });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -139,12 +235,48 @@ export default function PartyGuest() {
     }
   }
 
+  async function maintainRoom(code: string, force = false): Promise<string | null> {
+    const now = Date.now();
+    if (!force && now - lastMaintenanceAtRef.current < 5000) return null;
+    lastMaintenanceAtRef.current = now;
+    const { data, error } = await supabase.rpc("maintain_party_room", {
+      p_room_code: code,
+    });
+    if (error) throw new Error(error.message);
+    const result = Array.isArray(data) ? data[0] : data;
+    return typeof result === "string" ? result : null;
+  }
+
+  function handleDeletedRoom() {
+    sessionStorage.removeItem(PARTY_GUEST_SESSION_KEY);
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (pollRef.current) clearInterval(pollRef.current);
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
+    myIdRef.current = "";
+    playerTokenRef.current = "";
+    setRoom(null);
+    setMyId("");
+    setAllPlayers([]);
+    setSelected(null);
+    setErrorMsg("انتهت الغرفة وتم تنظيفها بعد انقطاع المضيف.");
+    phaseRef.current = "enter_code";
+    setPhase("enter_code");
+  }
+
   // ── PRIMARY: poll party_rooms every 1.5s for all game state ─────────────
   // Realtime is unreliable; polling is the authoritative sync mechanism.
   function startRoomPolling(code: string) {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
       try {
+        const maintenance = await maintainRoom(code);
+        if (maintenance === "deleted" || maintenance === "missing") {
+          handleDeletedRoom();
+          return;
+        }
         const { data: roomData } = await supabase
           .from("party_rooms").select(PARTY_ROOM_COLUMNS).eq("code", code).single();
         if (!roomData) return;
@@ -178,6 +310,16 @@ export default function PartyGuest() {
   async function lookupRoomByCode(code: string) {
     setErrorMsg("");
     if (code.length !== 4) { setErrorMsg("أدخل رمزاً مكوناً من 4 أرقام."); return; }
+    try {
+      const maintenance = await maintainRoom(code, true);
+      if (maintenance === "deleted" || maintenance === "missing") {
+        setErrorMsg("الغرفة غير موجودة أو تم تنظيفها بعد انقطاع المضيف.");
+        return;
+      }
+    } catch (maintenanceError) {
+      setErrorMsg(`تعذر التحقق من الغرفة: ${maintenanceError instanceof Error ? maintenanceError.message : "خطأ اتصال"}`);
+      return;
+    }
     const { data, error } = await supabase
       .from("party_rooms").select(PARTY_ROOM_COLUMNS).eq("code", code).single();
     if (error || !data) { setErrorMsg("الغرفة غير موجودة. تحقق من الرمز."); return; }
@@ -200,14 +342,34 @@ export default function PartyGuest() {
       .eq("room_code", room.code).eq("nickname", nickname.trim()).single();
     if (existing) { setErrorMsg("هذا الاسم محجوز. اختر اسماً آخر."); return; }
 
-    const { data, error } = await supabase
-      .from("party_players")
-      .insert({ room_code: room.code, nickname: nickname.trim(), score: 0, answered_current: false })
-      .select("id").single();
-    if (error || !data) { setErrorMsg("خطأ في الانضمام. حاول مجدداً."); return; }
+    playerTokenRef.current = crypto.randomUUID();
+    const { data, error } = await supabase.rpc("join_party_room", {
+      p_room_code: room.code,
+      p_nickname: nickname.trim(),
+      p_player_token: playerTokenRef.current,
+    });
+    const rawPlayerId = Array.isArray(data)
+      ? (data[0] as { join_party_room?: unknown } | string | undefined)
+      : data;
+    const playerIdValue = typeof rawPlayerId === "object" && rawPlayerId !== null
+      ? rawPlayerId.join_party_room
+      : rawPlayerId;
+    const playerId = typeof playerIdValue === "string" ? playerIdValue : "";
+    if (error || !playerId) {
+      playerTokenRef.current = "";
+      setErrorMsg(`خطأ في الانضمام: ${error?.message ?? "استجابة غير صالحة من الخادم"}`);
+      return;
+    }
 
-    myIdRef.current = data.id;
-    setMyId(data.id);
+    myIdRef.current = playerId;
+    setMyId(playerId);
+    sessionStorage.setItem(PARTY_GUEST_SESSION_KEY, serializePartyGuestSession({
+      role: "guest",
+      roomCode: room.code,
+      playerId,
+      token: playerTokenRef.current,
+      nickname: nickname.trim(),
+    }));
 
     const qs = await getPartyQuestions(room.code, room.category || "mix", room.total_questions || 10);
     // Deterministic shuffle by q.id so host + all guests see identical option order
@@ -262,12 +424,17 @@ export default function PartyGuest() {
       ) return;
 
       // New question or first question — show answer buttons
-      const now = Date.now();
+      const sharedStart = Number(updatedRoom.question_start_time);
+      const now = Number.isFinite(sharedStart) && sharedStart > 0 ? sharedStart : Date.now();
+      answeringRef.current = false;
+      deadlineLockedRef.current = false;
       questionStartRef.current = now;
       currentQIdxRef.current = qIdx;
       setCurrentQIdx(qIdx);
       setSelected(null);
       setRoundPoints(null);
+      setAnswerRejected(false);
+      setErrorMsg("");
       phaseRef.current = "question";
       setPhase("question");
       startTimer(now);
@@ -331,49 +498,147 @@ export default function PartyGuest() {
   }
 
   // ── Local countdown timer (uses room's answer_time setting) ─────────────
-  function startTimer(startMs: number) {
+  function startTimer(startMs: number, answerTimeOverride?: number) {
     // Read room data at call time (polling has updated it by now)
-    const totalSec = room?.answer_time || DEFAULT_QUESTION_TIME;
-    setTimeLeft(totalSec);
+    const totalSec = answerTimeOverride || room?.answer_time || DEFAULT_QUESTION_TIME;
     if (timerRef.current) clearInterval(timerRef.current);
+    const initialElapsed = (Date.now() - startMs) / 1000;
+    const initialRemaining = Math.max(0, totalSec - Math.floor(initialElapsed));
+    setTimeLeft(initialRemaining);
+    if (initialRemaining <= 0) {
+      deadlineLockedRef.current = true;
+      return;
+    }
     timerRef.current = setInterval(() => {
       const elapsed = (Date.now() - startMs) / 1000;
       const remaining = Math.max(0, totalSec - Math.floor(elapsed));
       setTimeLeft(remaining);
       if (remaining <= 5 && remaining > 0) playSound("tick");
-      if (remaining <= 0) clearInterval(timerRef.current!);
+      if (remaining <= 0) {
+        deadlineLockedRef.current = true;
+        clearInterval(timerRef.current!);
+      }
     }, 500);
   }
 
   // ── Answer a question ────────────────────────────────────────────────────
   async function handleAnswer(idx: number) {
-    if (selected !== null || phaseRef.current !== "question") return;
+    const elapsedMs = Math.max(0, Date.now() - questionStartRef.current);
+    const roomAnswerTime = room?.answer_time || DEFAULT_QUESTION_TIME;
+    if (
+      deadlineLockedRef.current ||
+      timeLeft <= 0 ||
+      elapsedMs > roomAnswerTime * 1000 ||
+      answeringRef.current ||
+      selected !== null ||
+      phaseRef.current !== "question"
+    ) {
+      if (elapsedMs > roomAnswerTime * 1000) {
+        deadlineLockedRef.current = true;
+        setTimeLeft(0);
+      }
+      return;
+    }
+    answeringRef.current = true;
+    const questionIdx = currentQIdxRef.current;
     if (timerRef.current) clearInterval(timerRef.current);
 
-    const elapsedMs = Date.now() - questionStartRef.current;
     const q = partyQs[currentQIdx];
     const isCorrect = q && idx === q.correct;
-    const roomAnswerTime = room?.answer_time || DEFAULT_QUESTION_TIME;
     const roomScoring = room?.scoring_type || "speed";
-    const pts = isCorrect ? calcPoints(elapsedMs, roomAnswerTime, roomScoring) : 0;
 
     setSelected(idx);
-    setRoundPoints(pts);
+    setRoundPoints(null);
     phaseRef.current = "answered";
     setPhase("answered");
 
     // sounds deferred to reveal phase so correct answer isn't leaked
 
-    // Update DB: record answer and new cumulative score
-    await supabase.from("party_players")
-      .update({
-        answered_current: true,
-        last_answer: idx,
-        score: myScore + pts,
-      })
-      .eq("id", myIdRef.current);
+    // The server validates phase/deadline and stamps the answer with DB time.
+    const { data: rpcData, error } = await supabase.rpc("submit_party_answer", {
+      p_player_id: myIdRef.current,
+      p_room_code: room?.code ?? "",
+      p_question_index: questionIdx,
+      p_answer: idx,
+      p_player_token: playerTokenRef.current,
+    });
+    const result = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+    const accepted = !!(result && typeof result === "object" && "accepted" in result && result.accepted);
+    const answeredAt = result && typeof result === "object" && "answered_at" in result
+      ? Number(result.answered_at)
+      : null;
+    if (!isCurrentPartyAnswerResponse(questionIdx, currentQIdxRef.current)) {
+      return;
+    }
+    if (
+      error &&
+      phaseRef.current === "answered" &&
+      currentQIdxRef.current === questionIdx
+    ) {
+      answeringRef.current = false;
+      setSelected(null);
+      setRoundPoints(null);
+      setErrorMsg(`تعذر إرسال الإجابة: ${error.message}`);
+      phaseRef.current = "question";
+      setPhase("question");
+      startTimer(questionStartRef.current);
+    } else if (!error && !accepted) {
+      deadlineLockedRef.current = true;
+      setAnswerRejected(true);
+      setSelected(null);
+      setRoundPoints(null);
+      setTimeLeft(0);
+    } else if (accepted) {
+      const authoritativePoints = partyRoundPointsFromAcceptedResponse(
+        questionIdx,
+        currentQIdxRef.current,
+        !!isCorrect,
+        answeredAt,
+        questionStartRef.current,
+        roomAnswerTime,
+        roomScoring,
+      );
+      if (authoritativePoints === null) {
+        setErrorMsg("تعذر تأكيد توقيت الإجابة من الخادم.");
+        setRoundPoints(null);
+      } else {
+        setRoundPoints(authoritativePoints);
+      }
+    }
+  }
 
-    setMyScore(prev => prev + pts);
+  async function leaveParty(destination: "/" | "/party/guest") {
+    const { error } = await supabase.rpc("leave_party_room", {
+      p_room_code: room?.code ?? "",
+      p_player_id: myIdRef.current,
+      p_player_token: playerTokenRef.current,
+    });
+    if (error) {
+      alert(`تعذر مغادرة الغرفة: ${error.message}`);
+      return;
+    }
+    sessionStorage.removeItem(PARTY_GUEST_SESSION_KEY);
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (pollRef.current) clearInterval(pollRef.current);
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
+    myIdRef.current = "";
+    playerTokenRef.current = "";
+    if (destination === "/party/guest") {
+      setRoom(null);
+      setMyId("");
+      setNickname("");
+      setCodeInput("");
+      setAllPlayers([]);
+      setSelected(null);
+      setRoundPoints(null);
+      phaseRef.current = "enter_code";
+      setPhase("enter_code");
+    } else {
+      navigate(destination);
+    }
   }
 
   // ── Derived values ───────────────────────────────────────────────────────
@@ -388,7 +653,7 @@ export default function PartyGuest() {
   // ── Connection lost banner (shown across all phases) ─────────────────────
   const ConnectionBanner = () => connectionLost ? (
     <div className="fixed inset-x-0 top-2 z-[60] flex justify-center px-3 pointer-events-none">
-      <div className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-red-600/95 border border-red-400 shadow-2xl flex items-center gap-2 animate-pulse">
+      <div className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-red-600/95 border border-red-400 shadow-2xl flex items-center gap-2 animate-pulse motion-reduce:animate-none" data-testid="status-party-reconnecting" role="status">
         <span className="w-2 h-2 rounded-full bg-white animate-ping" />
         انقطع الاتصال — جاري إعادة الاتصال...
       </div>
@@ -396,6 +661,14 @@ export default function PartyGuest() {
   ) : null;
 
   // ── ENTER CODE ───────────────────────────────────────────────────────────
+  if (restoringSession) {
+    return (
+      <div className="min-h-screen gradient-hero flex items-center justify-center" aria-live="polite">
+        <p className="font-bold text-muted-foreground animate-pulse motion-reduce:animate-none">جارٍ استعادة الجلسة...</p>
+      </div>
+    );
+  }
+
   if (phase === "enter_code") {
     return (
       <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-6 gap-6">
@@ -462,13 +735,14 @@ export default function PartyGuest() {
   // ── WAITING ──────────────────────────────────────────────────────────────
   if (phase === "waiting") {
     return (
-      <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-6 gap-6 text-center">
+      <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-4 sm:p-6 gap-6 text-center overflow-y-auto">
         <ConnectionBanner />
         {/* Big room code chip */}
         <div className="text-center">
           <p className="text-[11px] text-muted-foreground uppercase tracking-widest">رمز الغرفة</p>
           <p
             className="text-6xl font-black tracking-[0.25em] tabular-nums gradient-text leading-none"
+            data-testid="text-guest-room-code"
             dir="ltr"
             style={{ filter: "drop-shadow(0 0 18px rgba(245,158,11,0.55))" }}
           >
@@ -476,22 +750,22 @@ export default function PartyGuest() {
           </p>
         </div>
         <div className="fade-in-up">
-          <div className="w-24 h-24 rounded-full bg-primary/10 border-4 border-primary flex items-center justify-center mx-auto mb-4 animate-pulse">
+          <div className="w-24 h-24 rounded-full bg-primary/10 border-4 border-primary flex items-center justify-center mx-auto mb-4 animate-pulse motion-reduce:animate-none">
             <span className="text-4xl">⌛</span>
           </div>
-          <h1 className="text-2xl font-black text-primary animate-pulse">في انتظار بدء اللعبة...</h1>
+          <h1 className="text-2xl font-black text-primary animate-pulse motion-reduce:animate-none" data-testid="status-guest-waiting" aria-live="polite">في انتظار بدء اللعبة...</h1>
           <p className="text-muted-foreground text-sm mt-1">
             مرحباً <span className="text-foreground font-bold">{nickname}</span>!
           </p>
         </div>
         <div className="w-full max-w-sm">
           <p className="text-xs text-muted-foreground font-bold mb-3">اللاعبون ({allPlayers.length})</p>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-2">
             {allPlayers.map(p => (
               <div key={p.id}
                 className={`flex items-center gap-2 bg-card border rounded-xl px-3 py-2 ${p.id === myId ? "border-primary" : "border-border"}`}>
                 <span className="text-green-400 text-xs">✓</span>
-                <span className="text-sm font-bold truncate">{p.nickname}</span>
+                <span className="text-sm font-bold min-w-0 break-words [overflow-wrap:anywhere]">{p.nickname}</span>
                 {p.id === myId && <span className="mr-auto text-[10px] text-primary">(أنت)</span>}
               </div>
             ))}
@@ -508,20 +782,30 @@ export default function PartyGuest() {
       return (
         <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-6 gap-8 text-center">
           <div className="fade-in-up">
-            <div className="w-24 h-24 rounded-full bg-green-500/20 border-4 border-green-500 flex items-center justify-center mx-auto mb-4">
-              <span className="text-5xl">✓</span>
+            <div className={`w-24 h-24 rounded-full border-4 flex items-center justify-center mx-auto mb-4 ${
+              answerRejected ? "bg-red-500/20 border-red-500" : "bg-green-500/20 border-green-500"
+            }`}>
+              <span className="text-5xl">{answerRejected ? "⏱️" : "✓"}</span>
             </div>
-            <h2 className="text-2xl font-black text-green-400">تم الإجابة!</h2>
-            <p className="text-muted-foreground text-sm mt-2">في انتظار بقية اللاعبين...</p>
+            <h2 className={`text-2xl font-black ${answerRejected ? "text-red-500" : "text-green-500"}`}>
+              {answerRejected ? "انتهى وقت الإجابة" : "تم إرسال الإجابة!"}
+            </h2>
+            <p className="text-muted-foreground text-sm mt-2">
+              {answerRejected ? "لم تُحتسب الإجابة لهذه الجولة" : "في انتظار بقية اللاعبين..."}
+            </p>
           </div>
-          <div className="bg-card border border-border rounded-2xl p-5 w-full max-w-xs">
-            <p className="text-xs text-muted-foreground mb-1">اخترت</p>
-            <div className="flex items-center justify-center gap-3 mb-3">
-              <span className="text-3xl">{ANSWER_COLORS[selected!]?.emoji}</span>
-              <span className="font-black text-lg">{ANSWER_COLORS[selected!]?.label}</span>
-            </div>
+          <div className="bg-card border border-border rounded-2xl p-5 w-full max-w-xs" data-testid="status-guest-answer-locked" aria-live="polite">
+            {!answerRejected && (
+              <>
+                <p className="text-xs text-muted-foreground mb-1">اخترت</p>
+                <div className="flex items-center justify-center gap-3 mb-3">
+                  <span className="text-3xl">{ANSWER_COLORS[selected!]?.emoji}</span>
+                  <span className="font-black text-lg">{ANSWER_COLORS[selected!]?.label}</span>
+                </div>
+              </>
+            )}
             <p className="text-xs text-muted-foreground">نقاطك الحالية</p>
-            <p className="text-3xl font-black text-primary mt-1">{myScore}</p>
+            <p className="text-3xl font-black text-primary mt-1" data-testid="text-guest-live-score">{myScore}</p>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "0s" }} />
@@ -553,12 +837,17 @@ export default function PartyGuest() {
 
         {/* Question image (always shown if present) + text (optional) */}
         <div className="px-4 py-3 text-center">
+          {errorMsg && (
+            <p className="mb-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-bold text-red-500" role="alert">
+              {errorMsg}
+            </p>
+          )}
           {currentQ?.image_url && (
             <QuestionImage url={currentQ.image_url} maxHeight={150} className="mb-2" />
           )}
           {room?.show_question_on_phone && currentQ ? (
             <div className="bg-card border border-border rounded-xl p-3 mb-2">
-              <p className="text-sm font-bold leading-relaxed">{currentQ.question}</p>
+              <p className="text-sm font-bold leading-relaxed break-words [overflow-wrap:anywhere]">{currentQ.question}</p>
             </div>
           ) : (
             <p className="text-muted-foreground text-sm font-bold">انظر إلى الشاشة الكبيرة واختر إجابتك 👇</p>
@@ -571,7 +860,9 @@ export default function PartyGuest() {
             <button
               key={idx}
               onClick={() => handleAnswer(idx)}
-              disabled={selected !== null}
+              disabled={selected !== null || timeLeft <= 0}
+              data-testid={`button-party-answer-${idx}`}
+              aria-label={`الإجابة ${color.label}`}
               className="rounded-3xl flex items-center justify-center text-white font-black transition-all active:scale-[0.94] disabled:opacity-40"
               style={{
                 background: `linear-gradient(135deg,${color.bg},${color.dark})`,
@@ -594,10 +885,10 @@ export default function PartyGuest() {
     const didAnswer = selected !== null;
     const streakMsg = consecutiveCorrect >= 5 ? "👑 أسطورة!" : consecutiveCorrect >= 3 ? "⚡ لا يُوقف!" : consecutiveCorrect >= 2 ? "🔥 متقد!" : "";
     return (
-      <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-6 gap-6 text-center">
+      <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-4 sm:p-6 gap-6 text-center overflow-y-auto">
         {showStreakBanner && streakMsg && (
           <div className="fixed inset-x-0 top-6 z-50 flex justify-center px-4 pointer-events-none">
-            <div className="px-6 py-3 rounded-2xl font-black text-xl text-white shadow-2xl animate-bounce"
+            <div className="px-6 py-3 rounded-2xl font-black text-xl text-white shadow-2xl animate-bounce motion-reduce:animate-none"
               style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}>
               {streakMsg} {consecutiveCorrect} صح متتالية!
             </div>
@@ -605,7 +896,7 @@ export default function PartyGuest() {
         )}
         <div className="fade-in-up w-full max-w-sm space-y-4">
           {/* Result indicator */}
-          <div className={`rounded-3xl p-6 border-2 ${
+          <div data-testid="status-guest-reveal-result" aria-live="assertive" className={`rounded-3xl p-6 border-2 ${
             !didAnswer ? "bg-card border-border" :
             wasCorrect ? "bg-green-500/15 border-green-500/50" : "bg-red-500/15 border-red-500/50"
           }`}>
@@ -614,7 +905,7 @@ export default function PartyGuest() {
               {!didAnswer ? "انتهى الوقت!" : wasCorrect ? "إجابة صحيحة!" : "إجابة خاطئة"}
             </h2>
             {roundPoints !== null && roundPoints > 0 && (
-              <p className="text-yellow-400 font-black text-xl mt-2">+{roundPoints} نقطة</p>
+              <p className="text-yellow-500 font-black text-xl mt-2" data-testid="text-guest-round-points">+{roundPoints} نقطة</p>
             )}
             {!wasCorrect && currentQ && (
               <p className="text-muted-foreground text-sm mt-2">
@@ -626,17 +917,17 @@ export default function PartyGuest() {
           {/* Current score & rank */}
           <div className="bg-card border border-border rounded-2xl p-4 flex justify-around">
             <div>
-              <p className="text-3xl font-black text-primary">{myScore}</p>
+              <p className="text-3xl font-black text-primary" data-testid="text-guest-reveal-score">{myScore}</p>
               <p className="text-xs text-muted-foreground">نقاطك</p>
             </div>
             <div className="w-px bg-border" />
             <div>
-              <p className="text-3xl font-black text-foreground">#{myRank || "-"}</p>
+              <p className="text-3xl font-black text-foreground" data-testid="text-guest-reveal-rank">#{myRank || "-"}</p>
               <p className="text-xs text-muted-foreground">مركزك</p>
             </div>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground animate-pulse">جاري عرض الترتيب...</p>
+        <p className="text-xs text-muted-foreground animate-pulse motion-reduce:animate-none">جاري عرض الترتيب...</p>
       </div>
     );
   }
@@ -644,8 +935,8 @@ export default function PartyGuest() {
   // ── LEADERBOARD ───────────────────────────────────────────────────────────
   if (phase === "leaderboard") {
     return (
-      <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-6 gap-5 text-center">
-        <div className="fade-in-up">
+      <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-4 sm:p-6 gap-5 text-center overflow-y-auto">
+        <div className="fade-in-up" data-testid="status-guest-leaderboard" aria-live="polite">
           <p className="text-4xl mb-2">🏆</p>
           <h2 className="text-xl font-black text-primary">الترتيب الحالي</h2>
           <p className="text-muted-foreground text-sm mt-1">
@@ -654,21 +945,21 @@ export default function PartyGuest() {
         </div>
         <div className="w-full max-w-sm md:max-w-md space-y-2">
           {sorted.slice(0, 5).map((p, i) => (
-            <div key={p.id}
+            <div key={p.id} data-testid={`row-guest-leaderboard-${i + 1}`}
               className={`flex items-center gap-3 rounded-2xl px-4 py-3 border ${
                 p.id === myId ? "border-primary bg-primary/10" :
                 i === 0 ? "bg-yellow-500/10 border-yellow-500/30" :
                 "bg-card border-border"
               }`}>
               <span>{i < 3 ? MEDALS[i] : `#${i + 1}`}</span>
-              <span className={`flex-1 font-bold text-sm text-right ${p.id === myId ? "text-primary" : ""}`}>
+              <span className={`flex-1 min-w-0 font-bold text-sm text-right break-words [overflow-wrap:anywhere] ${p.id === myId ? "text-primary" : ""}`}>
                 {p.nickname}{p.id === myId && " (أنت)"}
               </span>
               <span className="font-black text-primary">{p.score}</span>
             </div>
           ))}
         </div>
-        <p className="text-xs text-muted-foreground animate-pulse">في انتظار السؤال التالي...</p>
+        <p className="text-xs text-muted-foreground animate-pulse motion-reduce:animate-none">في انتظار السؤال التالي...</p>
       </div>
     );
   }
@@ -677,8 +968,8 @@ export default function PartyGuest() {
   if (phase === "finished") {
     const isTop3 = myRank >= 1 && myRank <= 3;
     return (
-      <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-5 gap-5 text-center">
-        <div className="fade-in-up">
+      <div className="min-h-screen gradient-hero flex flex-col items-center justify-center p-4 sm:p-6 gap-5 text-center overflow-y-auto">
+        <div className="fade-in-up" data-testid="status-guest-party-finished" aria-live="assertive">
           <p className="text-6xl mb-2">
             {myRank === 1 ? "🏆" : myRank === 2 ? "🥈" : myRank === 3 ? "🥉" : "🎮"}
           </p>
@@ -688,11 +979,39 @@ export default function PartyGuest() {
           </p>
           <p className="text-primary font-black text-3xl mt-2">{myScore} نقطة</p>
           {isTop3 && (
-            <p className="text-yellow-400 font-bold text-sm mt-2 animate-pulse">
+            <p className="text-yellow-500 font-bold text-sm mt-2 animate-pulse motion-reduce:animate-none">
               🎉 مبروك! أنت في المنصة!
             </p>
           )}
         </div>
+
+        {sorted.length > 0 && (
+          <div className="grid grid-cols-3 items-end gap-2 w-full max-w-md" data-testid="podium-guest-final">
+            <div className="min-w-0">
+              {sorted[1] && (
+                <div className="bg-slate-400/15 border border-slate-400/30 rounded-t-2xl min-h-24 px-2 py-3 flex flex-col justify-end">
+                  <span className="text-2xl">🥈</span>
+                  <p className="text-xs font-black break-words [overflow-wrap:anywhere]">{sorted[1].nickname}</p>
+                  <p className="text-xs text-primary font-bold">{sorted[1].score}</p>
+                </div>
+              )}
+            </div>
+            <div className="bg-yellow-500/15 border border-yellow-500/30 rounded-t-2xl min-h-32 px-2 py-3 flex flex-col justify-end shadow-lg shadow-yellow-500/10 min-w-0">
+              <span className="text-3xl">🥇</span>
+              <p className="text-sm font-black break-words [overflow-wrap:anywhere]">{sorted[0].nickname}</p>
+              <p className="text-sm text-primary font-bold">{sorted[0].score}</p>
+            </div>
+            <div className="min-w-0">
+              {sorted[2] && (
+                <div className="bg-orange-700/15 border border-orange-700/30 rounded-t-2xl min-h-20 px-2 py-3 flex flex-col justify-end">
+                  <span className="text-2xl">🥉</span>
+                  <p className="text-xs font-black break-words [overflow-wrap:anywhere]">{sorted[2].nickname}</p>
+                  <p className="text-xs text-primary font-bold">{sorted[2].score}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="w-full max-w-sm md:max-w-md space-y-2">
           {sorted.map((p, i) => (
@@ -705,7 +1024,7 @@ export default function PartyGuest() {
                 "bg-card border-border"
               }`}>
               <span className="text-xl">{i < 3 ? MEDALS[i] : `#${i + 1}`}</span>
-              <span className={`flex-1 font-bold text-right text-sm ${p.id === myId ? "text-primary" : ""}`}>
+              <span className={`flex-1 min-w-0 font-bold text-right text-sm break-words [overflow-wrap:anywhere] ${p.id === myId ? "text-primary" : ""}`}>
                 {p.nickname}{p.id === myId && " (أنت)"}
               </span>
               <span className="font-black text-primary">{p.score}</span>
@@ -713,13 +1032,14 @@ export default function PartyGuest() {
           ))}
         </div>
 
-        <div className="flex gap-3">
-          <button onClick={() => navigate("/party/guest")}
-            className="px-6 py-3 rounded-xl font-bold text-white text-sm"
+        <div className="flex flex-wrap justify-center gap-3">
+          <button onClick={() => void leaveParty("/party/guest")}
+            data-testid="button-guest-join-again"
+            className="min-h-12 px-6 py-3 rounded-xl font-bold text-white text-sm"
             style={{ background: "linear-gradient(135deg,#7c3aed,#8b5cf6)" }}>
             انضم مجدداً
           </button>
-          <button onClick={() => navigate("/")}
+          <button onClick={() => void leaveParty("/")}
             className="px-6 py-3 rounded-xl font-bold bg-card border border-border text-foreground text-sm">
             الرئيسية
           </button>
