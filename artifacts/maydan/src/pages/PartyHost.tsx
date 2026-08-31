@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
+import { useAuth } from "@/lib/AuthContext";
+import { getOrCreateUser } from "@/lib/storage";
 import { supabase } from "@/lib/supabase";
 import { CATEGORIES, Question } from "@/lib/questions";
 import { fetchSeededQuestions } from "@/lib/questionService";
+import { validateCategorySelectionKey } from "@/lib/categoriesService";
 import { shuffleQuestion } from "@/lib/shuffle";
 import QuestionImage from "@/components/QuestionImage";
 import CircularTimer from "@/components/CircularTimer";
@@ -15,6 +18,8 @@ import {
 } from "@/lib/partySession";
 import { partySettlementResumeDecision } from "@/lib/partySettlement";
 import { QRCodeSVG } from "qrcode.react";
+
+import CategoryPicker from "@/components/CategoryPicker";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type HostPhase = "setup" | "lobby" | "question" | "reveal" | "leaderboard" | "finished";
@@ -98,9 +103,12 @@ function Confetti() {
 // ── Main component ────────────────────────────────────────────────────────────
 export default function PartyHost() {
   const [, navigate] = useLocation();
+  const { dbUser } = useAuth();
   useBackgroundMusic("party");
 
   // Local phase (mirrors DB status but with extra local states)
+  const searchParams = new URLSearchParams(window.location.search);
+  const passedCat = searchParams.get("cat");
   const [phase, setPhase] = useState<HostPhase>("setup");
   const [roomCode, setRoomCode] = useState("");
   const [category, setCategory] = useState("mix");
@@ -123,6 +131,14 @@ export default function PartyHost() {
   const autoAdvanceRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isLandscape, setIsLandscape] = useState(() => window.innerWidth > window.innerHeight);
   const [shareFeedback, setShareFeedback] = useState<"copied" | null>(null);
+
+  useEffect(() => {
+    if (!passedCat) return;
+    const isPremium = !!(dbUser?.is_premium ?? getOrCreateUser().isPremium);
+    void validateCategorySelectionKey(passedCat, isPremium).then((valid) => {
+      if (valid) setCategory(passedCat);
+    });
+  }, [passedCat, dbUser?.is_premium]);
 
   // Refs to avoid stale closures
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -719,10 +735,8 @@ export default function PartyHost() {
   }
 
   if (phase === "setup") {
-    const cats = [
-      { id: "mix", name: "مزيج", icon: "🌐" },
-      ...CATEGORIES.filter(c => !c.isPremium).map(c => ({ id: c.id, name: c.name, icon: c.icon })),
-    ];
+    const user = getOrCreateUser();
+    const isPremium = user.isPremium;
     return (
       <div className="party-setup-container gradient-hero flex flex-col p-5 gap-5 pb-8" style={{ minHeight: "100vh", maxHeight: "100vh", overflowY: "auto" }}>
         <HostConnectionBanner />
@@ -736,14 +750,16 @@ export default function PartyHost() {
           {/* Category */}
           <div className="bg-card border border-border rounded-2xl p-4">
             <p className="text-xs text-muted-foreground font-bold mb-3">🎲 الفئة</p>
-            <div className="flex flex-wrap gap-2">
-              {cats.map(c => (
-                <button key={c.id} onClick={() => setCategory(c.id)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${category === c.id ? "bg-primary text-background border-primary" : "border-border text-muted-foreground"}`}>
-                  {c.icon} {c.name}
-                </button>
-              ))}
-            </div>
+            <CategoryPicker
+              onSelect={(id) => setCategory(id)}
+              isPremium={isPremium}
+              includeMix={true}
+              size="small"
+              selectedIds={[category]}
+              multiSelect={true}
+              onToggle={(id) => setCategory(id)}
+              initialParent={category}
+            />
           </div>
 
           {/* Question count */}

@@ -1,9 +1,11 @@
 import { supabase } from "./supabase";
 import { Question } from "./questions";
 import { cacheQuestionsForOffline, getOfflineQuestions } from "./offlineQuestions";
+import { resolveCategorySelection } from "./categoriesService";
 
 const CACHE_TTL_MS = 10 * 60_000;
 const QUESTION_PAGE_SIZE = 1_000;
+const MAX_CATEGORY_PAGES = 5;
 const QUESTION_ID_BATCH_SIZE = 200;
 const QUESTION_COLUMNS = "id, question, options, correct, category, difficulty, image_url";
 
@@ -62,9 +64,21 @@ function seedHash(seed: string): number {
 }
 
 type Difficulty = Question["difficulty"];
+export type CategorySelection = string | readonly string[];
 
-function selectionKey(category: string, difficulty?: Difficulty): string {
-  return `${category}|${difficulty ?? "all"}`;
+interface ResolvedSelection {
+  keys: string[];
+  cacheKey: string;
+  isMix: boolean;
+}
+
+async function resolveSelection(category: CategorySelection): Promise<ResolvedSelection> {
+  if (category === "mix" || (Array.isArray(category) && category.includes("mix"))) {
+    return { keys: [], cacheKey: "mix", isMix: true };
+  }
+  const keys = await resolveCategorySelection(category);
+  const uniqueKeys = [...new Set(keys)].sort();
+  return { keys: uniqueKeys, cacheKey: uniqueKeys.join(","), isMix: false };
 }
 
 function filteredQuestionQuery(difficulty?: Difficulty) {
@@ -77,17 +91,31 @@ function filteredQuestionQuery(difficulty?: Difficulty) {
   return query;
 }
 
-function applyCategoryFilter<T extends { eq: (column: string, value: string) => T; neq: (column: string, value: string) => T }>(
+function applyCategoryFilter<T extends {
+  eq: (column: string, value: string) => T;
+  neq: (column: string, value: string) => T;
+  in: (column: string, values: string[]) => T;
+}>(
   query: T,
-  category: string,
+  selection: ResolvedSelection,
 ): T {
-  return category === "mix"
+  return selection.isMix
     ? query.neq("category", "legends")
-    : query.eq("category", category);
+    : selection.keys.length === 1
+      ? query.eq("category", selection.keys[0])
+      : query.in("category", selection.keys);
 }
 
-async function countMatchingQuestions(category: string, difficulty?: Difficulty): Promise<number> {
-  const key = selectionKey(category, difficulty);
+function offlineSelection(selection: ResolvedSelection): string | readonly string[] {
+  return selection.isMix ? "mix" : selection.keys;
+}
+
+function selectionKey(selection: ResolvedSelection, difficulty?: Difficulty): string {
+  return `${selection.cacheKey}|${difficulty ?? "all"}`;
+}
+
+async function countMatchingQuestions(selection: ResolvedSelection, difficulty?: Difficulty): Promise<number> {
+  const key = selectionKey(selection, difficulty);
   const cached = freshValue(countCache.get(key));
   if (cached !== undefined) return cached;
 
@@ -98,13 +126,13 @@ async function countMatchingQuestions(category: string, difficulty?: Difficulty)
     let query = supabase
       .from("questions")
       .select("id", { count: "exact", head: true });
-    query = applyCategoryFilter(query, category);
+    query = applyCategoryFilter(query, selection);
     if (difficulty) query = query.eq("difficulty", difficulty);
 
     const { count, error } = await query;
     if (error) {
       console.error("Failed to count questions:", error);
-      return getOfflineQuestions({ category, difficulty }).length;
+      return getOfflineQuestions({ category: offlineSelection(selection), difficulty }).length;
     }
 
     const value = count ?? 0;
@@ -120,23 +148,23 @@ async function countMatchingQuestions(category: string, difficulty?: Difficulty)
 }
 
 async function fetchQuestionRange(
-  category: string,
+  selection: ResolvedSelection,
   start: number,
   end: number,
   difficulty?: Difficulty,
 ): Promise<Question[]> {
   let query = filteredQuestionQuery(difficulty).range(start, end);
-  query = applyCategoryFilter(query, category);
+  query = applyCategoryFilter(query, selection);
   const { data, error } = await query;
   if (error || !data) {
     console.error("Failed to load bounded question range:", error);
-    return getOfflineQuestions({ category, difficulty }).slice(start, end + 1);
+    return getOfflineQuestions({ category: offlineSelection(selection), difficulty }).slice(start, end + 1);
   }
   return data as Question[];
 }
 
 async function fetchBoundedSeededQuestions(
-  category: string,
+  category: CategorySelection,
   seed: string,
   count: number,
   difficulty?: Difficulty,
@@ -144,7 +172,8 @@ async function fetchBoundedSeededQuestions(
   const safeCount = Math.max(0, Math.floor(count));
   if (safeCount === 0) return [];
 
-  const key = `${selectionKey(category, difficulty)}|${seed}|${safeCount}`;
+  const selection = await resolveSelection(category);
+  const key = `${selectionKey(selection, difficulty)}|${seed}|${safeCount}`;
   const cached = freshValue(selectionCache.get(key));
   if (cached) return cached;
 
@@ -152,10 +181,10 @@ async function fetchBoundedSeededQuestions(
   if (pending) return pending;
 
   const request = (async () => {
-    const total = await countMatchingQuestions(category, difficulty);
+    const total = await countMatchingQuestions(selection, difficulty);
     if (total === 0) {
       return seededShuffleQuestions(
-        getOfflineQuestions({ category, difficulty }),
+        getOfflineQuestions({ category: offlineSelection(selection), difficulty }),
         seed,
       ).slice(0, safeCount);
     }
@@ -163,14 +192,14 @@ async function fetchBoundedSeededQuestions(
     const requested = Math.min(safeCount, total);
     const start = seedHash(seed) % total;
     const firstCount = Math.min(requested, total - start);
-    const ranges = [fetchQuestionRange(category, start, start + firstCount - 1, difficulty)];
+    const ranges = [fetchQuestionRange(selection, start, start + firstCount - 1, difficulty)];
     if (firstCount < requested) {
-      ranges.push(fetchQuestionRange(category, 0, requested - firstCount - 1, difficulty));
+      ranges.push(fetchQuestionRange(selection, 0, requested - firstCount - 1, difficulty));
     }
 
     const loaded = (await Promise.all(ranges)).flat();
     const questions = seededShuffleQuestions(
-      loaded.length ? loaded : getOfflineQuestions({ category, difficulty }),
+      loaded.length ? loaded : getOfflineQuestions({ category: offlineSelection(selection), difficulty }),
       seed,
     ).slice(0, requested);
     const expiresAt = Date.now() + CACHE_TTL_MS;
@@ -186,34 +215,35 @@ async function fetchBoundedSeededQuestions(
   }
 }
 
-export async function loadCategoryQuestions(category: string): Promise<Question[]> {
-  const cached = freshValue(categoryCache.get(category));
+export async function loadCategoryQuestions(category: CategorySelection): Promise<Question[]> {
+  const selection = await resolveSelection(category);
+  const cacheKey = selection.cacheKey;
+  const cached = freshValue(categoryCache.get(cacheKey));
   if (cached) return cached;
 
-  const pending = categoryInflight.get(category);
+  const pending = categoryInflight.get(cacheKey);
   if (pending) return pending;
 
   const request = (async () => {
+    if (!selection.isMix && selection.keys.length === 0) {
+      return getOfflineQuestions({ category: [] });
+    }
     const questions: Question[] = [];
     let offset = 0;
 
-    while (true) {
+    for (let page = 0; page < MAX_CATEGORY_PAGES; page++) {
       let query = supabase
         .from("questions")
         .select(QUESTION_COLUMNS)
         .order("id")
         .range(offset, offset + QUESTION_PAGE_SIZE - 1);
 
-      if (category === "mix") {
-        query = query.neq("category", "legends");
-      } else {
-        query = query.eq("category", category);
-      }
+      query = applyCategoryFilter(query, selection);
 
       const { data, error } = await query;
       if (error || !data) {
         console.error("Failed to load questions:", error);
-        return getOfflineQuestions({ category });
+        return getOfflineQuestions({ category: offlineSelection(selection) });
       }
 
       questions.push(...(data as Question[]));
@@ -222,19 +252,19 @@ export async function loadCategoryQuestions(category: string): Promise<Question[
     }
 
     const expiresAt = Date.now() + CACHE_TTL_MS;
-    categoryCache.set(category, { value: questions, expiresAt });
+    categoryCache.set(cacheKey, { value: questions, expiresAt });
     rememberQuestions(questions, expiresAt);
     return questions;
   })();
-  categoryInflight.set(category, request);
+  categoryInflight.set(cacheKey, request);
   try {
     return await request;
   } finally {
-    categoryInflight.delete(category);
+    categoryInflight.delete(cacheKey);
   }
 }
 
-export async function fetchGameQuestions(category: string, count?: number): Promise<Question[]> {
+export async function fetchGameQuestions(category: CategorySelection, count?: number): Promise<Question[]> {
   if (count !== undefined) {
     const seed = `random_${Math.random().toString(36).slice(2)}`;
     return fetchBoundedSeededQuestions(category, seed, count);
@@ -244,7 +274,7 @@ export async function fetchGameQuestions(category: string, count?: number): Prom
   return shuffled;
 }
 
-export async function fetchSeededQuestions(category: string, seed: string, count: number): Promise<Question[]> {
+export async function fetchSeededQuestions(category: CategorySelection, seed: string, count: number): Promise<Question[]> {
   return fetchBoundedSeededQuestions(category, seed, count);
 }
 

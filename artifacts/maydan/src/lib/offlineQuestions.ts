@@ -37,16 +37,18 @@ export function cacheQuestionsForOffline(questions: Question[]): void {
 
 export function getOfflineQuestions(params: {
   ids?: number[];
-  category?: string;
+  category?: string | readonly string[];
   difficulty?: Question["difficulty"];
 } = {}): Question[] {
   const ids = params.ids ? new Set(params.ids) : null;
+  const categories = Array.isArray(params.category) ? new Set(params.category) : null;
   return readCache()
     .map((entry) => entry.question)
     .filter((question) => {
       if (ids && !ids.has(question.id)) return false;
       if (params.difficulty && question.difficulty !== params.difficulty) return false;
-      if (params.category && params.category !== "mix" && question.category !== params.category) return false;
+       if (categories && !categories.has(question.category)) return false;
+       if (params.category && !categories && params.category !== "mix" && question.category !== params.category) return false;
       if (params.category === "mix" && question.category === "legends") return false;
       return true;
     });

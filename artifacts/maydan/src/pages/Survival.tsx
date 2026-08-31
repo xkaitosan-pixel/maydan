@@ -7,8 +7,9 @@ import QuestionImage from "@/components/QuestionImage";
 import ReportFlag from "@/components/ReportFlag";
 import CircularTimer from "@/components/CircularTimer";
 import CategoryCard from "@/components/CategoryCard";
+import CategoryPicker from "@/components/CategoryPicker";
 import { recordSurvivalGame, recordCategoryAnswers, getSurvivalRank, getAvailablePowerCards, useSkipCard, useTimeCard, getOrCreateUser, addLeaderboardEntry, canPlaySurvival, getRemainingSurvival, incrementSurvivalCount } from "@/lib/storage";
-import { fetchCategoryTree, type CategoryNode } from "@/lib/categoriesService";
+import { validateCategorySelectionKey } from "@/lib/categoriesService";
 import { insertScore, updateUserStats } from "@/lib/db";
 import { useAuth } from "@/lib/AuthContext";
 import { playSound } from "@/lib/sound";
@@ -43,10 +44,19 @@ export default function Survival() {
   useBackgroundMusic("calm");
   const [phase, setPhase] = useState<Phase>("select");
   const [selectedCategory, setSelectedCategory] = useState<string>("mix");
-  const [catTree, setCatTree] = useState<CategoryNode[]>([]);
-  const [navParent, setNavParent] = useState<CategoryNode | null>(null);
 
-  useEffect(() => { fetchCategoryTree().then(setCatTree); }, []);
+  const searchParams = new URLSearchParams(window.location.search);
+  const passedCat = searchParams.get("cat");
+
+  useEffect(() => {
+    if (passedCat && phase === "select") {
+      void validateCategorySelectionKey(passedCat, !!dbUser?.is_premium).then((valid) => {
+        if (!valid) return;
+        setSelectedCategory(passedCat);
+        void startGame(passedCat);
+      });
+    }
+  }, [passedCat, dbUser?.is_premium]);
 
   // Game state
   const [lives, setLives] = useState(LIVES_START);
@@ -118,16 +128,17 @@ export default function Survival() {
     setShowResult(false);
   }, [currentQ?.id]);
 
-  async function startGame() {
+  async function startGame(forceCategory?: string) {
     if (!canPlaySurvival()) {
       alert("لقد استنفدت جولات وضع البقاء اليوم (5/يوم). ترقّ إلى ميدان برو لجولات غير محدودة.");
       navigate("/premium");
       return;
     }
+    const catToUse = typeof forceCategory === "string" ? forceCategory : selectedCategory;
     sessionActiveRef.current = true;
     clearScheduledTimeouts();
     incrementSurvivalCount();
-    const rawPool = await fetchGameQuestions(selectedCategory);
+    const rawPool = await fetchGameQuestions(catToUse);
     const pool = rawPool.map((q) => shuffleQuestion(q));
     if (!pool.length || !sessionActiveRef.current) return;
     questionPoolRef.current = pool;
@@ -376,40 +387,29 @@ export default function Survival() {
     const isPremium = !!(dbUser?.is_premium ?? user.isPremium);
     const survivalRemaining = getRemainingSurvival();
 
-    // Hierarchical: when navParent is null show roots; when set show its kids.
-    const mixTile = { id: "mix", name: "مزيج كل الفئات", icon: "🎲",
-      gradient: "from-purple-600 to-pink-500", gradientFrom: "#9333ea", gradientTo: "#ec4899",
-      isPremium: false, parentKey: null, children: [] as CategoryNode[] };
-
-    const visible: CategoryNode[] = navParent
-      ? navParent.children
-      : [mixTile as CategoryNode, ...catTree];
-
     return (
       <div className="min-h-screen gradient-hero flex flex-col">
         <header className="p-4 flex items-center gap-3 border-b border-border/30">
           <button
-            onClick={() => navParent ? setNavParent(null) : navigate("/")}
+            onClick={() => navigate("/")}
             className="text-muted-foreground hover:text-foreground text-xl"
           >←</button>
           <h1 className="text-lg font-bold">
-            {navParent ? `${navParent.icon} ${navParent.name}` : "وضع البقاء 🏃"}
+            وضع البقاء 🏃
           </h1>
         </header>
 
         <div className="flex-1 overflow-y-auto p-4">
           <div className="rp-narrow">
-            {!navParent && (
-              <div className="bg-red-500/10 border border-red-500/25 rounded-2xl p-4 mb-4 text-sm space-y-1.5">
-                <p className="font-bold text-red-400 mb-2">⚔️ قواعد وضع البقاء</p>
-                <p className="text-muted-foreground">❤️ لديك 3 أرواح — الإجابة الخاطئة تُفقدك روحاً</p>
-                <p className="text-muted-foreground">⏱️ الوقت يبدأ 20 ثانية ويقل ثانية كل 5 أسئلة (الحد الأدنى 8)</p>
-                <p className="text-muted-foreground">♾️ بدون حد للأسئلة — استمر حتى نهاية الأرواح</p>
-                <p className="text-muted-foreground">🃏 لديك بطاقتا قوة: تخطي ووقت إضافي</p>
-              </div>
-            )}
+            <div className="bg-red-500/10 border border-red-500/25 rounded-2xl p-4 mb-4 text-sm space-y-1.5">
+              <p className="font-bold text-red-400 mb-2">⚔️ قواعد وضع البقاء</p>
+              <p className="text-muted-foreground">❤️ لديك 3 أرواح — الإجابة الخاطئة تُفقدك روحاً</p>
+              <p className="text-muted-foreground">⏱️ الوقت يبدأ 20 ثانية ويقل ثانية كل 5 أسئلة (الحد الأدنى 8)</p>
+              <p className="text-muted-foreground">♾️ بدون حد للأسئلة — استمر حتى نهاية الأرواح</p>
+              <p className="text-muted-foreground">🃏 لديك بطاقتا قوة: تخطي ووقت إضافي</p>
+            </div>
 
-            {!isPremium && !navParent && (
+            {!isPremium && (
               <div className="bg-purple-500/10 border border-purple-500/25 rounded-xl p-3 mb-3 text-center text-xs">
                 <span className="text-purple-300 font-bold">🏃 الجولات المتبقية اليوم: </span>
                 <span className="text-white font-black">{survivalRemaining === Infinity ? "∞" : survivalRemaining}</span>
@@ -417,43 +417,23 @@ export default function Survival() {
               </div>
             )}
 
-            <p className="text-xs text-muted-foreground mb-3 text-center font-semibold">
-              {navParent ? "اختر فئة فرعية" : "اختر الفئة"}
-            </p>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {visible.map(cat => {
-                const hasChildren = (cat.children?.length ?? 0) > 0;
-                const isLocked = !!cat.isPremium && !isPremium;
-                return (
-                  <div key={cat.id} className="relative">
-                    <CategoryCard
-                      cat={cat as any}
-                      isSelected={selectedCategory === cat.id}
-                      isLocked={isLocked}
-                      questionCount={cat.id === "mix" ? 225 : 15}
-                      onClick={() => {
-                        if (isLocked) return;
-                        if (hasChildren) {
-                          setNavParent(cat);
-                        } else {
-                          setSelectedCategory(cat.id);
-                        }
-                      }}
-                      size="small"
-                    />
-                    {hasChildren && !isLocked && (
-                      <span className="absolute bottom-1 right-1 text-[10px] bg-black/50 text-white px-1.5 py-0.5 rounded-full">
-                        {cat.children.length} ›
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
+            <div className="mb-4">
+              <p className="text-xs text-muted-foreground mb-3 text-center font-semibold">
+                اختر الفئة
+              </p>
+              <CategoryPicker
+                onSelect={(id) => setSelectedCategory(id)}
+                isPremium={isPremium}
+                includeMix={true}
+                size="small"
+                multiSelect={true}
+                selectedIds={[selectedCategory]}
+                onToggle={(id) => setSelectedCategory(id)}
+              />
             </div>
 
             <button
-              onClick={startGame}
-              disabled={navParent ? !visible.some(v => v.id === selectedCategory) : false}
+              onClick={() => startGame()}
               className="w-full h-14 mt-5 rounded-xl text-white font-black text-lg transition-opacity hover:opacity-90 disabled:opacity-40"
               style={{ background: "linear-gradient(135deg, #dc2626, #ef4444)" }}
             >
@@ -577,7 +557,7 @@ export default function Survival() {
             مشاركة النتيجة
           </button>
           <div className="space-y-3">
-            <button data-testid="button-retry-survival" onClick={startGame} className="w-full min-h-14 rounded-xl px-4 font-black text-lg text-white shadow-lg shadow-red-500/20" style={{ background: "linear-gradient(135deg,#b91c1c,#ef4444)" }}>
+            <button data-testid="button-retry-survival" onClick={() => startGame()} className="w-full min-h-14 rounded-xl px-4 font-black text-lg text-white shadow-lg shadow-red-500/20" style={{ background: "linear-gradient(135deg,#b91c1c,#ef4444)" }}>
               🔥 حاول تحطيم رقمك — العب مجدداً
             </button>
             <button onClick={() => navigate("/")} className="w-full h-12 rounded-xl border border-border text-foreground font-bold bg-card hover:bg-card/80 transition-colors">

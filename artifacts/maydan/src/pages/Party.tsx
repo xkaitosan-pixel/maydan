@@ -2,6 +2,9 @@ import { useLocation } from "wouter";
 
 export default function Party() {
   const [, navigate] = useLocation();
+  const searchParams = new URLSearchParams(window.location.search);
+  const passedCat = searchParams.get("cat");
+
   return (
     <div className="min-h-screen gradient-hero star-bg flex flex-col items-center justify-center p-6 gap-8">
       <div className="text-center fade-in-up">
@@ -15,7 +18,7 @@ export default function Party() {
 
       <div className="w-full max-w-sm space-y-4">
         <button
-          onClick={() => navigate("/party/host")}
+          onClick={() => navigate(passedCat ? `/party/host?cat=${encodeURIComponent(passedCat)}` : "/party/host")}
           className="w-full h-24 rounded-2xl font-black text-background flex flex-col items-center justify-center gap-1 hover:opacity-90 active:scale-95 transition-all"
           style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}
         >

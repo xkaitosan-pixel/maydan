@@ -12,6 +12,8 @@ import NotificationBanner from "@/components/NotificationBanner";
 import { refreshLoginStreak, type LoginInfo } from "@/lib/engagement";
 import { checkSeasonReset, getLevelInfo } from "@/lib/gamification";
 import { getCountryFlag } from "@/lib/countryUtils";
+import CategoryPicker from "@/components/CategoryPicker";
+import ModeChooser from "@/components/ModeChooser";
 
 const STREAK_POPUP_KEY = "maydan_streak_popup_v1";
 const APP_BASE_URL = import.meta.env.BASE_URL.endsWith("/")
@@ -61,6 +63,8 @@ export default function Home() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [loginInfo, setLoginInfo] = useState<LoginInfo | null>(null);
   const [engagementReady, setEngagementReady] = useState(false);
+
+  const [selectedCatForMode, setSelectedCatForMode] = useState<string | null>(null);
 
   async function openPendingSheet() {
     setShowPendingSheet(true);
@@ -178,36 +182,6 @@ export default function Home() {
   }
 
   const showContent = !!displayName;
-
-  const modes = [
-    {
-      id: "challenge", icon: "⚔️", label: "تحدي", sub: "صديق أو عشوائي",
-      gradient: "linear-gradient(135deg, #f97316, #dc2626)",
-      onClick: () => (pendingChallenges > 0 || canCreate) ? handleChallengeClick() : undefined,
-      disabled: pendingChallenges === 0 && !canCreate,
-      badge: pendingChallenges > 0 ? pendingChallenges : undefined,
-    },
-    {
-      id: "party", icon: "📺", label: "تجمعات", sub: "العب مع الجماعة",
-      gradient: "linear-gradient(135deg, #7c3aed, #1d4ed8)",
-      onClick: () => navigate("/party"),
-    },
-    {
-      id: "daily", icon: "📅", label: "تحدي اليوم", sub: "5 أسئلة يومية",
-      gradient: "linear-gradient(135deg, #d97706, #b45309)",
-      onClick: () => navigate("/daily"),
-    },
-    {
-      id: "ranked", icon: "🏆", label: "المتصدرون", sub: "تنافس أونلاين",
-      gradient: "linear-gradient(135deg, #1d4ed8, #7c3aed)",
-      onClick: () => navigate("/ranked"),
-    },
-    {
-      id: "training", icon: "🎓", label: "تدريب", sub: "تعلّم بلا ضغط",
-      gradient: "linear-gradient(135deg, #0891b2, #155e75)",
-      onClick: () => navigate("/training"),
-    },
-  ];
 
   const lvl = getLevelInfo(dbUser?.xp ?? 0);
   const xpCurrent = dbUser?.xp ?? 0;
@@ -354,67 +328,66 @@ export default function Home() {
             </div>
           )}
 
-          {/* Play Now CTA (Survival) */}
-          {showContent && (
-            <button
-              onClick={() => navigate("/survival")}
-              className="w-full relative overflow-hidden rounded-[20px] p-4 text-center press-shrink transition-all shadow-2xl"
-              style={{
-                background: "linear-gradient(135deg, #dc2626, #7f1d1d)",
-                border: "1px solid rgba(255,255,255,0.15)",
-              }}
-            >
-              <div className="shine"></div>
-              <div className="flex items-center justify-center gap-3 relative z-10">
-                <span className="text-3xl drop-shadow-md">🏃</span>
-                <div className="flex flex-col items-start">
-                  <span className="text-xl font-black text-white leading-tight">العب الآن ⚡</span>
-                  <span className="text-[10px] text-white/80 font-bold">وضع البقاء - كم تصمد؟</span>
-                </div>
-              </div>
-            </button>
-          )}
-
-          {/* Mode Grid (5 cards) */}
-          {showContent && (
-            <div className="grid grid-cols-2 gap-3">
-              {modes.slice(0, 4).map(mode => (
-                <button
-                  key={mode.id}
-                  onClick={mode.onClick}
-                  disabled={mode.disabled}
-                  className={`relative rounded-[16px] p-3 text-right press-shrink transition-all ${mode.disabled ? "opacity-50 grayscale cursor-not-allowed" : "hover:-translate-y-0.5 shadow-lg"}`}
-                  style={{
-                    background: mode.gradient,
-                    border: "1px solid rgba(255,255,255,0.12)",
-                  }}
-                >
-                  {mode.badge && (
-                    <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-[20px] px-1 rounded-full bg-red-500 text-white text-[10px] font-black flex items-center justify-center shadow-md ring-2 ring-background z-10">
-                      {mode.badge > 99 ? "99+" : mode.badge}
-                    </span>
-                  )}
-                  <span className="text-2xl mb-1.5 block drop-shadow-sm">{mode.icon}</span>
-                  <h3 className="text-sm font-black text-white leading-tight">{mode.label}</h3>
-                  <p className="text-[9px] text-white/70 font-bold mt-0.5">{mode.sub}</p>
-                </button>
-              ))}
-              
-              {/* 5th element spans both columns */}
+          {/* Play Now CTA (Daily & Survival) */}
+          {showContent && !selectedCatForMode && (
+            <div className="grid grid-cols-2 gap-3 mb-4">
               <button
-                onClick={modes[4].onClick}
-                className="col-span-2 relative rounded-[16px] p-3.5 text-right flex items-center gap-3.5 press-shrink transition-all hover:-translate-y-0.5 shadow-lg"
+                onClick={() => navigate("/daily")}
+                className="relative overflow-hidden rounded-[20px] p-4 text-center press-shrink transition-all shadow-xl"
                 style={{
-                  background: modes[4].gradient,
-                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "linear-gradient(135deg, #d97706, #b45309)",
+                  border: "1px solid rgba(255,255,255,0.15)",
                 }}
               >
-                <span className="text-3xl drop-shadow-sm shrink-0">{modes[4].icon}</span>
-                <div className="flex-1">
-                  <h3 className="text-[15px] font-black text-white leading-tight">{modes[4].label}</h3>
-                  <p className="text-[10px] text-white/70 font-bold mt-0.5">{modes[4].sub}</p>
+                <div className="flex flex-col items-center justify-center relative z-10">
+                  <span className="text-3xl drop-shadow-md mb-1">📅</span>
+                  <span className="text-sm font-black text-white leading-tight">تحدي اليوم</span>
                 </div>
               </button>
+              <button
+                onClick={() => navigate("/survival")}
+                className="relative overflow-hidden rounded-[20px] p-4 text-center press-shrink transition-all shadow-xl"
+                style={{
+                  background: "linear-gradient(135deg, #dc2626, #7f1d1d)",
+                  border: "1px solid rgba(255,255,255,0.15)",
+                }}
+              >
+                <div className="shine"></div>
+                <div className="flex flex-col items-center justify-center relative z-10">
+                  <span className="text-3xl drop-shadow-md mb-1">🏃</span>
+                  <span className="text-sm font-black text-white leading-tight">بقاء - العب الآن</span>
+                </div>
+              </button>
+            </div>
+          )}
+
+          {/* Categories / Mode Chooser */}
+          {showContent && (
+            <div className="mt-2">
+              {selectedCatForMode ? (
+                <ModeChooser
+                  categoryId={selectedCatForMode}
+                  onBack={() => setSelectedCatForMode(null)}
+                  pendingChallenges={pendingChallenges}
+                  onChallenge={() => {
+                    if (pendingChallenges > 0) void openPendingSheet();
+                    else if (canCreate) navigate(`/create?cat=${encodeURIComponent(selectedCatForMode)}`);
+                    else navigate("/premium");
+                  }}
+                />
+              ) : (
+                <>
+                  <div className="flex items-center justify-between mb-3 px-1">
+                    <h2 className="text-lg font-black text-white">اختر فئة للعب 🎯</h2>
+                  </div>
+                  <CategoryPicker
+                    onSelect={(id) => setSelectedCatForMode(id)}
+                    isPremium={isPremium}
+                    includeMix={true}
+                    size="small"
+                  />
+                </>
+              )}
             </div>
           )}
 

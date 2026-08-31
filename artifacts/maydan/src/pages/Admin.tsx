@@ -9,6 +9,25 @@ const SUPER_ADMIN = "xkaito.san@gmail.com";
 
 type AdminRecord = { id: string; email: string; name: string; is_super: boolean; created_at: string };
 type EditableQ = Question & { _new?: boolean };
+type CategoryChoice = {
+  id: string;
+  name: string;
+  key: string;
+  icon: string | null;
+  parent_key: string | null;
+  is_premium?: boolean;
+  is_visible?: boolean;
+  sort_order?: number;
+};
+
+function categoryLabel(key: string, categories: CategoryChoice[]) {
+  const category = categories.find((item) => item.key === key);
+  if (!category) return key;
+  const parent = category.parent_key
+    ? categories.find((item) => item.key === category.parent_key)
+    : null;
+  return `${parent ? `${parent.name} / ` : ""}${category.name}`;
+}
 
 function badge(d: string) {
   return d === "easy"
@@ -28,12 +47,14 @@ function QuestionModal({
   onSave,
   onClose,
   saving,
+  categories,
 }: {
   initial: Partial<EditableQ>;
   mode: "edit" | "add";
   onSave: (q: EditableQ) => void;
   onClose: () => void;
   saving: boolean;
+  categories: CategoryChoice[];
 }) {
   const [draft, setDraft] = useState<Partial<EditableQ>>({
     question: "",
@@ -59,10 +80,15 @@ function QuestionModal({
   function handleSave() {
     const err = validate();
     if (err) { alert(err); return; }
-    onSave(draft as EditableQ);
+    // A legacy/default key may no longer exist after categories are managed in DB.
+    onSave({ ...draft, category: selectedCategory ? draft.category : selectedParentKey } as EditableQ);
   }
 
   const isCorrect = (i: number) => draft.correct === i;
+  const roots = categories.filter((item) => !item.parent_key && item.is_visible !== false);
+  const selectedCategory = categories.find((item) => item.key === draft.category);
+  const selectedParentKey = selectedCategory?.parent_key || selectedCategory?.key || roots[0]?.key || "";
+  const children = categories.filter((item) => item.parent_key === selectedParentKey && item.is_visible !== false);
 
   return (
     <div
@@ -155,21 +181,34 @@ function QuestionModal({
             </div>
           </div>
 
-          {/* Category + Difficulty */}
+          {/* Parent category + optional child + Difficulty */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-white/60 mb-2 block">🗂️ الفئة</label>
+              <label className="text-xs font-medium text-white/60 mb-2 block">🗂️ الفئة الرئيسية</label>
               <select
-                value={draft.category ?? "islamic"}
+                value={selectedParentKey}
                 onChange={(e) => setDraft((p) => ({ ...p, category: e.target.value }))}
                 className="w-full px-3 py-2.5 rounded-xl text-sm text-white border border-white/10"
                 style={{ background: "hsl(220 20% 18%)" }}
               >
-                {CATEGORIES.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.icon} {c.name}
+                {roots.map((c) => (
+                  <option key={c.id} value={c.key}>
+                    {c.icon || "🎯"} {c.name}
                   </option>
                 ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-white/60 mb-2 block">↳ الفئة الفرعية <span className="text-white/30">(اختياري)</span></label>
+              <select
+                value={selectedCategory?.parent_key ? draft.category : ""}
+                onChange={(e) => setDraft((p) => ({ ...p, category: e.target.value || selectedParentKey }))}
+                disabled={!selectedParentKey || children.length === 0}
+                className="w-full px-3 py-2.5 rounded-xl text-sm text-white border border-white/10 disabled:opacity-50"
+                style={{ background: "hsl(220 20% 18%)" }}
+              >
+                <option value="">— بدون فئة فرعية —</option>
+                {children.map((c) => <option key={c.id} value={c.key}>{c.icon || "🎯"} {c.name}</option>)}
               </select>
             </div>
             <div>
@@ -286,28 +325,29 @@ type ParsedQ = {
   correct: number;
   category: string;       // resolved CATEGORIES.id (empty if unresolved)
   categoryRaw: string;
+  subcategoryRaw: string;
   difficulty: "easy" | "medium" | "hard";
   difficultyRaw: string;
   errors: string[];
   duplicateOfId?: number;
 };
 
-function resolveCategoryId(input: string): string {
+function resolveCategoryId(input: string, categories: CategoryChoice[] = CATEGORIES.map((c) => ({ ...c, key: c.id, parent_key: null }))): string {
   const t = input.trim();
   if (!t) return "";
   const lower = t.toLowerCase();
-  const byId = CATEGORIES.find(c => c.id.toLowerCase() === lower);
-  if (byId) return byId.id;
-  const byName = CATEGORIES.find(c => c.name === t);
-  if (byName) return byName.id;
+  const byId = categories.find(c => c.key.toLowerCase() === lower);
+  if (byId) return byId.key;
+  const byName = categories.find(c => c.name === t);
+  if (byName) return byName.key;
   // partial: input contains the canonical first word, or category contains input
-  const byPartial = CATEGORIES.find(
+  const byPartial = categories.find(
     c => c.name.includes(t) || t.includes(c.name.split(" ")[0])
   );
-  return byPartial ? byPartial.id : "";
+  return byPartial ? byPartial.key : "";
 }
 
-function parseBulkText(text: string, existing: EditableQ[]): ParsedQ[] {
+export function parseBulkText(text: string, existing: EditableQ[], categories: CategoryChoice[] = CATEGORIES.map((c) => ({ ...c, key: c.id, parent_key: null }))): ParsedQ[] {
   const blocks = text
     .split(/^\s*---+\s*$/m)
     .map(b => b.trim())
@@ -326,6 +366,7 @@ function parseBulkText(text: string, existing: EditableQ[]): ParsedQ[] {
       correct: -1,
       category: "",
       categoryRaw: "",
+      subcategoryRaw: "",
       difficulty: "easy",
       difficultyRaw: "",
       errors: [],
@@ -347,12 +388,22 @@ function parseBulkText(text: string, existing: EditableQ[]): ParsedQ[] {
         if (isCorrect) r.correct = idx;
       } else if (key === "الفئة" || key.toLowerCase() === "category") {
         r.categoryRaw = val;
-        r.category = resolveCategoryId(val);
+        r.category = resolveCategoryId(val, categories);
+      } else if (key === "الفئة الفرعية" || key.toLowerCase() === "subcategory") {
+        r.subcategoryRaw = val;
       } else if (key === "الصعوبة" || key.toLowerCase() === "difficulty") {
         r.difficultyRaw = val;
         const d = DIFFICULTY_AR[val] ?? DIFFICULTY_AR[val.toLowerCase()];
         if (d) r.difficulty = d;
       }
+    }
+    if (r.subcategoryRaw) {
+      const childKey = resolveCategoryId(r.subcategoryRaw, categories);
+      const child = categories.find((category) => category.key === childKey);
+      if (!childKey) r.errors.push(`فئة فرعية غير معروفة: "${r.subcategoryRaw}"`);
+      else if (!r.category || child?.parent_key !== r.category) {
+        r.errors.push(`الفئة الفرعية "${r.subcategoryRaw}" لا تتبع الفئة الرئيسية المحددة`);
+      } else r.category = childKey;
     }
     if (!r.question) r.errors.push("نص السؤال مفقود");
     if (r.options.some(o => !o)) r.errors.push("خيار أو أكثر مفقود");
@@ -402,11 +453,13 @@ function BulkImportModal({
   startId,
   onClose,
   onImported,
+  categories,
 }: {
   existing: EditableQ[];
   startId: number;
   onClose: () => void;
   onImported: (rows: EditableQ[]) => void;
+  categories: CategoryChoice[];
 }) {
   const [text, setText] = useState("");
   const [parsed, setParsed] = useState<ParsedQ[] | null>(null);
@@ -419,7 +472,7 @@ function BulkImportModal({
   function doParse() {
     setErrMsg(""); setDoneMsg("");
     if (!text.trim()) { setErrMsg("الصق نصاً للاستيراد أولاً"); return; }
-    const rows = parseBulkText(text, existing);
+    const rows = parseBulkText(text, existing, categories);
     if (rows.length === 0) { setErrMsg("لم يتم العثور على أي أسئلة. تأكد من استخدام --- للفصل."); return; }
     setParsed(rows);
     // Default: select rows without errors AND without duplicates
@@ -624,7 +677,7 @@ function BulkImportModal({
                             <span className="text-[10px] text-white/40 font-mono">#{r.index + 1}</span>
                             {r.category && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-900/40 text-purple-300">
-                                {CATEGORIES.find(c => c.id === r.category)?.icon} {CATEGORIES.find(c => c.id === r.category)?.name || r.category}
+                                 {categoryLabel(r.category, categories)}
                               </span>
                             )}
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-white/60">
@@ -851,7 +904,7 @@ function StoreManager() {
 
       <div className="p-5 space-y-5">
         {/* Add new item */}
-        <div className="rounded-xl border border-white/10 p-4 space-y-3" style={{ background: "hsl(220 20% 12%)" }}>
+        <div id="category-add-form" className="rounded-xl border border-white/10 p-4 space-y-3" style={{ background: "hsl(220 20% 12%)" }}>
           <p className="text-sm text-white/70 font-bold">➕ إضافة عنصر جديد</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -1136,6 +1189,7 @@ type DbCategoryRow = {
   icon: string | null;
   parent_key: string | null;
   is_premium: boolean;
+  is_visible?: boolean;
   sort_order: number;
   created_at?: string;
 };
@@ -1208,6 +1262,7 @@ function emptyCatDraft() {
     icon: "🎯",
     parent_key: "",
     is_premium: false,
+    is_visible: true,
     sort_order: 0,
   };
 }
@@ -1268,6 +1323,9 @@ function CategoriesManager() {
     const key = draft.key.trim().toLowerCase().replace(/\s+/g, "_");
     if (!name) { setErr("أدخل اسم الفئة"); return; }
     if (!key || !/^[a-z0-9_]+$/i.test(key)) { setErr("المفتاح بالإنجليزية فقط بدون مسافات (a-z, 0-9, _)"); return; }
+    if (draft.parent_key && !items.some((item) => item.key === draft.parent_key && !item.parent_key)) {
+      setErr("اختر فئة رئيسية صالحة كأب"); return;
+    }
     setAdding(true);
     const { data, error } = await supabase
       .from("categories")
@@ -1296,14 +1354,29 @@ function CategoriesManager() {
     const d = editDraft;
     if (!d.name?.trim()) { flash("الاسم مطلوب", true); return; }
     if (!d.key?.trim() || !/^[a-z0-9_]+$/i.test(d.key.trim())) { flash("مفتاح غير صحيح", true); return; }
+    const key = d.key.trim().toLowerCase();
+    const current = items.find((item) => item.id === editId);
+    if (!current) { flash("تعذر العثور على الفئة", true); return; }
+    const parentKey = (d.parent_key ?? "").trim();
+    if (parentKey === key) { flash("لا يمكن أن تكون الفئة أباً لنفسها", true); return; }
+    const byKey = new Map(items.map((item) => [item.key, item]));
+    if (parentKey && !byKey.has(parentKey)) { flash("الفئة الأب غير موجودة", true); return; }
+    // Follow the proposed parent chain: reaching this category means a cycle.
+    let cursor = parentKey;
+    const seen = new Set<string>();
+    while (cursor) {
+      if (cursor === current.key || cursor === key || seen.has(cursor)) { flash("لا يمكن إنشاء حلقة بين الفئات", true); return; }
+      seen.add(cursor);
+      cursor = byKey.get(cursor)?.parent_key || "";
+    }
     setBusyId(editId);
     const { error } = await supabase
       .from("categories")
       .update({
         name: d.name.trim(),
-        key: d.key.trim().toLowerCase(),
+        key,
         icon: (d.icon ?? "").trim() || "🎯",
-        parent_key: (d.parent_key ?? "").trim() || null,
+        parent_key: parentKey || null,
         is_premium: !!d.is_premium,
         sort_order: Math.round(Number(d.sort_order ?? 0)),
       })
@@ -1326,6 +1399,14 @@ function CategoriesManager() {
   }
 
   const parentOptions = items.filter((x) => !x.parent_key);
+  const roots = items.filter((item) => !item.parent_key || !items.some((candidate) => candidate.key === item.parent_key));
+  const childrenFor = (key: string) => items.filter((item) => item.parent_key === key);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  function addChild(parent: DbCategoryRow) {
+    setDraft({ ...emptyCatDraft(), parent_key: parent.key });
+    document.getElementById("category-add-form")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 
   return (
     <div className="rounded-2xl border border-purple-500/30 overflow-hidden" style={{ background: "hsl(270 30% 9%)" }}>
@@ -1340,6 +1421,12 @@ function CategoriesManager() {
           className="text-xs px-3 py-1 rounded-lg border border-white/15 text-white/70 hover:border-white/30"
         >
           🔄 تحديث
+        </button>
+        <button
+          onClick={() => { setDraft(emptyCatDraft()); document.getElementById("category-add-form")?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
+          className="text-xs px-3 py-1 rounded-lg bg-purple-500/20 text-purple-200 border border-purple-400/30"
+        >
+          ➕ إضافة رئيسية
         </button>
       </div>
 
@@ -1447,130 +1534,23 @@ function CategoriesManager() {
         {err && <p className="text-red-400 text-xs">⚠️ {err}</p>}
         {info && <p className="text-green-400 text-xs">{info}</p>}
 
-        {/* Items table */}
+        {/* Expandable category tree */}
         <div className="rounded-xl border border-white/10 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm" style={{ minWidth: 720 }}>
-              <thead>
-                <tr style={{ background: "hsl(220 20% 14%)" }}>
-                  <th className="px-3 py-2 text-right text-white/40 font-medium w-12">أيقونة</th>
-                  <th className="px-3 py-2 text-right text-white/40 font-medium">الاسم</th>
-                  <th className="px-3 py-2 text-right text-white/40 font-medium">المفتاح</th>
-                  <th className="px-3 py-2 text-right text-white/40 font-medium hidden md:table-cell">فئة الأب</th>
-                  <th className="px-3 py-2 text-right text-white/40 font-medium">أسئلة</th>
-                  <th className="px-3 py-2 text-right text-white/40 font-medium">حالة</th>
-                  <th className="px-3 py-2 text-right text-white/40 font-medium w-32">إجراءات</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5">
-                {loading ? (
-                  <tr><td colSpan={7} className="px-4 py-8 text-center text-white/40 text-sm">جاري التحميل...</td></tr>
-                ) : items.length === 0 ? (
-                  <tr><td colSpan={7} className="px-4 py-8 text-center text-white/40 text-sm">لا توجد فئات بعد — أضف أول فئة من الأعلى</td></tr>
-                ) : items.map((it) => {
-                  const isEditing = editId === it.id;
-                  if (isEditing) {
-                    return (
-                      <tr key={it.id} style={{ background: "hsl(220 20% 16%)" }}>
-                        <td className="px-3 py-2 align-top">
-                          <div className="flex flex-col gap-1.5">
-                            <div className="flex items-center gap-1.5">
-                              <div
-                                className="w-9 h-9 rounded-md flex items-center justify-center text-xl shrink-0"
-                                style={{
-                                  background: "hsl(220 20% 12%)",
-                                  border: "1.5px solid hsl(45 85% 50% / 0.35)",
-                                }}
-                              >
-                                {editDraft.icon || "🎯"}
-                              </div>
-                              <input
-                                value={editDraft.icon ?? ""}
-                                onChange={(e) => setEditDraft((d) => ({ ...d, icon: e.target.value }))}
-                                className="w-12 px-2 py-1 rounded text-sm text-white border border-white/10 text-center"
-                                style={{ background: "hsl(220 20% 12%)" }}
-                              />
-                            </div>
-                            <EmojiPickerGrid
-                              value={editDraft.icon ?? ""}
-                              onSelect={(emoji) => setEditDraft((d) => ({ ...d, icon: emoji }))}
-                              compact
-                            />
-                          </div>
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            value={editDraft.name ?? ""}
-                            onChange={(e) => setEditDraft((d) => ({ ...d, name: e.target.value }))}
-                            className="w-full px-2 py-1 rounded text-sm text-white border border-white/10"
-                            style={{ background: "hsl(220 20% 12%)" }}
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            value={editDraft.key ?? ""}
-                            onChange={(e) => setEditDraft((d) => ({ ...d, key: e.target.value }))}
-                            dir="ltr"
-                            className="w-32 px-2 py-1 rounded text-xs text-white font-mono border border-white/10"
-                            style={{ background: "hsl(220 20% 12%)" }}
-                          />
-                        </td>
-                        <td className="px-3 py-2 hidden md:table-cell">
-                          <select
-                            value={editDraft.parent_key ?? ""}
-                            onChange={(e) => setEditDraft((d) => ({ ...d, parent_key: e.target.value || null }))}
-                            className="px-2 py-1 rounded text-xs text-white border border-white/10"
-                            style={{ background: "hsl(220 20% 12%)" }}
-                          >
-                            <option value="">— رئيسية —</option>
-                            {parentOptions.filter((p) => p.id !== it.id).map((p) => (
-                              <option key={p.id} value={p.key}>{p.name}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-3 py-2 text-white/50 text-xs">{counts[it.key] ?? 0}</td>
-                        <td className="px-3 py-2">
-                          <label className="text-xs text-white/70 flex items-center gap-1">
-                            <input
-                              type="checkbox"
-                              checked={!!editDraft.is_premium}
-                              onChange={(e) => setEditDraft((d) => ({ ...d, is_premium: e.target.checked }))}
-                            />
-                            👑
-                          </label>
-                        </td>
-                        <td className="px-3 py-2">
-                          <div className="flex gap-1.5">
-                            <button onClick={saveEdit} disabled={busyId === it.id} className="px-2 py-1 rounded text-xs text-green-300 border border-green-500/30 hover:border-green-500/60">💾</button>
-                            <button onClick={cancelEdit} className="px-2 py-1 rounded text-xs text-white/60 border border-white/10 hover:border-white/30">✕</button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  }
-                  return (
-                    <tr key={it.id} style={{ background: "hsl(220 20% 11%)" }}>
-                      <td className="px-3 py-2 text-center text-2xl">{it.icon || "🎯"}</td>
-                      <td className="px-3 py-2">
-                        <span className="text-white/90 text-sm">{it.name}</span>
-                        {it.is_premium && <span className="block text-[10px] text-yellow-400 mt-0.5">👑 بريميوم</span>}
-                      </td>
-                      <td className="px-3 py-2 text-white/50 text-xs font-mono" dir="ltr">{it.key}</td>
-                      <td className="px-3 py-2 text-white/50 text-xs hidden md:table-cell" dir="ltr">{it.parent_key || "—"}</td>
-                      <td className="px-3 py-2 text-white/70 text-xs">{counts[it.key] ?? 0}</td>
-                      <td className="px-3 py-2 text-white/50 text-xs">{it.parent_key ? "فرعية" : "رئيسية"}</td>
-                      <td className="px-3 py-2">
-                        <div className="flex gap-1.5">
-                          <button onClick={() => startEdit(it)} className="px-2 py-1 rounded text-xs text-white/70 border border-white/10 hover:border-white/30" title="تعديل">✏️</button>
-                          <button onClick={() => deleteCategory(it)} disabled={busyId === it.id} className="px-2 py-1 rounded text-xs text-red-400 border border-red-500/15 hover:border-red-500/40" title="حذف">🗑️</button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          {loading ? <p className="p-8 text-center text-white/40 text-sm">جاري التحميل...</p> : roots.length === 0 ? <p className="p-8 text-center text-white/40 text-sm">لا توجد فئات بعد</p> : roots.map((root) => {
+            const children = childrenFor(root.key);
+            const isOpen = expanded.has(root.key);
+            const renderNode = (item: DbCategoryRow, child = false) => {
+              const editing = editId === item.id;
+              return <div key={item.id} className="border-b border-white/5" style={{ background: child ? "hsl(220 20% 10%)" : "hsl(220 20% 12%)" }}>
+                <div className={`p-3 flex items-center gap-2 ${child ? "mr-8 border-r-2 border-purple-500/30" : ""}`}>
+                  {!child && <button onClick={() => setExpanded((old) => { const next = new Set(old); isOpen ? next.delete(root.key) : next.add(root.key); return next; })} className="text-white/60 w-5">{children.length ? (isOpen ? "⌄" : "›") : "•"}</button>}
+                  <span className="text-xl">{item.icon || "🎯"}</span>
+                  {editing ? <><input value={editDraft.name ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, name: e.target.value }))} className="flex-1 px-2 py-1 rounded text-sm text-white bg-black/20 border border-white/10" /><select value={editDraft.parent_key ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, parent_key: e.target.value || null }))} className="px-2 py-1 rounded text-xs text-white bg-black/20 border border-white/10"><option value="">رئيسية</option>{parentOptions.filter((p) => p.key !== item.key).map((p) => <option key={p.id} value={p.key}>{p.name}</option>)}</select><label title="بريميوم" className="text-xs"><input type="checkbox" checked={!!editDraft.is_premium} onChange={(e) => setEditDraft((d) => ({ ...d, is_premium: e.target.checked }))} /> 👑</label><button onClick={saveEdit} disabled={busyId === item.id}>💾</button><button onClick={cancelEdit}>✕</button></> : <><div className="flex-1"><span className="text-white/90">{item.name}</span><span className="mr-2 text-[10px] text-white/35 font-mono" dir="ltr">{item.key}</span></div><span className="text-xs text-white/60">📝 {counts[item.key] ?? 0}</span>{item.is_premium ? <span className="text-xs text-yellow-400">👑 Premium</span> : <span className="text-xs text-emerald-400">مجانية</span>}<button onClick={() => addChild(item)} title="إضافة فرعية" className="text-xs">➕</button><button onClick={() => startEdit(item)} title="تعديل" className="text-xs">✏️</button>{child && <button onClick={() => { setEditId(item.id); setEditDraft({ ...item, parent_key: null }); }} title="فصل كفئة رئيسية" className="text-xs">↥</button>}<button onClick={() => deleteCategory(item)} disabled={busyId === item.id} className="text-xs text-red-400">🗑️</button></>}
+                </div>
+              </div>;
+            };
+            return <div key={root.id}>{renderNode(root)}{isOpen && children.map((child) => renderNode(child, true))}</div>;
+          })}
         </div>
 
         <details className="text-xs text-white/40">
@@ -1719,6 +1699,9 @@ export default function Admin() {
   const [, navigate] = useLocation();
 
   const [questions, setQuestions] = useState<EditableQ[]>([]);
+  const [categoryChoices, setCategoryChoices] = useState<CategoryChoice[]>(
+    CATEGORIES.map((category) => ({ ...category, key: category.id, parent_key: null, is_visible: true })),
+  );
   const [filterCat, setFilterCat] = useState("all");
   const [filterDiff, setFilterDiff] = useState("all");
   const [search, setSearch] = useState("");
@@ -1751,6 +1734,13 @@ export default function Admin() {
     setPendingReportCount(count ?? 0);
   }
   useEffect(() => { loadPendingReportCount(); }, [activeTab]);
+  useEffect(() => {
+    supabase.from("categories").select("id, name, key, icon, parent_key, is_premium, sort_order")
+      .order("sort_order").order("name")
+      .then(({ data, error }) => {
+        if (!error && data?.length) setCategoryChoices(data as CategoryChoice[]);
+      });
+  }, [activeTab]);
 
   const userEmail = session?.user?.email ?? "";
 
@@ -1941,6 +1931,7 @@ export default function Admin() {
           onSave={handleSave}
           onClose={closeModal}
           saving={saving}
+          categories={categoryChoices}
         />
       )}
 
@@ -1956,6 +1947,7 @@ export default function Admin() {
               return [...prev, ...rows.filter((r) => !ids.has(r.id))];
             })
           }
+          categories={categoryChoices}
         />
       )}
 
@@ -2054,6 +2046,7 @@ export default function Admin() {
             openEdit={openEdit} deleteQuestion={deleteQuestion}
             isSuperAdmin={isSuperAdmin}
             savedQuestionId={savedQuestionId} rowRefs={rowRefs}
+            categories={categoryChoices}
           />
         )}
       </div>
@@ -2289,12 +2282,13 @@ function QuestionsTab(props: {
   isSuperAdmin: boolean;
   savedQuestionId: number | null;
   rowRefs: React.MutableRefObject<Map<number, HTMLTableRowElement>>;
+  categories: CategoryChoice[];
 }) {
   const {
     status, loading, saving, questions, filtered,
     search, setSearch, filterCat, setFilterCat, filterDiff, setFilterDiff,
     loadQuestions, openAdd, openBulk, openEdit, deleteQuestion, isSuperAdmin,
-    savedQuestionId, rowRefs,
+    savedQuestionId, rowRefs, categories,
   } = props;
   return (
     <div className="space-y-5">
@@ -2385,9 +2379,9 @@ function QuestionsTab(props: {
             style={{ background: "hsl(220 20% 14%)" }}
           >
             <option value="all">🗂️ كل الفئات</option>
-            {CATEGORIES.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.icon} {c.name}
+            {categories.filter((c) => c.is_visible !== false).map((c) => (
+              <option key={c.id} value={c.key}>
+                {c.icon || "🎯"} {categoryLabel(c.key, categories)}
               </option>
             ))}
           </select>
@@ -2440,7 +2434,6 @@ function QuestionsTab(props: {
                   </tr>
                 )}
                 {filtered.map((q) => {
-                  const cat = CATEGORIES.find((c) => c.id === q.category);
                   const wrong = q.options.filter((_, i) => i !== q.correct);
                   const isJustSaved = savedQuestionId === q.id;
                   return (
@@ -2501,7 +2494,7 @@ function QuestionsTab(props: {
                       {/* Category */}
                       <td className="px-4 py-3 hidden sm:table-cell">
                         <span className="text-white/50 text-xs whitespace-nowrap">
-                          {cat?.icon} {cat?.name}
+                           {categoryLabel(q.category, categories)}
                         </span>
                       </td>
 

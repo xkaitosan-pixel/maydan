@@ -1,6 +1,9 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
-import { CATEGORIES, getQuestionsByCategory, type Question } from "@/lib/questions";
+import { CATEGORIES, type Question } from "@/lib/questions";
+import CategoryPicker from "@/components/CategoryPicker";
+import { fetchGameQuestions } from "@/lib/questionService";
+import { fetchCategoriesFlat, validateCategorySelectionKey, type FlatCategory } from "@/lib/categoriesService";
 import { getCategoryLevel, engagementFrom } from "@/lib/engagement";
 import { useAuth } from "@/lib/AuthContext";
 import { playSound } from "@/lib/sound";
@@ -22,7 +25,10 @@ export default function Training() {
   const [, navigate] = useLocation();
   const { dbUser } = useAuth();
 
-  const [phase, setPhase] = useState<"select" | "play">("select");
+  const searchParams = new URLSearchParams(window.location.search);
+  const passedCat = searchParams.get("cat");
+
+  const [phase, setPhase] = useState<"select" | "loading" | "play">("select");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty>("all");
   const [pool, setPool] = useState<TrainingQuestion[]>([]);
@@ -30,17 +36,34 @@ export default function Training() {
   const [selected, setSelected] = useState<number | null>(null);
   const [seen, setSeen] = useState(0);
   const [right, setRight] = useState(0);
+  const [categories, setCategories] = useState<FlatCategory[]>(CATEGORIES.map((category) => ({ ...category, parentKey: null })));
 
   const engagement = useMemo(
     () => (dbUser ? engagementFrom(dbUser.achievements) : null),
     [dbUser],
   );
 
-  function start(catId: string) {
-    let qs = getQuestionsByCategory(catId) as TrainingQuestion[];
+  useEffect(() => {
+    void fetchCategoriesFlat().then(setCategories);
+  }, []);
+
+  useEffect(() => {
+    if (!passedCat) return;
+    void validateCategorySelectionKey(passedCat, !!dbUser?.is_premium).then((valid) => {
+      if (valid) void start(passedCat);
+    });
+  }, [passedCat, dbUser?.is_premium]);
+
+  async function start(catId: string) {
+    setPhase("loading");
+    let qs = await fetchGameQuestions(catId) as TrainingQuestion[];
     if (difficulty !== "all") qs = qs.filter(q => q.difficulty === difficulty);
     qs = [...qs].sort(() => Math.random() - 0.5);
-    if (qs.length === 0) return;
+    if (qs.length === 0) {
+      setPhase("select");
+      alert("لا توجد أسئلة متاحة لهذا الاختيار.");
+      return;
+    }
     setCategoryId(catId);
     setPool(qs);
     setIdx(0);
@@ -75,7 +98,7 @@ export default function Training() {
   }
 
   // ── SELECT SCREEN ──────────────────────────────────────────────────────────
-  if (phase === "select") {
+  if (phase === "select" || phase === "loading") {
     return (
       <div className="min-h-screen gradient-hero star-bg px-4 py-6 pb-24" dir="rtl">
         <div className="mx-auto max-w-2xl">
@@ -108,30 +131,16 @@ export default function Training() {
           </div>
 
           {/* Category grid */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {CATEGORIES.map(c => {
-              const lvl = engagement ? getCategoryLevel(engagement, c.id) : null;
-              return (
-                <button
-                  key={c.id}
-                  onClick={() => start(c.id)}
-                  className="relative rounded-2xl p-4 text-center press-shrink transition-all hover:-translate-y-1"
-                  style={{
-                    background: `linear-gradient(160deg, ${c.gradientFrom}, ${c.gradientTo})`,
-                    border: "1px solid rgba(255,255,255,0.12)",
-                  }}
-                >
-                  <span className="mb-1.5 block" style={{ fontSize: 36 }}>{c.icon}</span>
-                  <p className="text-sm font-black text-white">{c.name}</p>
-                  {lvl && (
-                    <p className="mt-1 text-[10px] font-bold text-white/80">
-                      {lvl.mastered ? "👑 إتقان" : `مستوى ${lvl.level}`}
-                    </p>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+          <CategoryPicker
+            onSelect={(id) => void start(id)}
+            isPremium={!!dbUser?.is_premium}
+            includeMix={true}
+          />
+          {phase === "loading" && (
+            <div className="fixed inset-0 z-40 grid place-items-center bg-background/70 backdrop-blur-sm">
+              <div className="rounded-2xl border border-white/10 bg-card px-6 py-4 font-bold">جارٍ تجهيز التدريب…</div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -139,7 +148,7 @@ export default function Training() {
 
   // ── PLAY SCREEN ────────────────────────────────────────────────────────────
   const q = pool[idx];
-  const cat = CATEGORIES.find(c => c.id === categoryId);
+  const cat = categories.find(c => c.id === categoryId);
   const lvl = engagement && categoryId ? getCategoryLevel(engagement, categoryId) : null;
 
   return (

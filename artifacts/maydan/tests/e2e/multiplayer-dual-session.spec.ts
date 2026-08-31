@@ -120,6 +120,7 @@ class MultiplayerBackend {
     if (name === "ranked_queue") return this.queue;
     if (name === "ranked_matches") return this.matches;
     if (name === "users") return [];
+    if (name === "categories") return [];
     throw new Error(`Unhandled mocked table: ${name}`);
   }
 

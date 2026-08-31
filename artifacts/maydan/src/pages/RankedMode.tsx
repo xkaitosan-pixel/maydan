@@ -6,6 +6,7 @@ import CircularTimer from "@/components/CircularTimer";
 import ReportFlag from "@/components/ReportFlag";
 import { shuffleQuestion } from "@/lib/shuffle";
 import { fetchQuestionsByIds, fetchSeededQuestions } from "@/lib/questionService";
+import { resolveCategorySelection, validateCategorySelectionKey } from "@/lib/categoriesService";
 import { useAuth } from "@/lib/AuthContext";
 import { getOrCreateUser, canPlayRanked, getRemainingRanked, incrementRankedCount } from "@/lib/storage";
 import { playCorrect, playWrong, playTick, playGameOver, playMatchFound, playSound } from "@/lib/sound";
@@ -17,6 +18,7 @@ import { recordTodayWin, recordTodayLoss, recordTodayXP } from "@/lib/storage";
 import AchievementPopup from "@/components/AchievementPopup";
 import FloatingReward from "@/components/FloatingReward";
 import ShareCard from "@/components/ShareCard";
+import CategoryPicker from "@/components/CategoryPicker";
 import { XP_REWARDS, COIN_REWARDS } from "@/lib/gamification";
 import { recordCompletedGameForInstall } from "@/lib/pwa";
 import {
@@ -100,6 +102,8 @@ export default function RankedMode() {
   const [myPoints, setMyPoints] = useState(0);
 
   const [phase, setPhase] = useState<Phase>("select_cats");
+  const searchParams = new URLSearchParams(window.location.search);
+  const passedCat = searchParams.get("cat");
   const [selectedCats, setSelectedCats] = useState<string[]>([]);
   const [searchTimer, setSearchTimer] = useState(SEARCH_TIMEOUT);
   const [match, setMatch] = useState<RankedMatch | null>(null);
@@ -148,6 +152,13 @@ export default function RankedMode() {
     return () => cleanup();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!passedCat) return;
+    void validateCategorySelectionKey(passedCat, !!dbUser?.is_premium).then((valid) => {
+      if (valid) setSelectedCats([passedCat]);
+    });
+  }, [passedCat, dbUser?.is_premium]);
 
   async function loadMyPoints() {
     if (!myId) return;
@@ -200,8 +211,11 @@ export default function RankedMode() {
       return;
     }
     incrementRankedCount();
-    const category = selectedCats.length > 0
-      ? selectedCats[Math.floor(Math.random() * selectedCats.length)]
+    const concreteCategories = selectedCats.length
+      ? await resolveCategorySelection(selectedCats)
+      : [];
+    const category = concreteCategories.length > 0
+      ? concreteCategories[Math.floor(Math.random() * concreteCategories.length)]
       : "mix";
 
     setPhaseSafe("searching");
@@ -210,7 +224,7 @@ export default function RankedMode() {
       const created = await enterRankedQueue({
         userId: myId,
         username: myName,
-        preferredCategories: selectedCats,
+        preferredCategories: concreteCategories,
       });
       if (created) {
         clearSearchTimers();
@@ -255,7 +269,7 @@ export default function RankedMode() {
       const found = await enterRankedQueue({
         userId: myIdRef.current,
         username: myNameRef.current,
-        preferredCategories: selectedCats.length ? selectedCats : [category],
+        preferredCategories: [category],
       });
       if (!found) return false;
       await startMatch(found as unknown as RankedMatch);
@@ -609,10 +623,6 @@ export default function RankedMode() {
   // ── SELECT CATEGORIES ────────────────────────────────────────────────────
   if (phase === "select_cats") {
     const isPremium = !!(dbUser?.is_premium ?? localUser.isPremium);
-    const cats = [
-      { id: "mix", name: "مزيج", icon: "🌐" },
-      ...CATEGORIES.filter((c) => !c.isPremium || isPremium).map((c) => ({ id: c.id, name: c.name, icon: c.icon })),
-    ];
     const rankedRemaining = getRemainingRanked();
     return (
       <div className="min-h-screen gradient-hero flex flex-col">
@@ -651,20 +661,16 @@ export default function RankedMode() {
 
           <div>
             <p className="text-xs text-muted-foreground font-bold mb-2">اختر فئاتك المفضلة (اختياري)</p>
-            <div className="flex flex-wrap gap-2">
-              {cats.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => setSelectedCats(prev =>
-                    prev.includes(c.id) ? prev.filter(x => x !== c.id) : [...prev, c.id]
-                  )}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${selectedCats.includes(c.id) ? "bg-primary text-background border-primary" : "border-border text-muted-foreground"}`}
-                >
-                  {c.icon} {c.name}
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">إذا لم تختر، سيكون المزيج</p>
+            <CategoryPicker
+              onSelect={(id) => setSelectedCats(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])}
+              isPremium={isPremium}
+              includeMix={false}
+              size="small"
+              multiSelect={true}
+              selectedIds={selectedCats}
+              onToggle={(id) => setSelectedCats(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])}
+            />
+            <p className="text-xs text-muted-foreground mt-2 text-center">إذا لم تختر أي فئة، سيتم اختيار المزيج تلقائياً</p>
           </div>
 
           {!isPremium && (

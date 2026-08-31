@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { CATEGORIES, type Category } from "@/lib/questions";
 import { fetchGameQuestions } from "@/lib/questionService";
-import { fetchCategoriesFlat } from "@/lib/categoriesService";
+import { fetchCategoriesFlat, validateCategorySelectionKey } from "@/lib/categoriesService";
 import { saveChallenge, incrementChallengesCount, generateId, getOrCreateUser, canCreateChallenge, getRemainingChallenges } from "@/lib/storage";
 import { createDbChallenge } from "@/lib/db";
 import { useAuth } from "@/lib/AuthContext";
-import CategoryCard from "@/components/CategoryCard";
+import CategoryPicker from "@/components/CategoryPicker";
 
 export default function CreateChallenge() {
   const [, navigate] = useLocation();
@@ -17,13 +17,23 @@ export default function CreateChallenge() {
   const [step, setStep] = useState<"mode" | "category" | "config">("mode");
   const [categories, setCategories] = useState<Category[]>(CATEGORIES);
 
+  const searchParams = new URLSearchParams(window.location.search);
+  const passedCat = searchParams.get("cat");
+
   const user = getOrCreateUser();
   const isPremium = !!(dbUser?.is_premium ?? user.isPremium);
   const remaining = getRemainingChallenges();
 
   useEffect(() => {
     fetchCategoriesFlat().then((cats) => setCategories(cats));
-  }, []);
+    if (passedCat) {
+      void validateCategorySelectionKey(passedCat, isPremium).then((valid) => {
+        if (!valid) return;
+        setSelectedCategory(passedCat);
+        setStep("config");
+      });
+    }
+  }, [passedCat, isPremium]);
 
   if (!canCreateChallenge()) {
     navigate("/");
@@ -226,8 +236,8 @@ export default function CreateChallenge() {
     <div className="min-h-screen gradient-hero flex flex-col">
       {/* Header */}
       <header className="p-4 border-b border-border/30">
-        <div className="flex items-center gap-3 mb-3">
-          <button onClick={() => setStep("mode")} className="text-muted-foreground hover:text-foreground transition-colors text-xl">
+        <div className="flex items-center gap-3">
+          <button onClick={() => setStep("mode")} className="text-muted-foreground hover:text-foreground transition-colors text-xl font-bold">
             ←
           </button>
           <h1 className="text-lg font-bold">اختر فئة التحدي</h1>
@@ -235,47 +245,21 @@ export default function CreateChallenge() {
             {remaining === Infinity ? "∞" : remaining} متبقية
           </span>
         </div>
-
-        {/* Search */}
-        <div className="relative">
-          <input
-            className="w-full bg-card border border-border rounded-xl px-4 py-2.5 text-sm text-right pr-9 placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
-            placeholder="🔍 ابحث عن فئة..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
       </header>
 
       {/* Categories Grid */}
-      <div className="flex-1 overflow-y-auto p-3">
-        {filtered.length === 0 ? (
-          <div className="text-center text-muted-foreground py-12">
-            <p className="text-4xl mb-3">🔍</p>
-            <p>لا توجد نتائج للبحث</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-3">
-            {filtered.map((cat) => {
-              const isLocked = !!cat.isPremium && !isPremium;
-              return (
-                <CategoryCard
-                  key={cat.id}
-                  cat={cat}
-                  isLocked={isLocked}
-                  questionCount={15}
-                  onClick={() => handleSelectCategory(cat.id, cat.isPremium)}
-                />
-              );
-            })}
-          </div>
-        )}
+      <div className="flex-1 overflow-y-auto p-4">
+        <CategoryPicker
+          onSelect={(id) => handleSelectCategory(id, false)} // The picker handles premium internally
+          isPremium={isPremium}
+          includeMix={false}
+        />
 
         {/* Premium Upsell */}
         {!isPremium && (
           <div className="mt-4 bg-gradient-to-r from-yellow-500/10 to-amber-400/10 border border-yellow-500/20 rounded-2xl p-4 text-center">
             <p className="text-sm font-bold text-yellow-400 mb-1">⭐ ترقية إلى بريميوم</p>
-            <p className="text-xs text-muted-foreground">افتح فئة "تحدي الأساطير" وتحديات غير محدودة</p>
+            <p className="text-xs text-muted-foreground">افتح الفئات الحصرية وتحديات غير محدودة</p>
           </div>
         )}
       </div>
