@@ -16,6 +16,11 @@ import { Podium } from "@/components/game/Podium";
 import { getSeasonTier } from "@/lib/gamification";
 import { awardGameRewards, XP_REWARDS, COIN_REWARDS } from "@/lib/gamification";
 import { recordEngagementGame } from "@/lib/engagement";
+import {
+  confirmResultSettlement,
+  reserveResultSettlement,
+  type ResultSettlementStatus,
+} from "@/lib/resultSettlement";
 
 const WA_ICON = (
   <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
@@ -44,6 +49,7 @@ export default function Results() {
   const [challenge, setChallenge] = useState<ChallengeData | null>(() => getChallenge(challengeId));
   const [challengeLoading, setChallengeLoading] = useState(true);
   const [challengeError, setChallengeError] = useState("");
+  const [settlementState, setSettlementState] = useState<ResultSettlementStatus | "idle" | "unavailable">("idle");
 
   const category = challenge ? getCategoryById(challenge.categoryId) : null;
   const user = getOrCreateUser();
@@ -102,8 +108,15 @@ export default function Results() {
     if (challenge.status === "completed") {
       // Persistent idempotency guard — prevents double-awarding XP/coins/wins
       // on remount or refresh of /results/:id/:role.
-      const guardKey = `maydan_results_awarded_${challengeId}_${role}`;
-      if (typeof localStorage !== "undefined" && localStorage.getItem(guardKey)) {
+      try {
+        const reservation = reserveResultSettlement(localStorage, challengeId, role);
+        setSettlementState(reservation.status);
+        if (!reservation.reserved) {
+          setWinRecorded(true);
+          return;
+        }
+      } catch {
+        setSettlementState("unavailable");
         setWinRecorded(true);
         return;
       }
@@ -123,39 +136,52 @@ export default function Results() {
       // Record to Supabase (authenticated users only)
       const supabaseName = dbUser?.username ?? myName;
       if (supabaseName && !isGuest) {
-        insertScore({
-          user_id: dbUser?.id ?? null,
-          username: supabaseName,
-          category: challenge.categoryId,
-          score: myScore,
-          game_mode: "challenge",
-        });
         if (dbUser?.id) {
-          updateUserStats(dbUser.id, {
-            total_wins: myWon ? 1 : 0,
-            total_losses: myWon ? 0 : 1,
-            total_points: myScore * 10,
-          });
-          // Award XP and coins
           const xpGain    = myWon ? XP_REWARDS.win_1v1 : 10;
           const coinGain  = myWon ? COIN_REWARDS.win_1v1 : 0;
-          awardGameRewards({
-            userId: dbUser.id,
-            xp: xpGain,
-            coins: coinGain,
-            currentXP: dbUser.xp ?? 0,
-            currentCoins: dbUser.coins ?? 0,
-            currentLevel: dbUser.level ?? 1,
-            currentAchievements: dbUser.achievements,
-            currentSeasonPoints: dbUser.season_points ?? 0,
-            progressUpdates: {
-              total_games:      1,
-              total_correct:    myScore,
-              consecutive_wins: myWon ? 1 : 0,
-              categories_played: challenge.categoryId,
-            },
-          }).then(result => {
-            try { localStorage.setItem(guardKey, "1"); } catch {}
+          void (async () => {
+            const [scoreSaved, statsSaved] = await Promise.all([
+              insertScore({
+                user_id: dbUser.id,
+                username: supabaseName,
+                category: challenge.categoryId,
+                score: myScore,
+                game_mode: "challenge",
+              }),
+              updateUserStats(dbUser.id, {
+                total_wins: myWon ? 1 : 0,
+                total_losses: myWon ? 0 : 1,
+                total_points: myScore * 10,
+              }),
+            ]);
+            if (!scoreSaved || !statsSaved) {
+              throw new Error("Challenge score or stats were not saved");
+            }
+            const result = await awardGameRewards({
+              userId: dbUser.id,
+              xp: xpGain,
+              coins: coinGain,
+              currentXP: dbUser.xp ?? 0,
+              currentCoins: dbUser.coins ?? 0,
+              currentLevel: dbUser.level ?? 1,
+              currentAchievements: dbUser.achievements,
+              currentSeasonPoints: dbUser.season_points ?? 0,
+              progressUpdates: {
+                total_games:      1,
+                total_correct:    myScore,
+                consecutive_wins: myWon ? 1 : 0,
+                categories_played: challenge.categoryId,
+              },
+            });
+            await recordEngagementGame(dbUser.id, {
+              won: myWon,
+              correct: myScore,
+              categoryId: challenge.categoryId,
+            });
+            try {
+              confirmResultSettlement(localStorage, challengeId, role);
+            } catch {}
+            setSettlementState("confirmed");
             setShowReward({ xp: result.xpGained, coins: result.coinsGained });
             setRewardSummary({ xp: result.xpGained, coins: result.coinsGained, achievements: result.newlyUnlocked.length });
             if (result.newlyUnlocked.length > 0) {
@@ -165,16 +191,19 @@ export default function Results() {
             if (result.coinsGained > 0) playSound("coin");
             if (result.leveledUp) playSound("levelup");
             recordTodayXP(result.xpGained);
-            recordEngagementGame(dbUser.id, { won: myWon, correct: myScore, categoryId: challenge.categoryId })
-              .then(() => refreshUser())
-              .catch(() => refreshUser());
-          }).catch(() => {
-            // Keep this mount idempotent; a later page reload can retry because
-            // the persistent guard is written only after a confirmed update.
+            await refreshUser();
+          })().catch(() => {
+            // The reservation intentionally remains pending. Retrying this
+            // client-side batch could duplicate a request that committed before
+            // its response was lost.
+            setSettlementState("pending");
           });
         }
       } else {
-        try { localStorage.setItem(guardKey, "1"); } catch {}
+        try {
+          confirmResultSettlement(localStorage, challengeId, role);
+        } catch {}
+        setSettlementState("confirmed");
       }
 
       // Today-stats roll-up (works for guests too, only when challenge is finished)
@@ -282,6 +311,16 @@ export default function Results() {
 
   return (
     <div className="min-h-screen gradient-hero flex flex-col">
+      {settlementState === "pending" && (
+        <div className="mx-4 mt-4 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-center text-sm" role="status">
+          تم تثبيت النتيجة ومنع تكرارها. قد تتأخر مزامنة المكافأة؛ لا تُعد فتح التحدي لإجبارها.
+        </div>
+      )}
+      {settlementState === "unavailable" && (
+        <div className="mx-4 mt-4 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-center text-sm" role="alert">
+          تعذّر حجز تسوية آمنة على هذا الجهاز، لذلك لم تُرسل الإحصاءات أو المكافآت لتجنب تكرارها.
+        </div>
+      )}
       {showSignupPrompt && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center p-5"

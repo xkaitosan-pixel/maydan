@@ -281,6 +281,9 @@ export default function Survival() {
 
   function endGame(finalScore: number) {
     if (!sessionActiveRef.current) return;
+    // Claim completion synchronously before any side effect. Timeout and answer
+    // callbacks can converge here, but only the first one may settle the run.
+    sessionActiveRef.current = false;
     if (timerRef.current) clearInterval(timerRef.current);
     // Record stats
     recordSurvivalGame(finalScore);
@@ -317,7 +320,6 @@ export default function Survival() {
             categories_played: selectedCategory,
           },
         }).then(result => {
-          if (!sessionActiveRef.current) return;
           setShowReward({ xp: result.xpGained, coins: result.coinsGained });
           setRewardSummary({ xp: result.xpGained, coins: result.coinsGained, achievements: result.newlyUnlocked.length });
           if (result.newlyUnlocked.length > 0) {

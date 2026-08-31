@@ -174,8 +174,13 @@ async function writeUser(userId: string, rawAchievements: unknown, engagement: E
   const a = parseAchievementsData(rawAchievements);
   const update: Record<string, unknown> = { achievements: { ...a, engagement } };
   if (typeof coins === "number") update.coins = coins;
-  const { error } = await supabase.from("users").update(update).eq("id", userId);
-  return !error;
+  const { data, error } = await supabase
+    .from("users")
+    .update(update)
+    .eq("id", userId)
+    .select("id")
+    .maybeSingle();
+  return !error && !!data;
 }
 
 // ─── GAME-END TRACKING ─────────────────────────────────────────────────────────
@@ -202,7 +207,7 @@ const NO_RESULT: GameTrackResult = {
 
 export async function recordEngagementGame(userId: string, meta: GameMeta): Promise<GameTrackResult> {
   const row = await readUser(userId);
-  if (!row) return NO_RESULT;
+  if (!row) throw new Error("Unable to read engagement state");
   const s = engagementFrom(row.achievements);
   const correct = Math.max(0, Math.floor(meta.correct || 0));
 
@@ -248,7 +253,8 @@ export async function recordEngagementGame(userId: string, meta: GameMeta): Prom
   const missionsJustCompleted = DAILY_MISSIONS.filter((m, i) => !beforeComplete[i] && s.daily[m.field] >= m.target);
   const weeklyJustCompleted = !weeklyBefore && s.weekly.correct >= WEEKLY_CHALLENGE.target;
 
-  await writeUser(userId, row.achievements, s);
+  const saved = await writeUser(userId, row.achievements, s);
+  if (!saved) throw new Error("Unable to save engagement state");
 
   return {
     boxesPending: s.box.pending,

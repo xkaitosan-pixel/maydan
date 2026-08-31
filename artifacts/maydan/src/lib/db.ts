@@ -237,25 +237,34 @@ export async function updateUserStats(userId: string, delta: {
   total_wins?: number;
   total_losses?: number;
   total_points?: number;
-}): Promise<void> {
+}): Promise<boolean> {
   // Fetch current values then increment
-  const { data: current } = await supabase
+  const { data: current, error: readError } = await supabase
     .from("users")
     .select("total_wins, total_losses, total_points")
     .eq("id", userId)
     .single();
-  if (!current) return;
+  if (readError || !current) {
+    if (readError) console.error("updateUserStats read error", readError);
+    return false;
+  }
 
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from("users")
     .update({
       total_wins: current.total_wins + (delta.total_wins ?? 0),
       total_losses: current.total_losses + (delta.total_losses ?? 0),
       total_points: current.total_points + (delta.total_points ?? 0),
     })
-    .eq("id", userId);
+    .eq("id", userId)
+    .select("id")
+    .maybeSingle();
 
-  if (error) console.error("updateUserStats error", error);
+  if (error || !updated) {
+    console.error("updateUserStats error", error);
+    return false;
+  }
+  return true;
 }
 
 export async function setPremiumStatus(userId: string, isPremium: boolean): Promise<DbUser | null> {
