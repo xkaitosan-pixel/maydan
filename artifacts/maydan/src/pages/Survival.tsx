@@ -137,10 +137,14 @@ export default function Survival() {
     const catToUse = typeof forceCategory === "string" ? forceCategory : selectedCategory;
     sessionActiveRef.current = true;
     clearScheduledTimeouts();
-    incrementSurvivalCount();
     const rawPool = await fetchGameQuestions(catToUse);
     const pool = rawPool.map((q) => shuffleQuestion(q));
-    if (!pool.length || !sessionActiveRef.current) return;
+    if (!pool.length || !sessionActiveRef.current) {
+      sessionActiveRef.current = false;
+      alert("تعذّر تحميل أسئلة وضع البقاء. تحقق من اتصالك وحاول مجددًا.");
+      return;
+    }
+    incrementSurvivalCount();
     questionPoolRef.current = pool;
     const first = pool[0];
     const t = BASE_TIME;

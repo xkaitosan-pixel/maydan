@@ -7,7 +7,7 @@ import {
   OFFLINE_QUEUE_EVENT,
 } from "@/lib/offlineQueue";
 
-const PROTECTED_GAME_PATHS = ["/quiz", "/survival", "/ranked", "/party/", "/daily"];
+const PROTECTED_GAME_PATHS = ["/quiz", "/survival", "/ranked", "/party/", "/daily", "/training"];
 
 export default function PwaRuntime() {
   const [location] = useLocation();

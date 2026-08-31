@@ -4,13 +4,26 @@ interface QuestionImageProps {
   url: string;
   maxHeight?: number;
   className?: string;
+  alt?: string;
 }
 
-export default function QuestionImage({ url, maxHeight = 200, className = "" }: QuestionImageProps) {
+export default function QuestionImage({
+  url,
+  maxHeight = 200,
+  className = "",
+  alt = "صورة توضيحية للسؤال",
+}: QuestionImageProps) {
   const [loaded, setLoaded] = useState(false);
   const [errored, setErrored] = useState(false);
 
-  if (!url || errored) return null;
+  if (!url) return null;
+  if (errored) {
+    return (
+      <div className={`w-full rounded-xl bg-white/5 p-3 text-center text-xs text-muted-foreground ${className}`} role="status">
+        تعذّر تحميل صورة السؤال
+      </div>
+    );
+  }
 
   return (
     <div className={`w-full flex justify-center ${className}`}>
@@ -22,7 +35,9 @@ export default function QuestionImage({ url, maxHeight = 200, className = "" }: 
       )}
       <img
         src={url}
-        alt=""
+        alt={alt}
+        loading="lazy"
+        decoding="async"
         onLoad={() => setLoaded(true)}
         onError={() => setErrored(true)}
         className="rounded-xl object-contain w-full"

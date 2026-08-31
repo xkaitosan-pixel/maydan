@@ -66,14 +66,17 @@ export default function UsernameSetup() {
   }, [username, dbUser?.id]);
 
   async function handleSave() {
-    if (status !== "available") return;
+    if (status !== "available" || !dbUser) {
+      if (!dbUser) setError("انتهت جلسة المستخدم. أعد تحميل الصفحة وحاول مجددًا.");
+      return;
+    }
     setSaving(true);
     setError("");
 
     const { data, error: err } = await supabase
       .from("users")
       .update({ username: username.trim() })
-      .eq("id", dbUser!.id)
+      .eq("id", dbUser.id)
       .select(DB_USER_COLUMNS)
       .single();
 

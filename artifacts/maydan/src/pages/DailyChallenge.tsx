@@ -198,9 +198,28 @@ export default function DailyChallenge() {
     sessionActiveRef.current = true;
     clearTransitionTimeouts();
     setAttempt(serverAttempt);
-    if (serverAttempt.question_ids?.length) {
+    if (
+      serverAttempt.question_ids?.length !== DAILY_Q_COUNT ||
+      serverAttempt.current_question_index < 0 ||
+      serverAttempt.current_question_index >= DAILY_Q_COUNT
+    ) {
+      sessionActiveRef.current = false;
+      alert("بيانات محاولة تحدي اليوم غير مكتملة. أعد فتح الصفحة وحاول مجددًا.");
+      return;
+    }
+    try {
       const serverQuestions = await fetchQuestionsByIds(serverAttempt.question_ids);
-      setQuestions(serverQuestions.map((q) => shuffleQuestion(q, q.id)));
+      const byId = new Map(serverQuestions.map((question) => [question.id, question]));
+      if (!serverAttempt.question_ids.every((id) => byId.has(id))) {
+        sessionActiveRef.current = false;
+        alert("تعذّر تحميل جميع أسئلة تحدي اليوم. تحقق من اتصالك وحاول مجددًا.");
+        return;
+      }
+      setQuestions(serverAttempt.question_ids.map((id) => shuffleQuestion(byId.get(id)!, id)));
+    } catch {
+      sessionActiveRef.current = false;
+      alert("تعذّر تحميل أسئلة تحدي اليوم. تحقق من اتصالك وحاول مجددًا.");
+      return;
     }
     scoreRef.current = serverAttempt.score;
     correctRef.current = serverAttempt.correct_count;
@@ -258,6 +277,11 @@ export default function DailyChallenge() {
     if (timerRef.current) clearInterval(timerRef.current);
 
     const q = questions[qIdx];
+    if (!q) {
+      answeredRef.current = false;
+      alert("تعذّر تحميل السؤال الحالي. أعد فتح تحدي اليوم للمحاولة مجددًا.");
+      return;
+    }
     const correct = q && idx === q.correct;
     if (correct) {
       playSound("correct");

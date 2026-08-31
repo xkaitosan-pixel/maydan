@@ -5,8 +5,13 @@ import { Home, Swords, Calendar, Trophy, User } from "lucide-react";
 const HIDE_PREFIXES = [
   "/onboarding",
   "/auth",
+  "/quiz",
+  "/survival",
+  "/ranked",
+  "/party/",
+  "/daily",
+  "/training",
 ];
-const PROTECTED_PREFIXES = ["/quiz", "/survival", "/ranked", "/party/", "/daily"];
 
 const ITEMS: Array<{ path: string; label: string; Icon: typeof Home }> = [
   { path: "/", label: "الرئيسية", Icon: Home },
@@ -40,8 +45,6 @@ export default function BottomNav() {
 
   function goTo(path: string) {
     if (path === location) return;
-    const needsConfirmation = PROTECTED_PREFIXES.some((prefix) => location.startsWith(prefix));
-    if (needsConfirmation && !window.confirm("هل تريد الخروج من اللعب؟ قد تفقد تقدمك الحالي.")) return;
     navigate(path);
   }
 
@@ -62,12 +65,14 @@ export default function BottomNav() {
           return (
             <li key={path} className="flex-1">
               <button
+                type="button"
                 onClick={() => goTo(path)}
-                className="w-full h-full flex flex-col items-center justify-center gap-0.5 transition-colors"
+                className="w-full h-full min-h-11 flex flex-col items-center justify-center gap-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
                 style={{
                   color: active ? "#f5d98a" : "rgba(255,255,255,0.55)",
                 }}
                 aria-current={active ? "page" : undefined}
+                aria-label={label}
               >
                 <Icon className="w-5 h-5" strokeWidth={active ? 2.5 : 2} />
                 <span className="text-[10px] font-bold leading-none">{label}</span>

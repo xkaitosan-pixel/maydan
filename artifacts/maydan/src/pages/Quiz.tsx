@@ -45,6 +45,7 @@ export default function Quiz() {
   const [timeAvail, setTimeAvail] = useState(0);
   const [powerUsed, setPowerUsed] = useState<{ skip: boolean; time: boolean }>({ skip: false, time: false });
   const [loadedQs, setLoadedQs] = useState<Question[]>([]);
+  const [questionLoadError, setQuestionLoadError] = useState("");
   const [showXPPop, setShowXPPop] = useState(false);
   const [showIntro, setShowIntro] = useState(true);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
@@ -90,9 +91,22 @@ export default function Quiz() {
     setAnswers(new Array(challenge.questions.length).fill(null));
     loadPowerCards();
     // Deterministic shuffle by q.id so creator + challenger see identical option order
-    fetchQuestionsByIds(challenge.questions).then((qs) =>
-      setLoadedQs(qs.map((q) => shuffleQuestion(q, q.id)))
-    );
+    setQuestionLoadError("");
+    fetchQuestionsByIds(challenge.questions)
+      .then((qs) => {
+        const byId = new Map(qs.map((q) => [q.id, q]));
+        const complete = challenge.questions.every((id) => byId.has(id));
+        if (!complete) {
+          setQuestionLoadError("تعذّر تحميل جميع أسئلة هذا التحدي. قد يكون أحد الأسئلة محذوفًا أو غير متاح.");
+          setLoadedQs([]);
+          return;
+        }
+        setLoadedQs(qs.map((q) => shuffleQuestion(q, q.id)));
+      })
+      .catch(() => {
+        setQuestionLoadError("تعذّر تحميل أسئلة التحدي. تحقق من اتصالك وحاول مجددًا.");
+        setLoadedQs([]);
+      });
   }, [challengeId, role]);
 
   // Guarantee clean visual state on every question change (sync, before paint)
@@ -194,7 +208,14 @@ export default function Quiz() {
     if (timerRef.current) clearInterval(timerRef.current);
     clearAllTimeouts(); // Ensure no pending transitions fire while navigating away
     const totalTime = Math.floor((Date.now() - startTime) / 1000);
-    const questionList = challenge.questions.map(id => loadedQs.find(q => q.id === id)!);
+    const byId = new Map(loadedQs.map((question) => [question.id, question]));
+    const questionList = challenge.questions
+      .map((id) => byId.get(id))
+      .filter((question): question is Question => !!question);
+    if (questionList.length !== challenge.questions.length) {
+      setQuestionLoadError("تعذّر إكمال التحدي لأن بعض الأسئلة لم تعد متاحة.");
+      return;
+    }
     const score = finalAnswers.reduce<number>((acc, ans, idx) => acc + (ans === questionList[idx]?.correct ? 1 : 0), 0);
 
     // Record stats
@@ -240,6 +261,23 @@ export default function Quiz() {
 
   if (!challenge) return null;
 
+  if (questionLoadError) {
+    return (
+      <div className="min-h-screen gradient-hero flex items-center justify-center p-6 text-center">
+        <div className="w-full max-w-sm rounded-2xl border border-destructive/30 bg-card p-6" role="alert">
+          <p className="font-bold text-foreground">{questionLoadError}</p>
+          <button
+            type="button"
+            onClick={() => navigate("/")}
+            className="mt-5 min-h-11 rounded-xl bg-primary px-5 py-2.5 font-bold text-primary-foreground"
+          >
+            العودة للرئيسية
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (loadedQs.length === 0) {
     return (
       <div className="min-h-screen gradient-hero flex items-center justify-center">
@@ -253,7 +291,13 @@ export default function Quiz() {
 
   const questionIds = challenge.questions;
   const currentQuestion = loadedQs.find(q => q.id === questionIds[currentIndex]) ?? null;
-  if (!currentQuestion) return null;
+  if (!currentQuestion) {
+    return (
+      <div className="min-h-screen gradient-hero flex items-center justify-center p-6 text-center" role="alert">
+        <p className="font-bold">السؤال الحالي غير متاح. ارجع للرئيسية وابدأ تحديًا جديدًا.</p>
+      </div>
+    );
+  }
 
   const timerPercent = (timeLeft / QUESTION_TIME) * 100;
   const isTimerDanger = timeLeft <= 10;

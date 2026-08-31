@@ -32,6 +32,7 @@ export default function Results() {
   const [copied, setCopied] = useState(false);
   const [winRecorded, setWinRecorded] = useState(false);
   const [loadedQs, setLoadedQs] = useState<Question[]>([]);
+  const [questionsSettled, setQuestionsSettled] = useState(false);
   const [showReward, setShowReward] = useState<{ xp: number; coins: number } | null>(null);
   const [newAchievements, setNewAchievements] = useState<string[]>([]);
   const [rewardSummary, setRewardSummary] = useState<{ xp: number; coins: number; achievements: number } | null>(null);
@@ -78,17 +79,26 @@ export default function Results() {
   useEffect(() => {
     let cancelled = false;
     setLoadedQs([]);
+    setQuestionsSettled(false);
     if (challenge) {
       // Apply same deterministic shuffle as Quiz so saved answer indices map to correct options
       fetchQuestionsByIds(challenge.questions).then((qs) => {
-        if (!cancelled) setLoadedQs(qs.map((q) => shuffleQuestion(q, q.id)));
+        if (!cancelled) {
+          setLoadedQs(qs.map((q) => shuffleQuestion(q, q.id)));
+          setQuestionsSettled(true);
+        }
+      }).catch(() => {
+        if (!cancelled) setQuestionsSettled(true);
       });
+    } else {
+      setQuestionsSettled(true);
     }
     return () => { cancelled = true; };
   }, [challengeId, challengeQuestionsKey]);
 
   useEffect(() => {
-    if (!challenge || winRecorded) return;
+    if (!challenge || winRecorded || !questionsSettled) return;
+    if (!isGuest && !dbUser) return;
     if (challenge.status === "completed") {
       // Persistent idempotency guard — prevents double-awarding XP/coins/wins
       // on remount or refresh of /results/:id/:role.
@@ -102,7 +112,6 @@ export default function Results() {
       const myWon = role === "creator" ? cs > chs : chs > cs;
       if (myWon) { recordWin(); }
       setWinRecorded(true);
-      try { localStorage.setItem(guardKey, "1"); } catch {}
 
       // Record to local leaderboard
       const myScore = role === "creator" ? cs : chs;
@@ -146,6 +155,7 @@ export default function Results() {
               categories_played: challenge.categoryId,
             },
           }).then(result => {
+            try { localStorage.setItem(guardKey, "1"); } catch {}
             setShowReward({ xp: result.xpGained, coins: result.coinsGained });
             setRewardSummary({ xp: result.xpGained, coins: result.coinsGained, achievements: result.newlyUnlocked.length });
             if (result.newlyUnlocked.length > 0) {
@@ -158,14 +168,19 @@ export default function Results() {
             recordEngagementGame(dbUser.id, { won: myWon, correct: myScore, categoryId: challenge.categoryId })
               .then(() => refreshUser())
               .catch(() => refreshUser());
-          }).catch(() => {});
+          }).catch(() => {
+            // Keep this mount idempotent; a later page reload can retry because
+            // the persistent guard is written only after a confirmed update.
+          });
         }
+      } else {
+        try { localStorage.setItem(guardKey, "1"); } catch {}
       }
 
       // Today-stats roll-up (works for guests too, only when challenge is finished)
       if (myWon) recordTodayWin(); else if (cs !== chs) recordTodayLoss();
     }
-  }, [challenge, role, winRecorded]);
+  }, [challenge, role, winRecorded, questionsSettled, isGuest, dbUser, refreshUser]);
 
   if (challengeLoading && !challenge) {
     return <div className="min-h-[100dvh] gradient-hero flex items-center justify-center font-bold">جاري تحميل النتيجة...</div>;
@@ -181,7 +196,14 @@ export default function Results() {
     );
   }
 
-  const questionList = challenge.questions.map(id => loadedQs.find(q => q.id === id)!);
+  const questionsById = new Map(loadedQs.map((question) => [question.id, question]));
+  const questionList = challenge.questions
+    .map((id) => questionsById.get(id))
+    .filter((question): question is Question => !!question);
+  const questionsIncomplete =
+    questionsSettled &&
+    challenge.questions.length > 0 &&
+    questionList.length !== challenge.questions.length;
   const total = questionList.length;
   const creatorScore = challenge.creatorScore;
   const challengerScore = challenge.challengerScore;
@@ -202,8 +224,27 @@ export default function Results() {
   }
 
   const shareUrl = `${window.location.origin}${import.meta.env.BASE_URL}challenge/${challengeId}`;
-  const pct = Math.round((myScore / total) * 100);
+  const pct = total > 0 ? Math.round((myScore / total) * 100) : 0;
   const rank = getSurvivalRank(myScore);
+
+  if (!questionsSettled && challenge.questions.length > 0) {
+    return (
+      <div className="min-h-[100dvh] gradient-hero flex items-center justify-center font-bold">
+        جاري تحميل تفاصيل النتيجة...
+      </div>
+    );
+  }
+
+  if (questionsIncomplete) {
+    return (
+      <div className="min-h-[100dvh] gradient-hero flex items-center justify-center p-6 text-center">
+        <div className="max-w-sm rounded-2xl border border-destructive/30 bg-card p-6" role="alert">
+          <p className="font-bold">تعذّر عرض تفاصيل النتيجة لأن بعض أسئلة التحدي لم تعد متاحة.</p>
+          <Button className="mt-4" onClick={() => navigate("/")}>العودة للرئيسية</Button>
+        </div>
+      </div>
+    );
+  }
 
   // Viral share texts (richer format with header + signature)
   function getViralShareText() {

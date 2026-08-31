@@ -243,6 +243,8 @@ export async function awardGameRewards(input: AwardInput): Promise<AwardResult> 
       if (typeof delta === 'string' && !arr.includes(delta)) arr.push(delta);
       progress.categories_played = arr;
       progress.categories_count  = arr.length;
+    } else if (key === 'consecutive_wins' && delta === 0) {
+      progress.consecutive_wins = 0;
     } else {
       progress[key] = ((progress[key] as number) ?? 0) + (delta as number);
     }
@@ -281,13 +283,24 @@ export async function awardGameRewards(input: AwardInput): Promise<AwardResult> 
     season_week: currentWeek,
   };
 
-  await supabase.from('users').update({
-    xp:            finalXP,
-    coins:         finalCoins,
-    level:         finalLevel,
-    season_points: newSeasonPoints,
-    achievements:  updatedAData,
-  }).eq('id', userId);
+  const { data: updatedUser, error } = await supabase
+    .from('users')
+    .update({
+      xp:            finalXP,
+      coins:         finalCoins,
+      level:         finalLevel,
+      season_points: newSeasonPoints,
+      achievements:  updatedAData,
+    })
+    .eq('id', userId)
+    .eq('xp', currentXP)
+    .eq('coins', currentCoins)
+    .select('id')
+    .maybeSingle();
+  if (error) throw error;
+  if (!updatedUser) {
+    throw new Error('Reward state changed before it could be saved');
+  }
 
   return {
     xpGained:      xp + bonusXP,
@@ -312,6 +325,13 @@ export async function purchaseItem(
   if (currentCoins < cost) {
     return { success: false, message: 'رصيدك غير كافٍ 🪙', newCoins: currentCoins };
   }
+  const catalogCost =
+    itemType === 'frame' ? FRAMES.find((item) => item.id === itemId)?.cost :
+    itemType === 'title' ? TITLES.find((item) => item.id === itemId)?.cost :
+    POWER_CARD_ITEMS.find((item) => item.id === itemId)?.cost;
+  if (catalogCost === undefined || catalogCost !== cost || cost < 0) {
+    return { success: false, message: 'العنصر أو السعر غير صالح.', newCoins: currentCoins };
+  }
   const aData  = parseAchievementsData(currentAchievements);
   const newCoins = currentCoins - cost;
   const update: Record<string, unknown> = { coins: newCoins };
@@ -327,24 +347,41 @@ export async function purchaseItem(
     update.achievements = { ...aData, power_cards_store: store };
   }
 
-  await supabase.from('users').update(update).eq('id', userId);
+  const { data, error } = await supabase
+    .from('users')
+    .update(update)
+    .eq('id', userId)
+    .eq('coins', currentCoins)
+    .select('coins')
+    .maybeSingle();
+  if (error || !data) {
+    return {
+      success: false,
+      message: error ? 'تعذّر إتمام الشراء. حاول مجددًا.' : 'تغيّر رصيدك. حدّث الصفحة ثم حاول مجددًا.',
+      newCoins: currentCoins,
+    };
+  }
   return { success: true, message: 'تم الشراء بنجاح! ✅', newCoins };
 }
 
 // ─── SIMPLE HELPERS ───────────────────────────────────────────────────────────
 
 export async function awardXP(userId: string, amount: number): Promise<number> {
-  const { data } = await supabase.from('users').select('xp').eq('id', userId).single();
+  const { data, error: readError } = await supabase.from('users').select('xp').eq('id', userId).single();
+  if (readError || !data) throw readError ?? new Error('User XP was not found');
   const newXP = (data?.xp ?? 0) + amount;
   const newLevel = LEVELS.reduce((lv, lvl) => newXP >= lvl.xp ? lvl.level : lv, 1);
-  await supabase.from('users').update({ xp: newXP, level: newLevel }).eq('id', userId);
+  const { error } = await supabase.from('users').update({ xp: newXP, level: newLevel }).eq('id', userId);
+  if (error) throw error;
   return newXP;
 }
 
 export async function awardCoins(userId: string, amount: number): Promise<number> {
-  const { data } = await supabase.from('users').select('coins').eq('id', userId).single();
+  const { data, error: readError } = await supabase.from('users').select('coins').eq('id', userId).single();
+  if (readError || !data) throw readError ?? new Error('User coins were not found');
   const newCoins = (data?.coins ?? 0) + amount;
-  await supabase.from('users').update({ coins: newCoins }).eq('id', userId);
+  const { error } = await supabase.from('users').update({ coins: newCoins }).eq('id', userId);
+  if (error) throw error;
   return newCoins;
 }
 

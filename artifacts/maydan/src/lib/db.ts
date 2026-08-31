@@ -4,6 +4,7 @@ import type { DbUser } from "./AuthContext";
 // ──────────────────────────── SCORES / LEADERBOARD ────────────────────────────
 
 const CACHE_TTL_MS = 30_000;
+const GAME_REQUEST_TIMEOUT_MS = 12_000;
 const SCORE_COLUMNS = "id, user_id, username, category, score, game_mode, created_at";
 const USER_COLUMNS = "id, auth_id, username, avatar_url, total_wins, total_losses, streak_count, longest_streak, last_played, is_premium, total_points, created_at, xp, level, coins, rank_title, achievements, season_points, display_name, country, bio, gender, onboarding_completed, favorite_categories";
 const CHALLENGE_COLUMNS = "id, creator_id, creator_name, opponent_id, opponent_name, status, creator_score, opponent_score, category, question_ids, creator_answers, opponent_answers, question_count, created_at, winner";
@@ -484,6 +485,25 @@ function rpcRow<T>(data: T | T[] | null): T | null {
   return Array.isArray(data) ? (data[0] ?? null) : data;
 }
 
+function withGameTimeout<T>(request: PromiseLike<T>, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(
+      () => reject(new Error(`${label} timed out`)),
+      GAME_REQUEST_TIMEOUT_MS,
+    );
+    Promise.resolve(request).then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 function gameGuestToken(userId: string): string | null {
   if (!userId.startsWith("guest_")) return null;
   const key = "maydan_game_guest_capability";
@@ -500,21 +520,27 @@ export async function enterRankedQueue(params: {
   username: string;
   preferredCategories: string[];
 }): Promise<Record<string, unknown> | null> {
-  const { data, error } = await supabase.rpc("enter_ranked_queue", {
-    p_user_id: params.userId,
-    p_username: params.username,
-    p_preferred_categories: params.preferredCategories,
-    p_guest_token: gameGuestToken(params.userId),
-  });
+  const { data, error } = await withGameTimeout(
+    supabase.rpc("enter_ranked_queue", {
+      p_user_id: params.userId,
+      p_username: params.username,
+      p_preferred_categories: params.preferredCategories,
+      p_guest_token: gameGuestToken(params.userId),
+    }),
+    "enter ranked queue",
+  );
   if (error) throw error;
   return rpcRow(data) as Record<string, unknown> | null;
 }
 
 export async function cancelRankedQueue(userId: string): Promise<void> {
-  const { error } = await supabase.rpc("cancel_ranked_queue", {
-    p_user_id: userId,
-    p_guest_token: gameGuestToken(userId),
-  });
+  const { error } = await withGameTimeout(
+    supabase.rpc("cancel_ranked_queue", {
+      p_user_id: userId,
+      p_guest_token: gameGuestToken(userId),
+    }),
+    "cancel ranked queue",
+  );
   if (error) throw error;
 }
 
@@ -525,14 +551,17 @@ export async function submitRankedAnswer(params: {
   questionId: number;
   answerText: string | null;
 }): Promise<Record<string, unknown>> {
-  const { data, error } = await supabase.rpc("submit_ranked_answer", {
-    p_match_id: params.matchId,
-    p_user_id: params.userId,
-    p_question_index: params.questionIndex,
-    p_question_id: params.questionId,
-    p_answer_text: params.answerText,
-    p_guest_token: gameGuestToken(params.userId),
-  });
+  const { data, error } = await withGameTimeout(
+    supabase.rpc("submit_ranked_answer", {
+      p_match_id: params.matchId,
+      p_user_id: params.userId,
+      p_question_index: params.questionIndex,
+      p_question_id: params.questionId,
+      p_answer_text: params.answerText,
+      p_guest_token: gameGuestToken(params.userId),
+    }),
+    "submit ranked answer",
+  );
   if (error) throw error;
   const row = rpcRow(data);
   if (!row) throw new Error("Ranked answer returned no match");
@@ -544,12 +573,15 @@ export async function advanceRankedMatch(
   userId: string,
   fromQuestion: number,
 ): Promise<Record<string, unknown>> {
-  const { data, error } = await supabase.rpc("start_or_advance_ranked_match", {
-    p_match_id: matchId,
-    p_user_id: userId,
-    p_from_question: fromQuestion,
-    p_guest_token: gameGuestToken(userId),
-  });
+  const { data, error } = await withGameTimeout(
+    supabase.rpc("start_or_advance_ranked_match", {
+      p_match_id: matchId,
+      p_user_id: userId,
+      p_from_question: fromQuestion,
+      p_guest_token: gameGuestToken(userId),
+    }),
+    "advance ranked match",
+  );
   if (error) throw error;
   const row = rpcRow(data);
   if (!row) throw new Error("Ranked advance returned no match");
@@ -561,12 +593,15 @@ export async function startDailyAttempt(params: {
   displayName: string;
   country: string;
 }): Promise<DailyAttempt> {
-  const { data, error } = await supabase.rpc("start_daily_attempt", {
-    p_user_id: params.userId,
-    p_display_name: params.displayName,
-    p_country: params.country,
-    p_guest_token: gameGuestToken(params.userId),
-  });
+  const { data, error } = await withGameTimeout(
+    supabase.rpc("start_daily_attempt", {
+      p_user_id: params.userId,
+      p_display_name: params.displayName,
+      p_country: params.country,
+      p_guest_token: gameGuestToken(params.userId),
+    }),
+    "start daily attempt",
+  );
   if (error) throw error;
   const row = rpcRow(data);
   if (!row) throw new Error("Daily attempt returned no row");
@@ -580,14 +615,17 @@ export async function submitDailyAnswer(params: {
   questionId: number;
   answerText: string | null;
 }): Promise<DailyAttempt> {
-  const { data, error } = await supabase.rpc("submit_daily_answer", {
-    p_attempt_id: params.attemptId,
-    p_user_id: params.userId,
-    p_question_index: params.questionIndex,
-    p_question_id: params.questionId,
-    p_answer_text: params.answerText,
-    p_guest_token: gameGuestToken(params.userId),
-  });
+  const { data, error } = await withGameTimeout(
+    supabase.rpc("submit_daily_answer", {
+      p_attempt_id: params.attemptId,
+      p_user_id: params.userId,
+      p_question_index: params.questionIndex,
+      p_question_id: params.questionId,
+      p_answer_text: params.answerText,
+      p_guest_token: gameGuestToken(params.userId),
+    }),
+    "submit daily answer",
+  );
   if (error) throw error;
   const row = rpcRow(data);
   if (!row) throw new Error("Daily answer returned no attempt");

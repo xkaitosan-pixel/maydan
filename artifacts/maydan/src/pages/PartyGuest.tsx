@@ -991,7 +991,7 @@ export default function PartyGuest() {
           )}
         </div>
 
-        {sorted.length > 0 && (
+        {sorted[0] && (
           <div className="grid grid-cols-3 items-end gap-2 w-full max-w-md" data-testid="podium-guest-final">
             <div className="min-w-0">
               {sorted[1] && (

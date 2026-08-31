@@ -116,6 +116,20 @@ test("waits to activate an updated worker, then serves the new cache to a fresh 
     expect(await firstPage.evaluate(() => caches.keys())).toContain(initialVersion);
 
     await firstPage.close();
+    // Poll from a same-origin page outside the worker scope. It can inspect the
+    // registration without becoming a controlled client that blocks activation.
+    const probePage = await firstContext.newPage();
+    await probePage.goto("http://127.0.0.1:4178/");
+    await expect.poll(() =>
+      probePage.evaluate((scope) =>
+        navigator.serviceWorker.getRegistration(scope).then((registration) => ({
+          active: registration?.active?.state,
+          waiting: registration?.waiting?.state ?? null,
+        })),
+        appBase,
+      ),
+    ).toEqual({ active: "activated", waiting: null });
+    await probePage.close();
     const freshPage = await firstContext.newPage();
     await freshPage.goto(`http://127.0.0.1:4178${appBase}`);
     await freshPage.evaluate(async () => {
