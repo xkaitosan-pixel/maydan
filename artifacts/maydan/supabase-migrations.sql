@@ -28,6 +28,35 @@ BEGIN
   END IF;
 END $$;
 
+CREATE TABLE IF NOT EXISTS public.party_rooms (
+  code text PRIMARY KEY,
+  status text NOT NULL DEFAULT 'lobby',
+  category text NOT NULL,
+  total_questions integer NOT NULL,
+  current_question integer NOT NULL DEFAULT 0,
+  answer_time integer NOT NULL,
+  show_question_on_phone boolean NOT NULL DEFAULT false,
+  scoring_type text NOT NULL,
+  auto_advance_seconds integer NOT NULL DEFAULT 0,
+  question_start_time bigint NOT NULL DEFAULT 0,
+  host_token_hash bytea,
+  host_last_seen_at bigint,
+  finished_at bigint,
+  settled_question_index integer NOT NULL DEFAULT -1,
+  total_players integer NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS public.party_players (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_code text NOT NULL REFERENCES public.party_rooms(code) ON DELETE CASCADE,
+  nickname text NOT NULL,
+  score integer NOT NULL DEFAULT 0,
+  answered_current boolean NOT NULL DEFAULT false,
+  last_answer integer,
+  answered_at bigint,
+  player_token_hash bytea,
+  UNIQUE (room_code, nickname)
+);
+
 ALTER TABLE public.party_rooms ADD COLUMN IF NOT EXISTS auto_advance_seconds int DEFAULT 0;
 ALTER TABLE public.party_rooms ADD COLUMN IF NOT EXISTS question_start_time bigint DEFAULT 0;
 ALTER TABLE public.party_rooms ADD COLUMN IF NOT EXISTS host_token_hash bytea;
@@ -728,3 +757,749 @@ CREATE TABLE IF NOT EXISTS friends (
 );
 CREATE INDEX IF NOT EXISTS friends_user_id_idx   ON friends (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS friends_friend_id_idx ON friends (friend_id);
+
+-- =====================================================================
+-- 8. Ranked + Daily server authority and idempotent game rewards
+-- =====================================================================
+
+-- Canonical base definitions keep blank-database installs independent from
+-- tables that older environments created manually in the dashboard.
+CREATE TABLE IF NOT EXISTS public.ranked_queue (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id text NOT NULL,
+  username text NOT NULL DEFAULT '',
+  preferred_categories jsonb NOT NULL DEFAULT '[]'::jsonb,
+  rank_points int NOT NULL DEFAULT 0,
+  status text NOT NULL DEFAULT 'waiting',
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  last_seen_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+
+CREATE TABLE IF NOT EXISTS public.ranked_matches (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  player1_id text NOT NULL,
+  player1_name text NOT NULL DEFAULT '',
+  player2_id text NOT NULL,
+  player2_name text NOT NULL DEFAULT '',
+  category text NOT NULL DEFAULT 'mix',
+  status text NOT NULL DEFAULT 'active',
+  current_question_index int NOT NULL DEFAULT 0,
+  question_start_time bigint,
+  countdown_start bigint,
+  player1_score int NOT NULL DEFAULT 0,
+  player2_score int NOT NULL DEFAULT 0,
+  player1_answers jsonb NOT NULL DEFAULT '[]'::jsonb,
+  player2_answers jsonb NOT NULL DEFAULT '[]'::jsonb,
+  winner_id text,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+
+-- Keep the additions compatible with both the original and current shapes.
+ALTER TABLE public.ranked_queue
+  ADD COLUMN IF NOT EXISTS last_seen_at timestamptz NOT NULL DEFAULT clock_timestamp();
+ALTER TABLE public.ranked_matches
+  ADD COLUMN IF NOT EXISTS current_question_index int NOT NULL DEFAULT 0;
+ALTER TABLE public.ranked_matches
+  ADD COLUMN IF NOT EXISTS question_start_time bigint;
+ALTER TABLE public.ranked_matches
+  ADD COLUMN IF NOT EXISTS countdown_start bigint;
+ALTER TABLE public.ranked_matches
+  ADD COLUMN IF NOT EXISTS player1_answers jsonb NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE public.ranked_matches
+  ADD COLUMN IF NOT EXISTS player2_answers jsonb NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE public.ranked_matches
+  ADD COLUMN IF NOT EXISTS settled_at timestamptz;
+ALTER TABLE public.ranked_matches
+  ADD COLUMN IF NOT EXISTS question_ids jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+DELETE FROM public.ranked_queue AS duplicate
+USING public.ranked_queue AS keeper
+WHERE duplicate.user_id = keeper.user_id
+  AND duplicate.id <> keeper.id
+  AND (duplicate.created_at, duplicate.id) < (keeper.created_at, keeper.id);
+CREATE UNIQUE INDEX IF NOT EXISTS ranked_queue_user_id_key
+  ON public.ranked_queue (user_id);
+WITH duplicated_active_pairs AS (
+  SELECT id, row_number() OVER (
+    PARTITION BY least(player1_id, player2_id), greatest(player1_id, player2_id)
+    ORDER BY created_at DESC, id DESC
+  ) AS position
+  FROM public.ranked_matches
+  WHERE status = 'active'
+)
+UPDATE public.ranked_matches AS rm
+SET status = 'cancelled'
+FROM duplicated_active_pairs AS duplicate
+WHERE rm.id = duplicate.id AND duplicate.position > 1;
+CREATE UNIQUE INDEX IF NOT EXISTS ranked_matches_active_pair_key
+  ON public.ranked_matches (
+    least(player1_id, player2_id),
+    greatest(player1_id, player2_id)
+  )
+  WHERE status = 'active';
+
+CREATE TABLE IF NOT EXISTS public.ranked_answers (
+  match_id uuid NOT NULL REFERENCES public.ranked_matches(id) ON DELETE CASCADE,
+  user_id text NOT NULL,
+  question_index int NOT NULL,
+  question_id int NOT NULL,
+  answer_text text,
+  correct boolean NOT NULL,
+  points int NOT NULL,
+  answered_at bigint NOT NULL,
+  PRIMARY KEY (match_id, user_id, question_index)
+);
+
+CREATE TABLE IF NOT EXISTS public.ranked_active_players (
+  user_id text PRIMARY KEY,
+  match_id uuid NOT NULL REFERENCES public.ranked_matches(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+
+CREATE TABLE IF NOT EXISTS public.daily_attempts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id text NOT NULL,
+  challenge_date date NOT NULL DEFAULT current_date,
+  display_name text NOT NULL DEFAULT '',
+  country text NOT NULL DEFAULT '',
+  status text NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active', 'completed')),
+  current_question_index int NOT NULL DEFAULT 0,
+  question_started_at bigint NOT NULL
+    DEFAULT (floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint),
+  score int NOT NULL DEFAULT 0,
+  correct_count int NOT NULL DEFAULT 0,
+  completed_at timestamptz,
+  UNIQUE (user_id, challenge_date)
+);
+
+CREATE TABLE IF NOT EXISTS public.daily_answers (
+  attempt_id uuid NOT NULL REFERENCES public.daily_attempts(id) ON DELETE CASCADE,
+  question_index int NOT NULL,
+  question_id int NOT NULL,
+  answer_text text,
+  correct boolean NOT NULL,
+  points int NOT NULL,
+  answered_at bigint NOT NULL,
+  PRIMARY KEY (attempt_id, question_index),
+  UNIQUE (attempt_id, question_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.game_reward_events (
+  user_id text NOT NULL,
+  event_key text NOT NULL,
+  xp int NOT NULL,
+  coins int NOT NULL,
+  season_points int NOT NULL,
+  won boolean,
+  correct_count int NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (user_id, event_key)
+);
+
+CREATE TABLE IF NOT EXISTS public.guest_game_identities (
+  user_id text PRIMARY KEY,
+  token_hash bytea NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+
+ALTER TABLE public.daily_attempts
+  ADD COLUMN IF NOT EXISTS question_ids jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+-- Active records from the pre-authoritative client cannot be trusted because
+-- they have no immutable server-selected question set.
+UPDATE public.ranked_matches
+SET status = 'cancelled'
+WHERE status = 'active' AND jsonb_array_length(question_ids) <> 10;
+DELETE FROM public.daily_attempts
+WHERE status = 'active' AND jsonb_array_length(question_ids) <> 10;
+
+DROP FUNCTION IF EXISTS public.assert_game_user(text);
+CREATE OR REPLACE FUNCTION public.assert_game_user(p_user_id text, p_guest_token text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+BEGIN
+  IF p_user_id IS NULL OR length(p_user_id) > 100 THEN
+    RAISE EXCEPTION 'Invalid game user';
+  END IF;
+  IF auth.uid() IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM public.users AS u
+    WHERE u.id::text = p_user_id AND u.auth_id = auth.uid()
+  ) THEN
+    RAISE EXCEPTION 'Game user does not belong to caller';
+  END IF;
+  IF auth.uid() IS NULL THEN
+    IF p_user_id !~ '^guest_[0-9A-Za-z-]{8,80}$'
+       OR p_guest_token IS NULL OR length(p_guest_token) < 32 THEN
+      RAISE EXCEPTION 'Anonymous callers require a guest capability';
+    END IF;
+    INSERT INTO public.guest_game_identities (user_id, token_hash)
+    VALUES (p_user_id, extensions.digest(p_guest_token, 'sha256'))
+    ON CONFLICT (user_id) DO NOTHING;
+    IF NOT EXISTS (
+      SELECT 1 FROM public.guest_game_identities AS gi
+      WHERE gi.user_id = p_user_id
+        AND gi.token_hash = extensions.digest(p_guest_token, 'sha256')
+    ) THEN
+      RAISE EXCEPTION 'Invalid guest capability';
+    END IF;
+  END IF;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.apply_game_reward(
+  p_user_id text,
+  p_event_key text,
+  p_xp int,
+  p_coins int,
+  p_season_points int,
+  p_won boolean,
+  p_correct_count int,
+  p_mode text
+)
+RETURNS TABLE(
+  applied boolean, xp_gained int, coins_gained int,
+  new_xp int, new_coins int, new_level int
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  v_user public.users%ROWTYPE;
+  v_bonus int := 0;
+  v_new_xp int;
+  v_new_coins int;
+  v_level int;
+  v_today date := current_date;
+  v_progress jsonb;
+  v_achievements jsonb;
+BEGIN
+  IF p_xp < 0 OR p_coins < 0 OR p_correct_count < 0
+     OR p_mode NOT IN ('ranked', 'daily') THEN
+    RAISE EXCEPTION 'Invalid reward';
+  END IF;
+
+  INSERT INTO public.game_reward_events (
+    user_id, event_key, xp, coins, season_points, won, correct_count
+  ) VALUES (
+    p_user_id, p_event_key, p_xp, p_coins, p_season_points, p_won, p_correct_count
+  )
+  ON CONFLICT DO NOTHING;
+  IF NOT FOUND THEN
+    SELECT * INTO v_user FROM public.users AS u WHERE u.id::text = p_user_id;
+    RETURN QUERY SELECT false, 0, 0, coalesce(v_user.xp, 0),
+      coalesce(v_user.coins, 0), coalesce(v_user.level, 1);
+    RETURN;
+  END IF;
+
+  SELECT * INTO v_user
+  FROM public.users AS u
+  WHERE u.id::text = p_user_id
+  FOR UPDATE;
+  IF NOT FOUND THEN
+    -- Guests have leaderboard results but no persistent currency profile.
+    RETURN QUERY SELECT true, 0, 0, 0, 0, 1;
+    RETURN;
+  END IF;
+
+  IF v_user.last_played::date IS DISTINCT FROM v_today THEN
+    v_bonus := 15;
+  END IF;
+  v_new_xp := coalesce(v_user.xp, 0) + p_xp;
+  v_new_coins := coalesce(v_user.coins, 0) + p_coins + v_bonus;
+  v_level := CASE
+    WHEN v_new_xp >= 8000 THEN 7 WHEN v_new_xp >= 4000 THEN 6
+    WHEN v_new_xp >= 2000 THEN 5 WHEN v_new_xp >= 1000 THEN 4
+    WHEN v_new_xp >= 500 THEN 3 WHEN v_new_xp >= 200 THEN 2 ELSE 1
+  END;
+  v_achievements := coalesce(v_user.achievements, '{}'::jsonb);
+  v_progress := coalesce(v_achievements->'progress', '{}'::jsonb);
+  v_progress := jsonb_set(v_progress, '{total_games}',
+    to_jsonb(coalesce((v_progress->>'total_games')::int, 0) + 1), true);
+  v_progress := jsonb_set(v_progress, '{total_correct}',
+    to_jsonb(coalesce((v_progress->>'total_correct')::int, 0) + p_correct_count), true);
+  v_progress := jsonb_set(v_progress, '{level}', to_jsonb(v_level), true);
+  IF p_mode = 'ranked' AND p_won THEN
+    v_progress := jsonb_set(v_progress, '{ranked_wins}',
+      to_jsonb(coalesce((v_progress->>'ranked_wins')::int, 0) + 1), true);
+    v_progress := jsonb_set(v_progress, '{consecutive_wins}',
+      to_jsonb(coalesce((v_progress->>'consecutive_wins')::int, 0) + 1), true);
+  ELSIF p_mode = 'ranked' AND NOT coalesce(p_won, false) THEN
+    v_progress := jsonb_set(v_progress, '{consecutive_wins}', '0'::jsonb, true);
+  END IF;
+  v_achievements := jsonb_set(v_achievements, '{progress}', v_progress, true);
+
+  UPDATE public.users AS u
+  SET xp = v_new_xp,
+      coins = v_new_coins,
+      level = v_level,
+      season_points = greatest(0, coalesce(u.season_points, 0) + p_season_points),
+      total_wins = coalesce(u.total_wins, 0) + CASE WHEN p_won THEN 1 ELSE 0 END,
+      total_losses = coalesce(u.total_losses, 0) + CASE WHEN p_won = false THEN 1 ELSE 0 END,
+      total_points = coalesce(u.total_points, 0) + greatest(0, p_season_points),
+      streak_count = CASE
+        WHEN u.last_played::date = v_today THEN coalesce(u.streak_count, 0)
+        WHEN u.last_played::date = v_today - 1 THEN coalesce(u.streak_count, 0) + 1
+        ELSE 1
+      END,
+      longest_streak = greatest(
+        coalesce(u.longest_streak, 0),
+        CASE
+          WHEN u.last_played::date = v_today THEN coalesce(u.streak_count, 0)
+          WHEN u.last_played::date = v_today - 1 THEN coalesce(u.streak_count, 0) + 1
+          ELSE 1
+        END
+      ),
+      last_played = v_today::text,
+      achievements = v_achievements
+  WHERE u.id::text = p_user_id;
+
+  RETURN QUERY SELECT true, p_xp, p_coins + v_bonus,
+    v_new_xp, v_new_coins, v_level;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.enter_ranked_queue(text,text,jsonb);
+CREATE OR REPLACE FUNCTION public.enter_ranked_queue(
+  p_user_id text,
+  p_username text,
+  p_preferred_categories jsonb,
+  p_guest_token text
+)
+RETURNS SETOF public.ranked_matches
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  v_opponent public.ranked_queue%ROWTYPE;
+  v_existing public.ranked_matches%ROWTYPE;
+  v_category text := 'mix';
+  v_now bigint := floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint;
+  v_match_id uuid := gen_random_uuid();
+  v_question_ids jsonb;
+BEGIN
+  PERFORM public.assert_game_user(p_user_id, p_guest_token);
+  IF p_username IS NULL OR length(trim(p_username)) = 0 OR length(p_username) > 80
+     OR jsonb_typeof(coalesce(p_preferred_categories, '[]'::jsonb)) <> 'array' THEN
+    RAISE EXCEPTION 'Invalid ranked queue request';
+  END IF;
+
+  SELECT * INTO v_existing
+  FROM public.ranked_matches AS rm
+  WHERE rm.status = 'active'
+    AND p_user_id IN (rm.player1_id, rm.player2_id)
+  ORDER BY rm.created_at DESC
+  LIMIT 1;
+  IF FOUND THEN RETURN NEXT v_existing; RETURN; END IF;
+
+  INSERT INTO public.ranked_queue (
+    user_id, username, preferred_categories, status, created_at, last_seen_at
+  ) VALUES (
+    p_user_id, trim(p_username), coalesce(p_preferred_categories, '[]'::jsonb),
+    'waiting', clock_timestamp(), clock_timestamp()
+  )
+  ON CONFLICT (user_id) DO UPDATE SET
+    username = excluded.username,
+    preferred_categories = excluded.preferred_categories,
+    status = 'waiting',
+    created_at = excluded.created_at,
+    last_seen_at = excluded.last_seen_at;
+
+  PERFORM 1 FROM public.ranked_queue AS rq
+  WHERE rq.user_id = p_user_id FOR UPDATE;
+  SELECT * INTO v_existing
+  FROM public.ranked_matches AS rm
+  WHERE rm.status = 'active'
+    AND p_user_id IN (rm.player1_id, rm.player2_id)
+  ORDER BY rm.created_at DESC
+  LIMIT 1;
+  IF FOUND THEN
+    UPDATE public.ranked_queue SET status = 'matched'
+    WHERE user_id = p_user_id;
+    RETURN NEXT v_existing;
+    RETURN;
+  END IF;
+  SELECT * INTO v_opponent
+  FROM public.ranked_queue AS rq
+  WHERE rq.status = 'waiting' AND rq.user_id <> p_user_id
+  ORDER BY rq.created_at
+  FOR UPDATE SKIP LOCKED
+  LIMIT 1;
+  IF NOT FOUND THEN RETURN; END IF;
+
+  SELECT value #>> '{}' INTO v_category
+  FROM jsonb_array_elements(coalesce(p_preferred_categories, '[]'::jsonb)) AS value
+  WHERE coalesce(v_opponent.preferred_categories, '[]'::jsonb) ? (value #>> '{}')
+  LIMIT 1;
+  v_category := coalesce(v_category, 'mix');
+  SELECT coalesce(jsonb_agg(selected.id ORDER BY selected.position), '[]'::jsonb)
+  INTO v_question_ids
+  FROM (
+    SELECT q.id, row_number() OVER (
+      ORDER BY md5(v_match_id::text || ':' || q.id::text)
+    ) AS position
+    FROM public.questions AS q
+    WHERE (v_category = 'mix' AND q.category <> 'legends')
+       OR q.category = v_category
+    ORDER BY md5(v_match_id::text || ':' || q.id::text)
+    LIMIT 10
+  ) AS selected;
+  IF jsonb_array_length(v_question_ids) < 10 THEN
+    RAISE EXCEPTION 'Not enough ranked questions';
+  END IF;
+
+  INSERT INTO public.ranked_matches (
+    id, player1_id, player1_name, player2_id, player2_name, category, status,
+    current_question_index, question_start_time, countdown_start,
+    player1_score, player2_score, player1_answers, player2_answers, winner_id,
+    question_ids
+  ) VALUES (
+    v_match_id,
+    least(p_user_id, v_opponent.user_id),
+    CASE WHEN p_user_id < v_opponent.user_id THEN trim(p_username) ELSE v_opponent.username END,
+    greatest(p_user_id, v_opponent.user_id),
+    CASE WHEN p_user_id < v_opponent.user_id THEN v_opponent.username ELSE trim(p_username) END,
+    v_category, 'active', 0, NULL, v_now, 0, 0, '[]'::jsonb, '[]'::jsonb, NULL,
+    v_question_ids
+  )
+  RETURNING * INTO v_existing;
+  INSERT INTO public.ranked_active_players (user_id, match_id)
+  VALUES
+    (v_existing.player1_id, v_existing.id),
+    (v_existing.player2_id, v_existing.id);
+  UPDATE public.ranked_queue SET status = 'matched'
+  WHERE user_id IN (p_user_id, v_opponent.user_id);
+  RETURN NEXT v_existing;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.cancel_ranked_queue(text);
+CREATE OR REPLACE FUNCTION public.cancel_ranked_queue(p_user_id text, p_guest_token text)
+RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+AS $$
+BEGIN
+  PERFORM public.assert_game_user(p_user_id, p_guest_token);
+  UPDATE public.ranked_queue SET status = 'cancelled', last_seen_at = clock_timestamp()
+  WHERE user_id = p_user_id AND status = 'waiting';
+  RETURN FOUND;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.start_or_advance_ranked_match(uuid,text,int);
+CREATE OR REPLACE FUNCTION public.start_or_advance_ranked_match(
+  p_match_id uuid, p_user_id text, p_from_question int, p_guest_token text
+)
+RETURNS SETOF public.ranked_matches
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+AS $$
+DECLARE
+  v_match public.ranked_matches%ROWTYPE;
+  v_now bigint := floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint;
+  v_answer_count int;
+  v_winner text;
+BEGIN
+  PERFORM public.assert_game_user(p_user_id, p_guest_token);
+  SELECT * INTO v_match FROM public.ranked_matches AS rm
+  WHERE rm.id = p_match_id FOR UPDATE;
+  IF NOT FOUND OR p_user_id NOT IN (v_match.player1_id, v_match.player2_id)
+     OR v_match.status <> 'active' THEN
+    RAISE EXCEPTION 'Invalid ranked advance';
+  END IF;
+  IF p_from_question = -1 AND v_match.question_start_time IS NULL THEN
+    UPDATE public.ranked_matches
+    SET current_question_index = 0, question_start_time = v_now
+    WHERE id = p_match_id RETURNING * INTO v_match;
+    RETURN NEXT v_match; RETURN;
+  END IF;
+  IF p_from_question <> v_match.current_question_index THEN
+    RETURN NEXT v_match; RETURN;
+  END IF;
+  SELECT count(*) INTO v_answer_count FROM public.ranked_answers AS ra
+  WHERE ra.match_id = p_match_id AND ra.question_index = p_from_question;
+  IF v_answer_count < 2
+     AND v_now <= coalesce(v_match.question_start_time, v_now) + 10500 THEN
+    RETURN NEXT v_match; RETURN;
+  END IF;
+  IF p_from_question < 9 THEN
+    UPDATE public.ranked_matches
+    SET current_question_index = p_from_question + 1, question_start_time = v_now
+    WHERE id = p_match_id RETURNING * INTO v_match;
+    RETURN NEXT v_match; RETURN;
+  END IF;
+
+  v_winner := CASE
+    WHEN v_match.player1_score > v_match.player2_score THEN v_match.player1_id
+    WHEN v_match.player2_score > v_match.player1_score THEN v_match.player2_id
+    ELSE NULL
+  END;
+  UPDATE public.ranked_matches
+  SET status = 'finished', winner_id = v_winner, settled_at = clock_timestamp()
+  WHERE id = p_match_id AND settled_at IS NULL
+  RETURNING * INTO v_match;
+  IF FOUND THEN
+    DELETE FROM public.ranked_active_players WHERE match_id = p_match_id;
+    UPDATE public.ranked_queue
+    SET rank_points = greatest(0, coalesce(rank_points, 0) +
+      CASE WHEN user_id = v_winner THEN 20 WHEN v_winner IS NULL THEN 0 ELSE -20 END),
+      status = 'finished'
+    WHERE user_id IN (v_match.player1_id, v_match.player2_id);
+    PERFORM public.apply_game_reward(
+      v_match.player1_id, 'ranked:' || p_match_id::text,
+      CASE WHEN v_winner = v_match.player1_id THEN 40 WHEN v_winner IS NULL THEN 15 ELSE 5 END,
+      CASE WHEN v_winner = v_match.player1_id THEN 30 ELSE 0 END,
+      CASE WHEN v_winner = v_match.player1_id THEN 20 WHEN v_winner IS NULL THEN 5 ELSE 0 END,
+      CASE WHEN v_winner IS NULL THEN NULL ELSE v_winner = v_match.player1_id END,
+      (SELECT count(*) FROM public.ranked_answers WHERE match_id = p_match_id
+        AND user_id = v_match.player1_id AND correct),
+      'ranked'
+    );
+    PERFORM public.apply_game_reward(
+      v_match.player2_id, 'ranked:' || p_match_id::text,
+      CASE WHEN v_winner = v_match.player2_id THEN 40 WHEN v_winner IS NULL THEN 15 ELSE 5 END,
+      CASE WHEN v_winner = v_match.player2_id THEN 30 ELSE 0 END,
+      CASE WHEN v_winner = v_match.player2_id THEN 20 WHEN v_winner IS NULL THEN 5 ELSE 0 END,
+      CASE WHEN v_winner IS NULL THEN NULL ELSE v_winner = v_match.player2_id END,
+      (SELECT count(*) FROM public.ranked_answers WHERE match_id = p_match_id
+        AND user_id = v_match.player2_id AND correct),
+      'ranked'
+    );
+  ELSE
+    SELECT * INTO v_match FROM public.ranked_matches WHERE id = p_match_id;
+  END IF;
+  RETURN NEXT v_match;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.submit_ranked_answer(uuid,text,int,int,text);
+CREATE OR REPLACE FUNCTION public.submit_ranked_answer(
+  p_match_id uuid, p_user_id text, p_question_index int,
+  p_question_id int, p_answer_text text, p_guest_token text
+)
+RETURNS SETOF public.ranked_matches
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+AS $$
+DECLARE
+  v_match public.ranked_matches%ROWTYPE;
+  v_correct boolean := false;
+  v_now bigint := floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint;
+  v_elapsed bigint;
+  v_points int := 0;
+  v_entry jsonb;
+BEGIN
+  PERFORM public.assert_game_user(p_user_id, p_guest_token);
+  SELECT * INTO v_match FROM public.ranked_matches AS rm
+  WHERE rm.id = p_match_id FOR UPDATE;
+  IF NOT FOUND OR p_user_id NOT IN (v_match.player1_id, v_match.player2_id)
+     OR v_match.status <> 'active'
+     OR v_match.current_question_index <> p_question_index
+     OR v_match.question_start_time IS NULL
+     OR (v_match.question_ids->>p_question_index)::int IS DISTINCT FROM p_question_id THEN
+    RAISE EXCEPTION 'Invalid ranked answer';
+  END IF;
+  v_elapsed := greatest(0, v_now - v_match.question_start_time);
+  IF v_elapsed <= 10500 AND p_answer_text IS NOT NULL THEN
+    SELECT (q.options->>q.correct) = p_answer_text INTO v_correct
+    FROM public.questions AS q WHERE q.id = p_question_id;
+  END IF;
+  IF coalesce(v_correct, false) THEN
+    v_points := CASE
+      WHEN v_elapsed <= 2000 THEN 10 WHEN v_elapsed <= 4000 THEN 8
+      WHEN v_elapsed <= 6000 THEN 6 WHEN v_elapsed <= 8000 THEN 4 ELSE 2
+    END;
+  END IF;
+  INSERT INTO public.ranked_answers (
+    match_id, user_id, question_index, question_id, answer_text,
+    correct, points, answered_at
+  ) VALUES (
+    p_match_id, p_user_id, p_question_index, p_question_id, p_answer_text,
+    coalesce(v_correct, false), v_points, v_now
+  ) ON CONFLICT DO NOTHING;
+  IF FOUND THEN
+    v_entry := jsonb_build_object(
+      'ans', p_answer_text, 'pts', v_points, 'ms', v_elapsed,
+      'correct', coalesce(v_correct, false)
+    );
+    IF p_user_id = v_match.player1_id THEN
+      UPDATE public.ranked_matches
+      SET player1_answers = jsonb_set(player1_answers, ARRAY[p_question_index::text], v_entry, true),
+          player1_score = player1_score + v_points
+      WHERE id = p_match_id RETURNING * INTO v_match;
+    ELSE
+      UPDATE public.ranked_matches
+      SET player2_answers = jsonb_set(player2_answers, ARRAY[p_question_index::text], v_entry, true),
+          player2_score = player2_score + v_points
+      WHERE id = p_match_id RETURNING * INTO v_match;
+    END IF;
+  ELSE
+    SELECT * INTO v_match FROM public.ranked_matches WHERE id = p_match_id;
+  END IF;
+  RETURN NEXT v_match;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.start_daily_attempt(text,text,text);
+CREATE OR REPLACE FUNCTION public.start_daily_attempt(
+  p_user_id text, p_display_name text, p_country text, p_guest_token text
+)
+RETURNS SETOF public.daily_attempts
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+AS $$
+DECLARE
+  v_attempt public.daily_attempts%ROWTYPE;
+  v_question_ids jsonb;
+BEGIN
+  PERFORM public.assert_game_user(p_user_id, p_guest_token);
+  SELECT jsonb_agg(chosen.id ORDER BY chosen.bucket, chosen.position)
+  INTO v_question_ids
+  FROM (
+    SELECT ranked.id, ranked.bucket, ranked.position
+    FROM (
+      SELECT q.id, q.difficulty AS bucket,
+        row_number() OVER (
+          PARTITION BY q.difficulty
+          ORDER BY md5(current_date::text || ':' || q.id::text)
+        ) AS position
+      FROM public.questions AS q
+      WHERE q.category <> 'legends' AND q.difficulty IN ('easy', 'medium', 'hard')
+    ) AS ranked
+    WHERE (ranked.bucket = 'easy' AND ranked.position <= 4)
+       OR (ranked.bucket = 'medium' AND ranked.position <= 4)
+       OR (ranked.bucket = 'hard' AND ranked.position <= 2)
+  ) AS chosen;
+  IF jsonb_array_length(coalesce(v_question_ids, '[]'::jsonb)) < 10 THEN
+    RAISE EXCEPTION 'Not enough daily questions';
+  END IF;
+  INSERT INTO public.daily_attempts (
+    user_id, challenge_date, display_name, country, question_ids
+  ) VALUES (
+    p_user_id, current_date, left(coalesce(p_display_name, ''), 80),
+    left(coalesce(p_country, ''), 10), v_question_ids
+  ) ON CONFLICT (user_id, challenge_date) DO NOTHING
+  RETURNING * INTO v_attempt;
+  IF NOT FOUND THEN
+    SELECT * INTO v_attempt FROM public.daily_attempts
+    WHERE user_id = p_user_id AND challenge_date = current_date;
+  END IF;
+  RETURN NEXT v_attempt;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.submit_daily_answer(uuid,text,int,int,text);
+CREATE OR REPLACE FUNCTION public.submit_daily_answer(
+  p_attempt_id uuid, p_user_id text, p_question_index int,
+  p_question_id int, p_answer_text text, p_guest_token text
+)
+RETURNS SETOF public.daily_attempts
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+AS $$
+DECLARE
+  v_attempt public.daily_attempts%ROWTYPE;
+  v_now bigint := floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint;
+  v_elapsed bigint;
+  v_correct boolean := false;
+  v_points int := 0;
+BEGIN
+  PERFORM public.assert_game_user(p_user_id, p_guest_token);
+  SELECT * INTO v_attempt FROM public.daily_attempts AS da
+  WHERE da.id = p_attempt_id AND da.user_id = p_user_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Invalid daily answer';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.daily_answers AS answer
+    WHERE answer.attempt_id = p_attempt_id
+      AND answer.question_index = p_question_index
+  ) THEN
+    RETURN NEXT v_attempt;
+    RETURN;
+  END IF;
+  IF v_attempt.status <> 'active'
+     OR v_attempt.current_question_index <> p_question_index
+     OR (v_attempt.question_ids->>p_question_index)::int IS DISTINCT FROM p_question_id THEN
+    RAISE EXCEPTION 'Invalid daily answer';
+  END IF;
+  v_elapsed := greatest(0, v_now - v_attempt.question_started_at);
+  IF v_elapsed <= 15500 AND p_answer_text IS NOT NULL THEN
+    SELECT (q.options->>q.correct) = p_answer_text INTO v_correct
+    FROM public.questions AS q WHERE q.id = p_question_id;
+  END IF;
+  IF coalesce(v_correct, false) THEN
+    v_points := 100 + round(50 * greatest(0, (15000 - v_elapsed)::numeric / 14000))::int;
+  END IF;
+  INSERT INTO public.daily_answers (
+    attempt_id, question_index, question_id, answer_text, correct, points, answered_at
+  ) VALUES (
+    p_attempt_id, p_question_index, p_question_id, p_answer_text,
+    coalesce(v_correct, false), v_points, v_now
+  ) ON CONFLICT DO NOTHING;
+  IF FOUND THEN
+    UPDATE public.daily_attempts
+    SET score = score + v_points,
+        correct_count = correct_count + CASE WHEN v_correct THEN 1 ELSE 0 END,
+        current_question_index = current_question_index + 1,
+        question_started_at = v_now,
+        status = CASE WHEN p_question_index >= 9 THEN 'completed' ELSE status END,
+        completed_at = CASE WHEN p_question_index >= 9 THEN clock_timestamp() ELSE completed_at END
+    WHERE id = p_attempt_id RETURNING * INTO v_attempt;
+    IF p_question_index >= 9 THEN
+      INSERT INTO public.daily_scores (
+        user_id, display_name, country, score, total, date, completed_at
+      ) VALUES (
+        p_user_id, v_attempt.display_name, v_attempt.country, v_attempt.score,
+        10, v_attempt.challenge_date::text, v_attempt.completed_at
+      ) ON CONFLICT (user_id, date) DO NOTHING;
+      PERFORM public.apply_game_reward(
+        p_user_id, 'daily:' || v_attempt.challenge_date::text,
+        20, 15, 0, v_attempt.correct_count >= 7, v_attempt.correct_count, 'daily'
+      );
+    END IF;
+  ELSE
+    SELECT * INTO v_attempt FROM public.daily_attempts WHERE id = p_attempt_id;
+  END IF;
+  RETURN NEXT v_attempt;
+END;
+$$;
+
+ALTER TABLE public.ranked_queue ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ranked_matches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ranked_answers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ranked_active_players ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.daily_attempts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.daily_answers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.game_reward_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.guest_game_identities ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS daily_scores_insert ON public.daily_scores;
+DROP POLICY IF EXISTS daily_scores_update ON public.daily_scores;
+DROP POLICY IF EXISTS ranked_queue_read ON public.ranked_queue;
+DROP POLICY IF EXISTS ranked_matches_read ON public.ranked_matches;
+CREATE POLICY ranked_queue_read ON public.ranked_queue FOR SELECT USING (true);
+CREATE POLICY ranked_matches_read ON public.ranked_matches FOR SELECT USING (true);
+REVOKE INSERT, UPDATE, DELETE ON public.daily_scores FROM PUBLIC, anon, authenticated;
+REVOKE INSERT, UPDATE, DELETE ON public.ranked_queue FROM PUBLIC, anon, authenticated;
+REVOKE INSERT, UPDATE, DELETE ON public.ranked_matches FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON public.ranked_answers, public.ranked_active_players,
+  public.daily_attempts, public.daily_answers,
+  public.game_reward_events, public.guest_game_identities FROM PUBLIC, anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.assert_game_user(text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.apply_game_reward(text,text,int,int,int,boolean,int,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.enter_ranked_queue(text,text,jsonb,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.cancel_ranked_queue(text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.start_or_advance_ranked_match(uuid,text,int,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.submit_ranked_answer(uuid,text,int,int,text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.start_daily_attempt(text,text,text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.submit_daily_answer(uuid,text,int,int,text,text) FROM PUBLIC;
+
+GRANT EXECUTE ON FUNCTION public.enter_ranked_queue(text,text,jsonb,text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.cancel_ranked_queue(text,text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.start_or_advance_ranked_match(uuid,text,int,text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.submit_ranked_answer(uuid,text,int,int,text,text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.start_daily_attempt(text,text,text,text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.submit_daily_answer(uuid,text,int,int,text,text) TO anon, authenticated;

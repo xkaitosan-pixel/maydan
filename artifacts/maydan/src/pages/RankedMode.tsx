@@ -5,7 +5,7 @@ import { CATEGORIES, Question } from "@/lib/questions";
 import CircularTimer from "@/components/CircularTimer";
 import ReportFlag from "@/components/ReportFlag";
 import { shuffleQuestion } from "@/lib/shuffle";
-import { fetchSeededQuestions } from "@/lib/questionService";
+import { fetchQuestionsByIds, fetchSeededQuestions } from "@/lib/questionService";
 import { useAuth } from "@/lib/AuthContext";
 import { getOrCreateUser, canPlayRanked, getRemainingRanked, incrementRankedCount } from "@/lib/storage";
 import { playCorrect, playWrong, playTick, playGameOver, playMatchFound, playSound } from "@/lib/sound";
@@ -17,9 +17,14 @@ import { recordTodayWin, recordTodayLoss, recordTodayXP } from "@/lib/storage";
 import AchievementPopup from "@/components/AchievementPopup";
 import FloatingReward from "@/components/FloatingReward";
 import ShareCard from "@/components/ShareCard";
-import { awardGameRewards, XP_REWARDS, COIN_REWARDS } from "@/lib/gamification";
-import { recordEngagementGame } from "@/lib/engagement";
+import { XP_REWARDS, COIN_REWARDS } from "@/lib/gamification";
 import { recordCompletedGameForInstall } from "@/lib/pwa";
+import {
+  advanceRankedMatch,
+  cancelRankedQueue,
+  enterRankedQueue,
+  submitRankedAnswer,
+} from "@/lib/db";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -32,7 +37,7 @@ type Phase =
   | "scoreboard"
   | "finished";
 
-type AnswerEntry = { ans: number | null; pts: number; ms: number };
+type AnswerEntry = { ans: string | null; pts: number; ms: number; correct?: boolean };
 
 interface RankedMatch {
   id: string;
@@ -50,9 +55,10 @@ interface RankedMatch {
   player1_answers: AnswerEntry[];
   player2_answers: AnswerEntry[];
   winner_id: string | null;
+  question_ids: number[];
 }
 
-const RANKED_MATCH_COLUMNS = "id, player1_id, player1_name, player2_id, player2_name, category, status, current_question_index, question_start_time, countdown_start, player1_score, player2_score, player1_answers, player2_answers, winner_id" as const;
+const RANKED_MATCH_COLUMNS = "id, player1_id, player1_name, player2_id, player2_name, category, status, current_question_index, question_start_time, countdown_start, player1_score, player2_score, player1_answers, player2_answers, winner_id, question_ids" as const;
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -89,7 +95,7 @@ export default function RankedMode() {
   useBackgroundMusic("party");
   const localUser = getOrCreateUser();
 
-  const myId = dbUser?.id ?? localUser.userId ?? "";
+  const myId = dbUser?.id ?? (localUser.userId ? `guest_${localUser.userId}` : "");
   const myName = dbUser?.username ?? localUser.displayName ?? "لاعب";
   const [myPoints, setMyPoints] = useState(0);
 
@@ -198,31 +204,24 @@ export default function RankedMode() {
       ? selectedCats[Math.floor(Math.random() * selectedCats.length)]
       : "mix";
 
-    const { data: existing } = await supabase
-      .from("ranked_queue")
-      .select("id, rank_points")
-      .eq("user_id", myId)
-      .maybeSingle();
-
-    if (existing) {
-      await supabase.from("ranked_queue").update({
-        username: myName,
-        preferred_categories: selectedCats,
-        status: "waiting",
-        created_at: new Date().toISOString(),
-      }).eq("user_id", myId);
-    } else {
-      await supabase.from("ranked_queue").insert({
-        user_id: myId,
-        username: myName,
-        preferred_categories: selectedCats,
-        rank_points: 0,
-        status: "waiting",
-      });
-    }
-
     setPhaseSafe("searching");
     setSearchTimer(SEARCH_TIMEOUT);
+    try {
+      const created = await enterRankedQueue({
+        userId: myId,
+        username: myName,
+        preferredCategories: selectedCats,
+      });
+      if (created) {
+        clearSearchTimers();
+        await startMatch(created as unknown as RankedMatch);
+        return;
+      }
+    } catch (error) {
+      console.error("enter ranked queue failed", error);
+      setPhaseSafe("select_cats");
+      return;
+    }
     startSearching(category);
   }
 
@@ -252,98 +251,24 @@ export default function RankedMode() {
 
   async function findOpponent(category: string): Promise<boolean> {
     if (phaseRef.current !== "searching") return true;
-
-    const { data: opponents } = await supabase
-      .from("ranked_queue")
-      .select("user_id, username, preferred_categories")
-      .eq("status", "waiting")
-      .neq("user_id", myIdRef.current)
-      .order("created_at", { ascending: true })
-      .limit(1);
-
-    if (!opponents || opponents.length === 0) return false;
-    const opp = opponents[0];
-
-    // Only one deterministic side may create the match. This prevents the
-    // symmetric race where both clients claim each other and insert two rows.
-    if (myIdRef.current.localeCompare(opp.user_id) > 0) return false;
-
-    // Atomic claim: only succeed if the row is still 'waiting'. Conditional
-    // UPDATE is the cheapest cross-DB-safe way to prevent two clients from
-    // creating duplicate matches for the same opponent.
-    const { data: claimed } = await supabase
-      .from("ranked_queue")
-      .update({ status: "matched" })
-      .eq("user_id", opp.user_id)
-      .eq("status", "waiting")
-      .select("user_id")
-      .maybeSingle();
-    if (!claimed) return false; // someone else grabbed them
-
-    // Claim self too — guards against the symmetric case where both sides race.
-    const { data: claimedSelf } = await supabase
-      .from("ranked_queue")
-      .update({ status: "matched" })
-      .eq("user_id", myIdRef.current)
-      .eq("status", "waiting")
-      .select("user_id")
-      .maybeSingle();
-    if (!claimedSelf) {
-      // Roll back opp claim so they can match again
-      await supabase.from("ranked_queue").update({ status: "waiting" }).eq("user_id", opp.user_id);
+    try {
+      const found = await enterRankedQueue({
+        userId: myIdRef.current,
+        username: myNameRef.current,
+        preferredCategories: selectedCats.length ? selectedCats : [category],
+      });
+      if (!found) return false;
+      await startMatch(found as unknown as RankedMatch);
+      return true;
+    } catch (error) {
+      console.warn("ranked matchmaking retry failed", error);
       return false;
     }
-
-    // Prefer the rolled category if both share it; otherwise pick any shared
-    // category between the two players; only fall back to "mix" when there is
-    // genuinely no overlap.
-    let chosenCategory: string;
-    if (opp.preferred_categories?.includes(category)) {
-      chosenCategory = category;
-    } else {
-      const shared = (opp.preferred_categories ?? []).filter((c: string) =>
-        selectedCats.includes(c),
-      );
-      chosenCategory = shared.length > 0
-        ? shared[Math.floor(Math.random() * shared.length)]
-        : "mix";
-    }
-    const now = Date.now();
-    const { data: newMatch, error } = await supabase
-      .from("ranked_matches")
-      .insert({
-        player1_id: myIdRef.current,
-        player1_name: myNameRef.current,
-        player2_id: opp.user_id,
-        player2_name: opp.username,
-        category: chosenCategory,
-        status: "active",
-        current_question_index: 0,
-        question_start_time: null,
-        countdown_start: now,
-        player1_score: 0,
-        player2_score: 0,
-        player1_answers: [],
-        player2_answers: [],
-        winner_id: null,
-      })
-      .select(RANKED_MATCH_COLUMNS)
-      .single();
-
-    if (error || !newMatch) {
-      console.error("create ranked_match failed", error);
-      // best-effort rollback
-      await supabase.from("ranked_queue").update({ status: "waiting" }).in("user_id", [myIdRef.current, opp.user_id]);
-      return false;
-    }
-
-    await startMatch(newMatch as RankedMatch);
-    return true;
   }
 
   async function cancelSearch() {
     cancelledRef.current = true;
-    await supabase.from("ranked_queue").update({ status: "cancelled" }).eq("user_id", myId);
+    await cancelRankedQueue(myId).catch((error) => console.warn("cancel ranked queue failed", error));
     setPhaseSafe("select_cats");
   }
 
@@ -381,7 +306,9 @@ export default function RankedMode() {
     correctCountRef.current = 0;
     countedCorrectQRef.current = -1;
 
-    const qs = await getMatchQuestions(m.id, m.category);
+    const qs = m.question_ids?.length
+      ? await fetchQuestionsByIds(m.question_ids)
+      : await getMatchQuestions(m.id, m.category);
     if (cancelledRef.current) return;
     const sq = qs.map((q) => shuffleQuestion(q, q.id));
     matchQsRef.current = sq;
@@ -424,18 +351,17 @@ export default function RankedMode() {
     tick();
   }
 
-  // Called only by the host (P1) at the very end of countdown to publish the
-  // first authoritative question_start_time. Both clients then react to that
-  // change via pollTick → showQuestion(0).
+  // Either participant may publish the first authoritative start. The RPC row
+  // lock makes simultaneous calls idempotent and avoids depending on P1.
   async function hostStartFirstQuestion() {
     if (cancelledRef.current || phaseRef.current !== "matched" || !matchRef.current) return;
-    if (matchRef.current.player1_id !== myIdRef.current) return;
-    const now = Date.now();
-    await supabase.from("ranked_matches").update({
-      current_question_index: 0,
-      question_start_time: now,
-    }).eq("id", matchRef.current.id);
-    matchRef.current = { ...matchRef.current, current_question_index: 0, question_start_time: now };
+    try {
+      const updated = await advanceRankedMatch(matchRef.current.id, myIdRef.current, -1) as unknown as RankedMatch;
+      matchRef.current = updated;
+      setMatch(updated);
+    } catch (error) {
+      console.warn("start ranked match failed", error);
+    }
   }
 
   // Move the local UI to question `qIdx`. Idempotent.
@@ -524,9 +450,8 @@ export default function RankedMode() {
       }, E2E_TIMING ? 300 : 1500);
     }
 
-    // ── 5. Host: advance the question on the server ───────────────────────
+    // ── 5. Either participant may advance; the RPC serializes races ───────
     if (
-      isP1 &&
       cur.status === "active" &&
       advancedFromRef.current < qIdx &&
       (bothAnswered || timedOut)
@@ -536,63 +461,60 @@ export default function RankedMode() {
     }
   }
 
-  // Host-only. Pure server-side advance — local UI re-syncs via pollTick.
+  // Pure server-side advance — local UI re-syncs via pollTick.
   async function advanceQuestionOnServer(fromIdx: number) {
     if (cancelledRef.current || !matchRef.current || finishedRef.current) return;
     const nextIdx = fromIdx + 1;
 
     if (nextIdx >= MATCH_QUESTIONS) {
-      await finishMatch();
+      await finishMatch(fromIdx);
       return;
     }
-
-    const now = Date.now();
-    await supabase.from("ranked_matches").update({
-      current_question_index: nextIdx,
-      question_start_time: now,
-    }).eq("id", matchRef.current.id);
+    try {
+      const updated = await advanceRankedMatch(
+        matchRef.current.id,
+        myIdRef.current,
+        fromIdx,
+      ) as unknown as RankedMatch;
+      matchRef.current = updated;
+      setMatch(updated);
+    } catch (error) {
+      advancedFromRef.current = fromIdx - 1;
+      console.warn("advance ranked question failed", error);
+    }
   }
 
   // ── Submitting answers ───────────────────────────────────────────────────
 
-  async function writeMyAnswer(ans: number | null, qIdx: number, pts: number, ms: number, correct: boolean) {
+  async function writeMyAnswer(ans: number | null, qIdx: number, _pts: number, _ms: number, correct: boolean) {
     if (!matchRef.current) return;
     if (submittedQRef.current === qIdx) return;
     submittedQRef.current = qIdx;
 
     const isP1 = matchRef.current.player1_id === myIdRef.current;
-    const field = isP1 ? "player1_answers" : "player2_answers";
-    const scoreField = isP1 ? "player1_score" : "player2_score";
-
-    const arr: AnswerEntry[] = [...((matchRef.current[field] as AnswerEntry[]) ?? [])];
-    while (arr.length < qIdx) arr.push({ ans: null, pts: 0, ms: 0 });
-    arr[qIdx] = { ans, pts, ms };
-
-    const newScore = ((matchRef.current[scoreField] as number) ?? 0) + pts;
-
-    const { data, error } = await supabase
-      .from("ranked_matches")
-      .update({
-        [field]: arr,
-        [scoreField]: newScore,
-      })
-      .eq("id", matchRef.current.id)
-      .select(RANKED_MATCH_COLUMNS)
-      .maybeSingle();
-
-    if (error || !data) {
+    const question = matchQsRef.current[qIdx];
+    try {
+      const data = await submitRankedAnswer({
+        matchId: matchRef.current.id,
+        userId: myIdRef.current,
+        questionIndex: qIdx,
+        questionId: question.id,
+        answerText: ans === null ? null : question.options[ans] ?? null,
+      }) as unknown as RankedMatch;
+      const serverAnswer = (isP1 ? data.player1_answers : data.player2_answers)?.[qIdx];
+      if (serverAnswer?.correct && countedCorrectQRef.current !== qIdx) {
+        countedCorrectQRef.current = qIdx;
+        correctCountRef.current += 1;
+      }
+      matchRef.current = data;
+      setMatch(data);
+      setMyTotalScore(isP1 ? data.player1_score : data.player2_score);
+    } catch (error) {
       console.warn("writeMyAnswer error", error);
       submittedQRef.current = -1;
       setSelected(null);
       return;
     }
-    if (correct && countedCorrectQRef.current !== qIdx) {
-      countedCorrectQRef.current = qIdx;
-      correctCountRef.current += 1;
-    }
-    matchRef.current = data as RankedMatch;
-    setMatch(data as RankedMatch);
-    setMyTotalScore(isP1 ? (data as RankedMatch).player1_score : (data as RankedMatch).player2_score);
   }
 
   function handleAnswer(idx: number) {
@@ -612,24 +534,22 @@ export default function RankedMode() {
 
   // ── Finish ───────────────────────────────────────────────────────────────
 
-  async function finishMatch() {
+  async function finishMatch(fromIdx: number) {
     if (!matchRef.current || finishedRef.current) return;
-    finishedRef.current = true;
-    const m = matchRef.current;
-    const myFinalScore = (m.player1_id === myIdRef.current) ? m.player1_score : m.player2_score;
-    const oppFinalScore = (m.player1_id === myIdRef.current) ? m.player2_score : m.player1_score;
-    let winnerId: string | null = null;
-    if (m.player1_score > m.player2_score) winnerId = m.player1_id;
-    else if (m.player2_score > m.player1_score) winnerId = m.player2_id;
-
-    await supabase.from("ranked_matches").update({
-      status: "finished",
-      winner_id: winnerId,
-    }).eq("id", m.id);
-
-    setMyTotalScore(myFinalScore);
-    setOppTotalScore(oppFinalScore);
-    handleFinished({ ...m, status: "finished", winner_id: winnerId });
+    try {
+      const updated = await advanceRankedMatch(
+        matchRef.current.id,
+        myIdRef.current,
+        fromIdx,
+      ) as unknown as RankedMatch;
+      matchRef.current = updated;
+      setMatch(updated);
+      if (updated.status === "finished") handleFinished(updated);
+      else advancedFromRef.current = fromIdx - 1;
+    } catch (error) {
+      advancedFromRef.current = fromIdx - 1;
+      console.warn("finish ranked match failed", error);
+    }
   }
 
   function handleFinished(cur: RankedMatch) {
@@ -657,55 +577,20 @@ export default function RankedMode() {
     const won = w === "me";
     const draw = w === "draw";
     const delta = won ? 20 : draw ? 0 : -20;
-    setResultingRankPoints(Math.max(0, myPoints + delta));
-    if (delta !== 0) {
-      supabase.from("ranked_queue")
-        .select("rank_points")
-        .eq("user_id", myIdRef.current)
-        .maybeSingle()
-        .then(({ data }) => {
-          if (data) {
-            const newPts = Math.max(0, (data.rank_points ?? 0) + delta);
-            supabase.from("ranked_queue").update({ rank_points: newPts }).eq("user_id", myIdRef.current).then(() => {
-              setMyPoints(newPts);
-              setResultingRankPoints(newPts);
-            });
-          }
-        });
-    }
+    supabase.from("ranked_queue").select("rank_points").eq("user_id", myIdRef.current)
+      .maybeSingle().then(({ data }) => {
+        const serverPoints = data?.rank_points ?? Math.max(0, myPoints + delta);
+        setMyPoints(serverPoints);
+        setResultingRankPoints(serverPoints);
+      });
 
     if (dbUser?.id) {
-      const xpGain    = won ? XP_REWARDS.win_ranked : (draw ? 15 : 5);
-      const coinGain  = won ? COIN_REWARDS.win_ranked : 0;
-      awardGameRewards({
-        userId: dbUser.id,
-        xp: xpGain,
-        coins: coinGain,
-        currentXP: dbUser.xp ?? 0,
-        currentCoins: dbUser.coins ?? 0,
-        currentLevel: dbUser.level ?? 1,
-        currentAchievements: dbUser.achievements,
-        currentSeasonPoints: dbUser.season_points ?? 0,
-        seasonDelta: won ? 20 : draw ? 5 : 0,
-        progressUpdates: {
-          total_games:       1,
-          total_correct:     myScore,
-          ranked_wins:       won ? 1 : 0,
-          consecutive_wins:  won ? 1 : 0,
-        },
-      }).then(result => {
-        setShowReward({ xp: result.xpGained, coins: result.coinsGained });
-        setRewardSummary({ xp: result.xpGained, coins: result.coinsGained, achievements: result.newlyUnlocked.length });
-        if (result.newlyUnlocked.length > 0) {
-          setNewAchievements(result.newlyUnlocked);
-          playSound("achievement");
-        }
-        if (result.coinsGained > 0) playSound("coin");
-        if (result.leveledUp) playSound("levelup");
-        recordEngagementGame(dbUser.id, { won, correct: correctCountRef.current })
-          .then(() => refreshUser())
-          .catch(() => refreshUser());
-      }).catch(() => {});
+      const xpGain = won ? XP_REWARDS.win_ranked : (draw ? 15 : 5);
+      const coinGain = won ? COIN_REWARDS.win_ranked : 0;
+      setShowReward({ xp: xpGain, coins: coinGain });
+      setRewardSummary({ xp: xpGain, coins: coinGain, achievements: 0 });
+      if (coinGain > 0) playSound("coin");
+      void refreshUser();
     }
 
     if (won) recordTodayWin(); else if (!draw) recordTodayLoss();

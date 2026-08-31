@@ -194,6 +194,124 @@ class MultiplayerBackend {
 
   private async handleRpc(route: Route, name: string, body: Row) {
     const room = this.rooms.find((item) => item.code === body.p_room_code);
+    if (name === "enter_ranked_queue") {
+      const active = this.matches.find((match) =>
+        match.status === "active" &&
+        [match.player1_id, match.player2_id].includes(body.p_user_id)
+      );
+      if (active) {
+        await this.json(route, [active]);
+        return;
+      }
+      let mine = this.queue.find((entry) => entry.user_id === body.p_user_id);
+      if (!mine) {
+        mine = {
+          id: `queue-${this.queue.length + 1}`,
+          user_id: body.p_user_id,
+          username: body.p_username,
+          preferred_categories: body.p_preferred_categories,
+          rank_points: 0,
+          status: "waiting",
+          created_at: new Date().toISOString(),
+        };
+        this.queue.push(mine);
+      } else {
+        Object.assign(mine, {
+          username: body.p_username,
+          preferred_categories: body.p_preferred_categories,
+          status: "waiting",
+        });
+      }
+      const opponent = this.queue.find((entry) =>
+        entry.user_id !== mine.user_id && entry.status === "waiting"
+      );
+      if (!opponent) {
+        await this.json(route, []);
+        return;
+      }
+      const [p1, p2] = [mine, opponent].sort((a, b) => a.user_id.localeCompare(b.user_id));
+      const match = {
+        id: `match-${this.nextMatch++}`,
+        player1_id: p1.user_id,
+        player1_name: p1.username,
+        player2_id: p2.user_id,
+        player2_name: p2.username,
+        category: "mix",
+        status: "active",
+        current_question_index: 0,
+        question_start_time: null,
+        countdown_start: Date.now(),
+        player1_score: 0,
+        player2_score: 0,
+        player1_answers: [],
+        player2_answers: [],
+        winner_id: null,
+        question_ids: questions.slice(0, 2).map((question) => question.id),
+      };
+      mine.status = "matched";
+      opponent.status = "matched";
+      this.matches.push(match);
+      await this.json(route, [match]);
+      return;
+    }
+    if (name === "cancel_ranked_queue") {
+      const entry = this.queue.find((item) => item.user_id === body.p_user_id);
+      if (entry?.status === "waiting") entry.status = "cancelled";
+      await this.json(route, true);
+      return;
+    }
+    if (name === "submit_ranked_answer") {
+      const match = this.matches.find((item) => item.id === body.p_match_id);
+      if (!match) throw new Error("Missing mocked ranked match");
+      const isP1 = match.player1_id === body.p_user_id;
+      const answers = isP1 ? match.player1_answers : match.player2_answers;
+      if (!answers[body.p_question_index]) {
+        const question = questions.find((item) => item.id === body.p_question_id)!;
+        const correct = body.p_answer_text === question.options[question.correct];
+        const points = correct ? 10 : 0;
+        answers[body.p_question_index] = {
+          ans: body.p_answer_text,
+          pts: points,
+          ms: Date.now() - match.question_start_time,
+          correct,
+        };
+        if (isP1) {
+          match.player1_score += points;
+          this.rankedAnswerWrites.player1++;
+        } else {
+          match.player2_score += points;
+          this.rankedAnswerWrites.player2++;
+        }
+      }
+      await this.json(route, [match]);
+      return;
+    }
+    if (name === "start_or_advance_ranked_match") {
+      const match = this.matches.find((item) => item.id === body.p_match_id);
+      if (!match) throw new Error("Missing mocked ranked match");
+      if (body.p_from_question === -1 && !match.question_start_time) {
+        match.question_start_time = Date.now();
+      } else if (body.p_from_question === match.current_question_index) {
+        const answered = [match.player1_answers, match.player2_answers]
+          .filter((answers) => answers[body.p_from_question]).length;
+        const timedOut = Date.now() >= match.question_start_time + 800;
+        if (answered === 2 || timedOut) {
+          if (body.p_from_question >= 1) {
+            match.status = "finished";
+            match.winner_id = match.player1_score > match.player2_score
+              ? match.player1_id
+              : match.player2_score > match.player1_score
+              ? match.player2_id
+              : null;
+          } else {
+            match.current_question_index++;
+            match.question_start_time = Date.now();
+          }
+        }
+      }
+      await this.json(route, [match]);
+      return;
+    }
     if (name === "resume_party_host") {
       await this.json(route, room?.host_token === body.p_host_token ? [{ ...room }] : null);
       return;
@@ -524,8 +642,8 @@ test("Ranked synchronizes simultaneous answers, rapid taps, reveals, scores, and
     expect(match.player1_answers[1]).toMatchObject({ ans: null, pts: 0 });
     expect(match.player2_answers[1]).toMatchObject({ ans: null, pts: 0 });
     expect(backend.rankedAnswerWrites).toEqual({ player1: 2, player2: 2 });
-    const firstScore = match.player1_id === "ranked-player-1" ? match.player1_score : match.player2_score;
-    const secondScore = match.player1_id === "ranked-player-2" ? match.player1_score : match.player2_score;
+    const firstScore = match.player1_id === "guest_ranked-player-1" ? match.player1_score : match.player2_score;
+    const secondScore = match.player1_id === "guest_ranked-player-2" ? match.player1_score : match.player2_score;
     await expect(first.getByTestId("text-ranked-final-my-score")).toHaveText(String(firstScore));
     await expect(second.getByTestId("text-ranked-final-my-score")).toHaveText(String(secondScore));
     await expect(first.getByTestId("text-ranked-rating-delta")).toBeVisible();

@@ -4,3 +4,4 @@
 - [Release gate artifact state](release-gate-artifact-state.md) — sub-path browser checks mutate dist; release gates must finish with a real production build and use stable worker readiness signals.
 - [Party timing authority](party-timing-authority.md) — Party deadlines and speed points require DB timestamps plus capability-bound writes; never trust guest time or host observation time.
 - [Multiplayer browser fixtures](multiplayer-browser-fixtures.md) — dual-session mocks must reproduce authorization, timing, idempotency, scoring, and retention—not only happy-path state.
+- [Authoritative competitive attempts](authoritative-competitive-attempts.md) — persist server-selected question sets and bind guest writes to capabilities; public IDs alone never authorize scoring.

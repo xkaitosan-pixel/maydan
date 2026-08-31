@@ -465,6 +465,135 @@ export async function getDailyPercentile(date: string, myScore: number): Promise
   return Math.round((below / total) * 100);
 }
 
+// ──────────────────────────── SERVER-AUTHORITATIVE GAMES ─────────────────────
+
+export interface DailyAttempt {
+  id: string;
+  user_id: string;
+  challenge_date: string;
+  status: "active" | "completed";
+  current_question_index: number;
+  question_started_at: number;
+  score: number;
+  correct_count: number;
+  completed_at: string | null;
+  question_ids: number[];
+}
+
+function rpcRow<T>(data: T | T[] | null): T | null {
+  return Array.isArray(data) ? (data[0] ?? null) : data;
+}
+
+function gameGuestToken(userId: string): string | null {
+  if (!userId.startsWith("guest_")) return null;
+  const key = "maydan_game_guest_capability";
+  let token = localStorage.getItem(key);
+  if (!token) {
+    token = `${crypto.randomUUID()}${crypto.randomUUID()}`;
+    localStorage.setItem(key, token);
+  }
+  return token;
+}
+
+export async function enterRankedQueue(params: {
+  userId: string;
+  username: string;
+  preferredCategories: string[];
+}): Promise<Record<string, unknown> | null> {
+  const { data, error } = await supabase.rpc("enter_ranked_queue", {
+    p_user_id: params.userId,
+    p_username: params.username,
+    p_preferred_categories: params.preferredCategories,
+    p_guest_token: gameGuestToken(params.userId),
+  });
+  if (error) throw error;
+  return rpcRow(data) as Record<string, unknown> | null;
+}
+
+export async function cancelRankedQueue(userId: string): Promise<void> {
+  const { error } = await supabase.rpc("cancel_ranked_queue", {
+    p_user_id: userId,
+    p_guest_token: gameGuestToken(userId),
+  });
+  if (error) throw error;
+}
+
+export async function submitRankedAnswer(params: {
+  matchId: string;
+  userId: string;
+  questionIndex: number;
+  questionId: number;
+  answerText: string | null;
+}): Promise<Record<string, unknown>> {
+  const { data, error } = await supabase.rpc("submit_ranked_answer", {
+    p_match_id: params.matchId,
+    p_user_id: params.userId,
+    p_question_index: params.questionIndex,
+    p_question_id: params.questionId,
+    p_answer_text: params.answerText,
+    p_guest_token: gameGuestToken(params.userId),
+  });
+  if (error) throw error;
+  const row = rpcRow(data);
+  if (!row) throw new Error("Ranked answer returned no match");
+  return row as Record<string, unknown>;
+}
+
+export async function advanceRankedMatch(
+  matchId: string,
+  userId: string,
+  fromQuestion: number,
+): Promise<Record<string, unknown>> {
+  const { data, error } = await supabase.rpc("start_or_advance_ranked_match", {
+    p_match_id: matchId,
+    p_user_id: userId,
+    p_from_question: fromQuestion,
+    p_guest_token: gameGuestToken(userId),
+  });
+  if (error) throw error;
+  const row = rpcRow(data);
+  if (!row) throw new Error("Ranked advance returned no match");
+  return row as Record<string, unknown>;
+}
+
+export async function startDailyAttempt(params: {
+  userId: string;
+  displayName: string;
+  country: string;
+}): Promise<DailyAttempt> {
+  const { data, error } = await supabase.rpc("start_daily_attempt", {
+    p_user_id: params.userId,
+    p_display_name: params.displayName,
+    p_country: params.country,
+    p_guest_token: gameGuestToken(params.userId),
+  });
+  if (error) throw error;
+  const row = rpcRow(data);
+  if (!row) throw new Error("Daily attempt returned no row");
+  return row as DailyAttempt;
+}
+
+export async function submitDailyAnswer(params: {
+  attemptId: string;
+  userId: string;
+  questionIndex: number;
+  questionId: number;
+  answerText: string | null;
+}): Promise<DailyAttempt> {
+  const { data, error } = await supabase.rpc("submit_daily_answer", {
+    p_attempt_id: params.attemptId,
+    p_user_id: params.userId,
+    p_question_index: params.questionIndex,
+    p_question_id: params.questionId,
+    p_answer_text: params.answerText,
+    p_guest_token: gameGuestToken(params.userId),
+  });
+  if (error) throw error;
+  const row = rpcRow(data);
+  if (!row) throw new Error("Daily answer returned no attempt");
+  return row as DailyAttempt;
+}
+
 // ──────────────────────────── LEADERBOARD: MY RANK ────────────────────────────
 // Counts how many distinct usernames have a higher best score than mine,
 // returning my 1-based rank (or null if I have no scores).
