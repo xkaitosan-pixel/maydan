@@ -18,6 +18,15 @@ let treeInflight: Promise<CategoryNode[]> | null = null;
 let countsCache: CacheEntry<Record<string, number>> | null = null;
 let countsInflight: Promise<Record<string, number>> | null = null;
 
+export function invalidateCategoryCaches() {
+  flatCache = null;
+  flatInflight = null;
+  treeCache = null;
+  treeInflight = null;
+  countsCache = null;
+  countsInflight = null;
+}
+
 function isFresh<T>(entry: CacheEntry<T> | null): entry is CacheEntry<T> {
   return !!entry && entry.expiresAt > Date.now();
 }
@@ -37,6 +46,73 @@ export interface CategoryNode extends Category {
   parentKey: string | null;
   children: CategoryNode[];
   questionCount?: number;
+}
+
+export type FlatCategory = Category & { parentKey: string | null };
+
+/** Build a key-indexed view without making callers depend on array ordering. */
+export function buildCategoryMap(categories: readonly FlatCategory[]): Map<string, FlatCategory> {
+  return new Map(categories.map((category) => [category.id, category]));
+}
+
+/** Builds an orphan-safe tree from database (or fallback) category rows. */
+export function buildCategoryTree(categories: readonly FlatCategory[]): CategoryNode[] {
+  const byKey = new Map<string, CategoryNode>();
+  for (const category of categories) {
+    byKey.set(category.id, { ...category, children: [] });
+  }
+  const roots: CategoryNode[] = [];
+  for (const node of byKey.values()) {
+    const parent = node.parentKey ? byKey.get(node.parentKey) : undefined;
+    if (parent && parent !== node) parent.children.push(node);
+    else roots.push(node);
+  }
+  return roots;
+}
+
+/** Adds direct question counts to leaves and inclusive counts to their parents. */
+export function applyQuestionCountsToTree(
+  roots: readonly CategoryNode[],
+  counts: Readonly<Record<string, number>>,
+): CategoryNode[] {
+  const withCounts = (node: CategoryNode): CategoryNode => {
+    const children = node.children.map(withCounts);
+    return {
+      ...node,
+      children,
+      questionCount: (counts[node.id] ?? 0) + children.reduce(
+        (total, child) => total + (child.questionCount ?? 0),
+        0,
+      ),
+    };
+  };
+  return roots.map(withCounts);
+}
+
+/** Returns the display label for a category key, retaining usable unknown keys. */
+export function getCategoryLabel(key: string, categories: readonly FlatCategory[]): string {
+  return buildCategoryMap(categories).get(key)?.name ?? key;
+}
+
+/**
+ * A selected parent includes itself and its currently active direct children.
+ * A child (and a parent without children) remains a single-key selection.
+ */
+export function expandCategorySelection(
+  selection: string | readonly string[],
+  categories: readonly FlatCategory[],
+): string[] {
+  const byKey = buildCategoryMap(categories);
+  const selected = Array.isArray(selection) ? selection : [selection];
+  const keys = new Set<string>();
+  for (const key of selected) {
+    keys.add(key);
+    if (!byKey.has(key)) continue;
+    for (const category of categories) {
+      if (category.parentKey === key) keys.add(category.id);
+    }
+  }
+  return [...keys];
 }
 
 const FALLBACK_GRADIENTS: Array<[string, string, string]> = [
@@ -77,11 +153,11 @@ function dbRowToCategory(row: DbCategory): Category & { parentKey: string | null
  * exists and has rows, otherwise the hard-coded fallback in `questions.ts`.
  * Each item also exposes `parentKey` (null for top-level).
  */
-export async function fetchCategoriesFlat(): Promise<Array<Category & { parentKey: string | null }>> {
+export async function fetchCategoriesFlat(): Promise<FlatCategory[]> {
   if (isFresh(flatCache)) return flatCache.value;
   if (flatInflight) return flatInflight;
   flatInflight = (async () => {
-    let result: Array<Category & { parentKey: string | null }>;
+    let result: FlatCategory[];
     try {
       const { data, error } = await supabase
         .from("categories")
@@ -115,27 +191,53 @@ export async function fetchCategoryTree(): Promise<CategoryNode[]> {
   if (isFresh(treeCache)) return treeCache.value;
   if (treeInflight) return treeInflight;
   treeInflight = (async () => {
-    const flat = await fetchCategoriesFlat();
-    const byKey = new Map<string, CategoryNode>();
-    for (const c of flat) {
-      byKey.set(c.id, { ...c, parentKey: c.parentKey, children: [] });
-    }
-    const roots: CategoryNode[] = [];
-    for (const node of byKey.values()) {
-      if (node.parentKey && byKey.has(node.parentKey)) {
-        byKey.get(node.parentKey)!.children.push(node);
-      } else {
-        roots.push(node);
-      }
-    }
-    treeCache = { value: roots, expiresAt: Date.now() + CACHE_TTL_MS };
-    return roots;
+    const roots = buildCategoryTree(await fetchCategoriesFlat());
+    const counts = await fetchQuestionCounts();
+    const countedRoots = applyQuestionCountsToTree(roots, counts);
+    treeCache = { value: countedRoots, expiresAt: Date.now() + CACHE_TTL_MS };
+    return countedRoots;
   })();
   try {
     return await treeInflight;
   } finally {
     treeInflight = null;
   }
+}
+
+/** Fetches the current database-first key map. */
+export async function fetchCategoryMap(): Promise<Map<string, FlatCategory>> {
+  return buildCategoryMap(await fetchCategoriesFlat());
+}
+
+/** Resolves a UI category selection to concrete question category keys. */
+export async function resolveCategorySelection(
+  selection: string | readonly string[],
+): Promise<string[]> {
+  if (selection === "mix") return ["mix"];
+  return expandCategorySelection(selection, await fetchCategoriesFlat());
+}
+
+/** Validates route-provided selections against the visible catalogue and entitlement. */
+export async function validateCategorySelectionKey(
+  key: string,
+  isPremium: boolean,
+): Promise<boolean> {
+  if (key === "mix") return true;
+  const categories = await fetchCategoriesFlat();
+  return isCategorySelectionAllowed(key, categories, isPremium);
+}
+
+export function isCategorySelectionAllowed(
+  key: string,
+  categories: readonly FlatCategory[],
+  isPremium: boolean,
+): boolean {
+  const category = categories.find((item) => item.id === key);
+  if (!category) return false;
+  const selectionIncludesPremium =
+    !!category.isPremium ||
+    categories.some((item) => item.parentKey === key && item.isPremium);
+  return isPremium || !selectionIncludesPremium;
 }
 
 /**
