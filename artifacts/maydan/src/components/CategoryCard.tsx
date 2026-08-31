@@ -4,6 +4,7 @@ interface CategoryCardProps {
   cat: Category & { gFrom?: string; gTo?: string };
   isSelected?: boolean;
   isLocked?: boolean;
+  isUnavailable?: boolean;
   questionCount?: number;
   onClick: () => void;
   size?: "default" | "small";
@@ -13,6 +14,7 @@ export default function CategoryCard({
   cat,
   isSelected = false,
   isLocked = false,
+  isUnavailable = false,
   questionCount = 15,
   onClick,
   size = "default",
@@ -25,9 +27,9 @@ export default function CategoryCard({
   return (
     <button
       onClick={onClick}
-      disabled={isLocked}
+      disabled={isLocked || isUnavailable}
       className={`relative rounded-2xl overflow-hidden text-center transition-all select-none
-        ${isLocked ? "opacity-60 cursor-not-allowed" : "hover:scale-[1.03] active:scale-[0.97] cursor-pointer"}
+        ${isLocked || isUnavailable ? "opacity-55 cursor-not-allowed" : "hover:scale-[1.03] active:scale-[0.97] cursor-pointer"}
         ${isSelected ? "ring-2 ring-white/60 ring-offset-1 ring-offset-transparent" : ""}
       `}
       style={{
@@ -101,6 +103,10 @@ export default function CategoryCard({
           {cat.name}
         </p>
 
+        {isSmall && isUnavailable && (
+          <span className="text-[10px] font-bold text-white/80">قريبًا</span>
+        )}
+
         {/* Question count badge */}
         {!isSmall && (
           <span
@@ -111,7 +117,7 @@ export default function CategoryCard({
               border: "1px solid rgba(255,255,255,0.15)",
             }}
           >
-            {questionCount} سؤال
+            {isUnavailable ? "قريبًا" : `${questionCount} سؤال`}
           </span>
         )}
 

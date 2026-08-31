@@ -24,6 +24,18 @@ const idsCache = new Map<string, CacheEntry<Question[]>>();
 const idsInflight = new Map<string, Promise<Question[]>>();
 const questionCache = new Map<number, CacheEntry<Question>>();
 
+export function invalidateQuestionCaches() {
+  categoryCache.clear();
+  categoryInflight.clear();
+  selectionCache.clear();
+  selectionInflight.clear();
+  countCache.clear();
+  countInflight.clear();
+  idsCache.clear();
+  idsInflight.clear();
+  questionCache.clear();
+}
+
 function freshValue<T>(entry: CacheEntry<T> | undefined): T | undefined {
   return entry && entry.expiresAt > Date.now() ? entry.value : undefined;
 }

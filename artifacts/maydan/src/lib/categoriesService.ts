@@ -16,7 +16,16 @@ let flatInflight: Promise<Array<Category & { parentKey: string | null }>> | null
 let treeCache: CacheEntry<CategoryNode[]> | null = null;
 let treeInflight: Promise<CategoryNode[]> | null = null;
 let countsCache: CacheEntry<Record<string, number>> | null = null;
-let countsInflight: Promise<Record<string, number>> | null = null;
+let countsInflight: Promise<Record<string, number> | null> | null = null;
+
+export function invalidateCategoryCaches() {
+  flatCache = null;
+  flatInflight = null;
+  treeCache = null;
+  treeInflight = null;
+  countsCache = null;
+  countsInflight = null;
+}
 
 function isFresh<T>(entry: CacheEntry<T> | null): entry is CacheEntry<T> {
   return !!entry && entry.expiresAt > Date.now();
@@ -59,6 +68,26 @@ export function buildCategoryTree(categories: readonly FlatCategory[]): Category
     else roots.push(node);
   }
   return roots;
+}
+
+/** Adds direct question counts to leaves and inclusive counts to their parents. */
+export function applyQuestionCountsToTree(
+  roots: readonly CategoryNode[],
+  counts: Readonly<Record<string, number>> | null,
+): CategoryNode[] {
+  if (counts === null) return roots.map((root) => ({ ...root }));
+  const withCounts = (node: CategoryNode): CategoryNode => {
+    const children = node.children.map(withCounts);
+    return {
+      ...node,
+      children,
+      questionCount: (counts[node.id] ?? 0) + children.reduce(
+        (total, child) => total + (child.questionCount ?? 0),
+        0,
+      ),
+    };
+  };
+  return roots.map(withCounts);
 }
 
 /** Returns the display label for a category key, retaining usable unknown keys. */
@@ -164,8 +193,10 @@ export async function fetchCategoryTree(): Promise<CategoryNode[]> {
   if (treeInflight) return treeInflight;
   treeInflight = (async () => {
     const roots = buildCategoryTree(await fetchCategoriesFlat());
-    treeCache = { value: roots, expiresAt: Date.now() + CACHE_TTL_MS };
-    return roots;
+    const counts = await fetchQuestionCounts();
+    const countedRoots = applyQuestionCountsToTree(roots, counts);
+    treeCache = { value: countedRoots, expiresAt: Date.now() + CACHE_TTL_MS };
+    return countedRoots;
   })();
   try {
     return await treeInflight;
@@ -212,9 +243,9 @@ export function isCategorySelectionAllowed(
 
 /**
  * Returns a map of category-key → live question count from the `questions`
- * table. Empty map on failure.
+ * table. Null means the count is unknown because the request failed.
  */
-export async function fetchQuestionCounts(): Promise<Record<string, number>> {
+export async function fetchQuestionCounts(): Promise<Record<string, number> | null> {
   if (isFresh(countsCache)) return countsCache.value;
   if (countsInflight) return countsInflight;
   countsInflight = (async () => {
@@ -223,7 +254,7 @@ export async function fetchQuestionCounts(): Promise<Record<string, number>> {
         .from("questions")
         .select("category")
         .limit(MAX_COUNT_ROWS);
-      if (error || !data) return {};
+      if (error || !data) return null;
       const counts: Record<string, number> = {};
       for (const row of data as Array<{ category: string }>) {
         counts[row.category] = (counts[row.category] || 0) + 1;
@@ -231,7 +262,7 @@ export async function fetchQuestionCounts(): Promise<Record<string, number>> {
       countsCache = { value: counts, expiresAt: Date.now() + CACHE_TTL_MS };
       return counts;
     } catch {
-      return {};
+      return null;
     }
   })();
   try {

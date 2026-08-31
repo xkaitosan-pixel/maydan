@@ -4,6 +4,8 @@ import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { CATEGORIES } from "@/lib/questions";
 import type { Question } from "@/lib/questions";
+import { invalidateCategoryCaches } from "@/lib/categoriesService";
+import { invalidateQuestionCaches } from "@/lib/questionService";
 
 const SUPER_ADMIN = "xkaito.san@gmail.com";
 
@@ -1194,6 +1196,51 @@ type DbCategoryRow = {
   created_at?: string;
 };
 
+type LibraryBranch = {
+  key: string;
+  name: string;
+  icon: string;
+  parentKey: string;
+  premium: boolean;
+  matches: RegExp;
+};
+
+const LIBRARY_BRANCHES: LibraryBranch[] = [
+  { key: "islamic_quran", name: "القرآن وعلومه", icon: "📖", parentKey: "islamic", premium: false, matches: /قرآن|سورة|آية|الفاتحة|البسملة|الوحي|جبريل|الملك الذي نزل/ },
+  { key: "islamic_life", name: "السيرة والعبادات", icon: "📿", parentKey: "islamic", premium: false, matches: /.*/ },
+  { key: "geography_countries", name: "الدول والعواصم", icon: "🏙️", parentKey: "geography", premium: false, matches: /عاصمة|الدولة|دولة|بلد|الدول|لغة الرسمية|سكان|المملكة|تركيا|البرازيل|مدغشقر|كازاخستان|كولومبيا|بيرو/ },
+  { key: "geography_nature", name: "الطبيعة والمعالم", icon: "🏔️", parentKey: "geography", premium: false, matches: /.*/ },
+  { key: "general_everyday", name: "علوم ومعرفة يومية", icon: "💡", parentKey: "general", premium: false, matches: /كم|عدد|أيام|أسبوع|أشهر|سنة|وحدة|درجة|أضلاع|عضو|رمز|كوكب|عظمة|ماء|ذهب|جسم/ },
+  { key: "general_world", name: "العالم والشخصيات", icon: "🌐", parentKey: "general", premium: false, matches: /.*/ },
+  { key: "sports_football", name: "كرة القدم", icon: "⚽", parentKey: "sports", premium: false, matches: /كرة القدم|كأس العالم|دوري أبطال|الكرة الذهبية|ريال مدريد|رونالدو|منتخب|النادي|أنفيلد|الميرنغي|حارس مرمى|كرويف/ },
+  { key: "sports_variety", name: "الأولمبياد ورياضات أخرى", icon: "🏅", parentKey: "sports", premium: false, matches: /.*/ },
+  { key: "movies_films", name: "الأفلام والسينما", icon: "🎬", parentKey: "movies", premium: false, matches: /فيلم|أفلام|مخرج|أوسكار|سينماتيك|ديزني|مارفل|تيتانيك|Avatar|Jaws|Matrix|هاري بوتر|Harry Potter/ },
+  { key: "movies_series", name: "المسلسلات والشخصيات", icon: "📺", parentKey: "movies", premium: false, matches: /.*/ },
+  { key: "gaming_worlds", name: "الألعاب والعوالم", icon: "🎮", parentKey: "gaming", premium: false, matches: /اسم بطل|الشخصية|قصة|سلسلة ألعاب|لعبة (?!القتال)|Minecraft|Fortnite|Pokémon|Mario|Zelda|God of War|Uncharted|Resident Evil/ },
+  { key: "gaming_industry", name: "المنصات وصناعة الألعاب", icon: "🕹️", parentKey: "gaming", premium: false, matches: /.*/ },
+  { key: "naruto", name: "الشونن الكلاسيكي", icon: "🐉", parentKey: "anime", premium: false, matches: /ناروتو|Naruto|الأكاتسكي|ساسكي|One Piece|ون بيس|غوكو|Dragon Ball|دراغون بول|قبعة القش|زورو/ },
+  { key: "anime_worlds", name: "عوالم الأنمي", icon: "🎌", parentKey: "anime", premium: false, matches: /.*/ },
+  { key: "cars_brands", name: "الشركات وبلدان المنشأ", icon: "🏭", parentKey: "cars", premium: false, matches: /شركة|بلد المنشأ|الدولة المصنّعة|تأسست|مؤسس|أسس|الشركة الأم|العلامة التجارية|يملك/ },
+  { key: "cars_models", name: "الطرازات والتقنيات", icon: "🏎️", parentKey: "cars", premium: false, matches: /.*/ },
+  { key: "food_dishes", name: "الأطباق الخليجية", icon: "🍽️", parentKey: "food", premium: false, matches: /طبق|أكلة|الهريس|المطبق|كبسة|مجبوس|ثريد|جريش|قرصان|سليق|مندي|عصيدة|مرقوق|سمك|لحم|أرز|خبز|عجينة/ },
+  { key: "food_flavours", name: "الحلويات والمشروبات والمكونات", icon: "☕", parentKey: "food", premium: false, matches: /.*/ },
+  { key: "business_companies", name: "الشركات والمؤسسون", icon: "🏢", parentKey: "business", premium: false, matches: /شركة|مؤسس|أسس|الرئيس التنفيذي|منصة|أمازون|Apple|Google|Microsoft|Meta|Tesla|Alibaba|Netflix|IKEA|Walmart|Spotify|Uber|Airbnb/ },
+  { key: "business_finance", name: "الاقتصاد والإدارة", icon: "📈", parentKey: "business", premium: false, matches: /.*/ },
+  { key: "science_biology", name: "الأحياء والطب", icon: "🧬", parentKey: "science", premium: false, matches: /إنسان|جسم|خلية|DNA|كروموسوم|دم|عظمة|جمجمة|بنسلين|جراثيم|حشرات|الدورة الدموية|نبات|التطور/ },
+  { key: "science_space_tech", name: "الفضاء والفيزياء والتقنية", icon: "🚀", parentKey: "science", premium: false, matches: /كوكب|شمس|فضاء|قمر|مجرة|ضوء|نسبية|طاقة|تيار|مقاومة|موجات|كم|جاذبية|انفجار العظيم|حرارة|إشعاع|برمجة|AI|حاسوب|CPU|ويب|إنترنت|هاتف|مصباح|SpaceX/ },
+  { key: "science_chemistry", name: "الكيمياء وعلوم الأرض", icon: "⚗️", parentKey: "science", premium: false, matches: /.*/ },
+  { key: "history_islamic", name: "التاريخ الإسلامي", icon: "🕌", parentKey: "arabhistory", premium: false, matches: /خليفة|العباسية|الأموية|صلاح الدين|الإسلام|المسلم|بغداد|دمشق|الأندلس|فتح|هجرة/ },
+  { key: "history_arab", name: "الحضارات والتاريخ العربي", icon: "🏺", parentKey: "arabhistory", premium: false, matches: /.*/ },
+  { key: "animals_land", name: "الحيوانات البرية", icon: "🦁", parentKey: "animals", premium: false, matches: /أسد|فيل|نمر|زرافة|قرد|غوريلا|جمل|حصان|ذئب|دب|ثعلب|غزال|كنغر|باندا|ثديي|بري|زواحف|أفعى|تمساح/ },
+  { key: "animals_nature", name: "الطيور والبحار والطبيعة", icon: "🐋", parentKey: "animals", premium: false, matches: /.*/ },
+  { key: "legends_mythology", name: "أساطير العالم", icon: "⚡", parentKey: "legends", premium: true, matches: /ميثولوجيا|الأسطور|الإله|الآلهة|إلهة|يونان|إغريق|إسكندناف|مصر القديمة|هرقل|أخيل|طروادة|فينرير|سندباد|طائر الفينيق|ميدوسا/ },
+  { key: "legends_mastery", name: "علوم وألغاز متقدمة", icon: "🧩", parentKey: "legends", premium: true, matches: /.*/ },
+];
+
+function libraryBranchFor(parentKey: string, question: string) {
+  return LIBRARY_BRANCHES.find((branch) => branch.parentKey === parentKey && branch.matches.test(question));
+}
+
 // Curated emoji palette for category icons — grouped by row/theme
 const CATEGORY_EMOJI_GROUPS: { label: string; emojis: string[] }[] = [
   { label: "معرفة",      emojis: ["🧠", "📚", "🔬", "🌍", "📖", "🎓"] },
@@ -1278,6 +1325,7 @@ function CategoriesManager() {
   const [editDraft, setEditDraft] = useState<Partial<DbCategoryRow>>({});
   const [draft, setDraft] = useState(emptyCatDraft());
   const [adding, setAdding] = useState(false);
+  const [organizing, setOrganizing] = useState(false);
 
   useEffect(() => { fetchAll(); }, []);
 
@@ -1344,6 +1392,77 @@ function CategoriesManager() {
     setItems((prev) => [...prev, data as DbCategoryRow]);
     setDraft(emptyCatDraft());
     flash(`✅ تمت إضافة "${name}"`);
+  }
+
+  async function organizeQuestionLibrary() {
+    setOrganizing(true);
+    setErr("");
+    setInfo("جاري إنشاء الفروع وتصنيف الأسئلة...");
+    try {
+      const roots = new Set(LIBRARY_BRANCHES.map((branch) => branch.parentKey));
+      const parentByKey = new Map(items.map((item) => [item.key, item.parent_key]));
+      const branchRows = LIBRARY_BRANCHES.map((branch, index) => ({
+        key: branch.key,
+        name: branch.name,
+        icon: branch.icon,
+        parent_key: branch.parentKey,
+        is_premium: branch.premium,
+        sort_order: 100 + index,
+      }));
+      const { error: branchError } = await supabase
+        .from("categories")
+        .upsert(branchRows, { onConflict: "key" });
+      if (branchError) throw branchError;
+
+      for (const rootKey of roots) {
+        const { error } = await supabase
+          .from("categories")
+          .update({ is_premium: rootKey === "legends" })
+          .eq("key", rootKey);
+        if (error) throw error;
+      }
+
+      const { data: questionRows, error: questionError } = await supabase
+        .from("questions")
+        .select("id, question, category, difficulty")
+        .order("id");
+      if (questionError) throw questionError;
+
+      const idsByBranch = new Map<string, number[]>();
+      for (const question of (questionRows ?? []) as Array<Pick<Question, "id" | "question" | "category" | "difficulty">>) {
+        const parentKey = roots.has(question.category)
+          ? question.category
+          : parentByKey.get(question.category);
+        if (!parentKey) throw new Error(`الفئة الأصلية غير معروفة للسؤال #${question.id}`);
+        const branch = libraryBranchFor(parentKey, question.question);
+        if (!branch) throw new Error(`تعذر تصنيف السؤال #${question.id}`);
+        idsByBranch.set(branch.key, [...(idsByBranch.get(branch.key) ?? []), question.id]);
+      }
+
+      for (const [branchKey, ids] of idsByBranch) {
+        for (let offset = 0; offset < ids.length; offset += 150) {
+          const batch = ids.slice(offset, offset + 150);
+          const { data: updated, error } = await supabase
+            .from("questions")
+            .update({ category: branchKey })
+            .in("id", batch)
+            .select("id");
+          if (error) throw error;
+          if ((updated?.length ?? 0) !== batch.length) {
+            throw new Error(`لم تسمح الصلاحيات بنقل كل أسئلة فرع ${branchKey}`);
+          }
+        }
+      }
+
+      invalidateCategoryCaches();
+      invalidateQuestionCaches();
+      await fetchAll();
+      flash(`✅ تم تنظيم ${(questionRows ?? []).length} سؤال داخل ${LIBRARY_BRANCHES.length} فرعًا`);
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "تعذر تنظيم مكتبة الأسئلة", true);
+    } finally {
+      setOrganizing(false);
+    }
   }
 
   function startEdit(it: DbCategoryRow) { setEditId(it.id); setEditDraft({ ...it }); }

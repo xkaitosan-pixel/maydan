@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyQuestionCountsToTree,
   buildCategoryMap,
   buildCategoryTree,
   expandCategorySelection,
@@ -30,6 +31,29 @@ describe("category hierarchy helpers", () => {
     expect(expandCategorySelection(["science", "football"], categories)).toEqual(["science", "football"]);
     expect(getCategoryLabel("football", categories)).toBe("Football");
     expect(getCategoryLabel("custom-key", categories)).toBe("custom-key");
+  });
+
+  it("keeps uncategorized parent questions in the parent total", () => {
+    const counted = applyQuestionCountsToTree(buildCategoryTree(categories), {
+      sports: 12,
+      football: 8,
+      tennis: 0,
+      science: 5,
+    });
+    expect(counted.find((category) => category.id === "sports")?.questionCount).toBe(20);
+    expect(counted.find((category) => category.id === "sports")?.children).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "football", questionCount: 8 }),
+        expect.objectContaining({ id: "tennis", questionCount: 0 }),
+      ]),
+    );
+  });
+
+  it("keeps categories playable when live counts are unavailable", () => {
+    const tree = buildCategoryTree(categories);
+    const withoutCounts = applyQuestionCountsToTree(tree, null);
+    expect(withoutCounts.find((category) => category.id === "sports")?.questionCount).toBeUndefined();
+    expect(withoutCounts.find((category) => category.id === "sports")?.children[0].questionCount).toBeUndefined();
   });
 
   it("locks a parent all-selection when any included child is premium", () => {
