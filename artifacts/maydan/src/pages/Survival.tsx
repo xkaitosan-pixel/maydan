@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { CATEGORIES, getCategoryById, Question } from "@/lib/questions";
-import { fetchGameQuestions } from "@/lib/questionService";
+import { fetchGameQuestions, fetchQuestionsByIds } from "@/lib/questionService";
 import { shuffleQuestion } from "@/lib/shuffle";
 import QuestionImage from "@/components/QuestionImage";
 import ReportFlag from "@/components/ReportFlag";
@@ -10,7 +10,7 @@ import CategoryCard from "@/components/CategoryCard";
 import CategoryPicker from "@/components/CategoryPicker";
 import { recordSurvivalGame, recordCategoryAnswers, getSurvivalRank, getAvailablePowerCards, useSkipCard, useTimeCard, getOrCreateUser, addLeaderboardEntry, canPlaySurvival, getRemainingSurvival, incrementSurvivalCount } from "@/lib/storage";
 import { validateCategorySelectionKey } from "@/lib/categoriesService";
-import { insertScore, updateUserStats } from "@/lib/db";
+import { settleSurvivalGame, startSurvivalAttempt, type GameSettlementResult } from "@/lib/db";
 import { useAuth } from "@/lib/AuthContext";
 import { playSound } from "@/lib/sound";
 import { useBackgroundMusic } from "@/lib/useBackgroundMusic";
@@ -18,8 +18,7 @@ import { flashScreen } from "@/lib/flash";
 import AchievementPopup from "@/components/AchievementPopup";
 import FloatingReward from "@/components/FloatingReward";
 import ShareCard from "@/components/ShareCard";
-import { awardGameRewards, XP_REWARDS } from "@/lib/gamification";
-import { recordEngagementGame } from "@/lib/engagement";
+import { XP_REWARDS } from "@/lib/gamification";
 import { recordTodayWin, recordTodayLoss, recordTodayXP } from "@/lib/storage";
 
 const XP_PER_CORRECT = XP_REWARDS.correct_answer;
@@ -29,6 +28,31 @@ const BASE_TIME = 20;
 const TIME_DECREMENT = 1;
 const SPEED_EVERY = 5;
 const MIN_TIME = 8;
+const PENDING_SURVIVAL_SETTLEMENT_KEY = "maydan_pending_survival_settlement";
+type PendingSurvivalSettlement = {
+  attemptId: string;
+  userId: string;
+  username: string;
+  answers: Array<{ questionId: number; answerText: string | null; skipped: boolean }>;
+  displayCategory: string;
+  displayScore: number;
+};
+
+function readPendingSurvivalSettlements(): Record<string, PendingSurvivalSettlement> {
+  try {
+    return JSON.parse(localStorage.getItem(PENDING_SURVIVAL_SETTLEMENT_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function writePendingSurvivalSettlements(items: Record<string, PendingSurvivalSettlement>): void {
+  try {
+    localStorage.setItem(PENDING_SURVIVAL_SETTLEMENT_KEY, JSON.stringify(items));
+  } catch (error) {
+    console.warn("[survival] could not persist settlement retry queue", error);
+  }
+}
 
 type Phase = "select" | "playing" | "gameover";
 
@@ -78,6 +102,25 @@ export default function Survival() {
   const [newAchievements, setNewAchievements] = useState<string[]>([]);
   const [perAnswerXP, setPerAnswerXP] = useState(false);
   const [rewardSummary, setRewardSummary] = useState<{ xp: number; coins: number; achievements: number } | null>(null);
+  const [settlementState, setSettlementState] = useState<"idle" | "pending" | "confirmed">("idle");
+  const survivalAttemptIdRef = useRef<string | null>(null);
+  const serverOrderedRunRef = useRef(false);
+  const survivalAnswersRef = useRef<Array<{ questionId: number; answerText: string | null; skipped: boolean }>>([]);
+  const pendingSettlementRef = useRef<PendingSurvivalSettlement | null>(null);
+
+  useEffect(() => {
+    if (!dbUser?.id || isGuest) return;
+    try {
+      const pendingMap = readPendingSurvivalSettlements();
+      const pending = Object.values(pendingMap).find((item) => item.userId === dbUser.id);
+      if (!pending) return;
+      pendingSettlementRef.current = pending;
+      setSelectedCategory(pending.displayCategory);
+      setScore(pending.displayScore);
+      setPhase("gameover");
+      retrySurvivalSettlement();
+    } catch {}
+  }, [dbUser?.id, isGuest]);
   const [combo, setCombo] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
@@ -137,7 +180,19 @@ export default function Survival() {
     const catToUse = typeof forceCategory === "string" ? forceCategory : selectedCategory;
     sessionActiveRef.current = true;
     clearScheduledTimeouts();
-    const rawPool = await fetchGameQuestions(catToUse);
+    let rawPool: Question[];
+    if (!isGuest && dbUser?.id) {
+      const attempt = await startSurvivalAttempt({ userId: dbUser.id, category: catToUse });
+      survivalAttemptIdRef.current = attempt.id;
+      serverOrderedRunRef.current = true;
+      rawPool = await fetchQuestionsByIds(attempt.question_ids);
+      const byId = new Map(rawPool.map((question) => [question.id, question]));
+      rawPool = attempt.question_ids.map((id) => byId.get(id)).filter((question): question is Question => !!question);
+    } else {
+      survivalAttemptIdRef.current = null;
+      serverOrderedRunRef.current = false;
+      rawPool = await fetchGameQuestions(catToUse);
+    }
     const pool = rawPool.map((q) => shuffleQuestion(q));
     if (!pool.length || !sessionActiveRef.current) {
       sessionActiveRef.current = false;
@@ -145,6 +200,10 @@ export default function Survival() {
       return;
     }
     incrementSurvivalCount();
+    survivalAnswersRef.current = [];
+    pendingSettlementRef.current = null;
+    setSettlementState("idle");
+    setRewardSummary(null);
     questionPoolRef.current = pool;
     const first = pool[0];
     const t = BASE_TIME;
@@ -198,6 +257,7 @@ export default function Survival() {
     if (timerRef.current) clearInterval(timerRef.current);
     if (!sessionActiveRef.current || !currentQ || answeredRef.current) return;
     answeredRef.current = true;
+    survivalAnswersRef.current.push({ questionId: currentQ.id, answerText: null, skipped: false });
     setShowResult(true);
     playSound("wrong");
     setTotalAnswers(prev => ({ ...prev, [currentQ.category]: (prev[currentQ.category] || 0) + 1 }));
@@ -216,6 +276,11 @@ export default function Survival() {
   function handleAnswer(idx: number) {
     if (!sessionActiveRef.current || answeredRef.current || selectedOption !== null || showResult || !currentQ || isPaused) return;
     answeredRef.current = true;
+    survivalAnswersRef.current.push({
+      questionId: currentQ.id,
+      answerText: currentQ.options[idx] ?? null,
+      skipped: false,
+    });
     if (timerRef.current) clearInterval(timerRef.current);
 
     setSelectedOption(idx);
@@ -266,7 +331,9 @@ export default function Survival() {
     const s = currentScore ?? score;
     const pool = questionPoolRef.current.filter(q => !usedIds.has(q.id));
     if (!pool.length) { endGame(s); return; }
-    const next = pool[Math.floor(Math.random() * pool.length)];
+    const next = serverOrderedRunRef.current
+      ? pool[0]
+      : pool[Math.floor(Math.random() * pool.length)];
 
     const newMax = getTimerForScore(s);
     setUsedIds(prev => new Set([...prev, next.id]));
@@ -277,6 +344,43 @@ export default function Survival() {
     setShowResult(false);
     setPowerUsed({ skip: false, time: false });
     answeredRef.current = false;
+  }
+
+  function showConfirmedSettlement(result: GameSettlementResult) {
+    const attemptId = pendingSettlementRef.current?.attemptId;
+    const pendingMap = readPendingSurvivalSettlements();
+    if (attemptId) delete pendingMap[attemptId];
+    writePendingSurvivalSettlements(pendingMap);
+    if (result.settled_score != null) setScore(result.settled_score);
+    setSettlementState("confirmed");
+    setShowReward({ xp: result.xp_gained, coins: result.coins_gained });
+    setRewardSummary({ xp: result.xp_gained, coins: result.coins_gained, achievements: result.newly_unlocked.length });
+    if (result.newly_unlocked.length > 0) {
+      setNewAchievements(result.newly_unlocked);
+      playSound("achievement");
+    }
+    if (result.coins_gained > 0) playSound("coin");
+    if (result.new_level > (dbUser?.level ?? 1)) playSound("levelup");
+    if (result.applied) recordTodayXP(result.xp_gained);
+    void refreshUser();
+    const next = Object.values(pendingMap).find((item) => item.userId === dbUser?.id);
+    if (next) {
+      pendingSettlementRef.current = next;
+      setSelectedCategory(next.displayCategory);
+      setScore(next.displayScore);
+      queueMicrotask(retrySurvivalSettlement);
+    } else {
+      pendingSettlementRef.current = null;
+    }
+  }
+
+  function retrySurvivalSettlement() {
+    const pending = pendingSettlementRef.current;
+    if (!pending) return;
+    setSettlementState("pending");
+    void settleSurvivalGame(pending)
+      .then(showConfirmedSettlement)
+      .catch(() => setSettlementState("pending"));
   }
 
   function endGame(finalScore: number) {
@@ -290,53 +394,29 @@ export default function Survival() {
     Object.keys(totalAnswers).forEach(cat => {
       recordCategoryAnswers(cat, correctAnswers[cat] || 0, totalAnswers[cat]);
     });
-    // Record to local leaderboard
     const u = getOrCreateUser();
-    if (u.displayName) {
+    if (isGuest && u.displayName) {
       addLeaderboardEntry({ name: u.displayName, score: finalScore, total: 0, category: selectedCategory, type: "survival" });
     }
-    // Sync to Supabase only for authenticated users (not guests)
     const supName = dbUser?.username ?? u.displayName;
-    if (supName && !isGuest) {
-      insertScore({ user_id: dbUser?.id ?? null, username: supName, category: selectedCategory, score: finalScore, game_mode: "survival" });
-      if (dbUser?.id) {
-        updateUserStats(dbUser.id, { total_points: finalScore * 10 });
-        // Award XP and coins
-        const xpGain = finalScore >= 10 ? XP_REWARDS.win_survival_10 : Math.max(5, finalScore * 2);
-        const survivalWin = finalScore >= 15 ? 1 : 0;
-        awardGameRewards({
-          userId: dbUser.id,
-          xp: xpGain,
-          coins: survivalWin ? 25 : 0,
-          currentXP: dbUser.xp ?? 0,
-          currentCoins: dbUser.coins ?? 0,
-          currentLevel: dbUser.level ?? 1,
-          currentAchievements: dbUser.achievements,
-          currentSeasonPoints: dbUser.season_points ?? 0,
-          progressUpdates: {
-            total_games:       1,
-            total_correct:     finalScore,
-            survival_wins:     survivalWin,
-            categories_played: selectedCategory,
-          },
-        }).then(result => {
-          setShowReward({ xp: result.xpGained, coins: result.coinsGained });
-          setRewardSummary({ xp: result.xpGained, coins: result.coinsGained, achievements: result.newlyUnlocked.length });
-          if (result.newlyUnlocked.length > 0) {
-            setNewAchievements(result.newlyUnlocked);
-            playSound("achievement");
-          }
-          if (result.coinsGained > 0) playSound("coin");
-          if (result.leveledUp) playSound("levelup");
-          recordTodayXP(result.xpGained);
-          recordEngagementGame(dbUser.id, { won: finalScore >= 15, correct: finalScore, categoryId: selectedCategory })
-            .then(() => refreshUser())
-            .catch(() => refreshUser());
-        }).catch(() => {});
-      }
+    const attemptId = survivalAttemptIdRef.current;
+    if (supName && !isGuest && dbUser?.id && attemptId) {
+      pendingSettlementRef.current = {
+        attemptId,
+        userId: dbUser.id,
+        username: supName,
+        answers: [...survivalAnswersRef.current],
+        displayCategory: selectedCategory,
+        displayScore: finalScore,
+      };
+      const pendingMap = readPendingSurvivalSettlements();
+      pendingMap[attemptId] = pendingSettlementRef.current;
+      writePendingSurvivalSettlements(pendingMap);
+      retrySurvivalSettlement();
     }
-    // Today-stats: ≥15 = win, otherwise loss
-    if (finalScore >= 15) recordTodayWin(); else recordTodayLoss();
+    if (isGuest) {
+      if (finalScore >= 15) recordTodayWin(); else recordTodayLoss();
+    }
     setScore(finalScore);
     setIsPaused(false);
     setPhase("gameover");
@@ -346,6 +426,7 @@ export default function Survival() {
     if (powerUsed.skip || skipAvail <= 0 || !currentQ || isPaused || answeredRef.current) return;
     answeredRef.current = true;
     if (!useSkipCard()) return;
+    survivalAnswersRef.current.push({ questionId: currentQ.id, answerText: null, skipped: true });
     if (timerRef.current) clearInterval(timerRef.current);
     setPowerUsed(prev => ({ ...prev, skip: true }));
     setSkipAvail(prev => prev - 1);
@@ -494,8 +575,16 @@ export default function Survival() {
                   )}
                 </div>
               ) : (
-                <div className="flex justify-center">
+                <div className="flex flex-col items-center gap-2">
                   <div className="w-5 h-5 border-2 border-yellow-400/40 border-t-yellow-400 rounded-full animate-spin" />
+                  {settlementState === "pending" && (
+                    <button
+                      onClick={retrySurvivalSettlement}
+                      className="rounded-lg border border-yellow-400/30 px-3 py-1 text-xs font-bold text-yellow-300"
+                    >
+                      إعادة محاولة تأكيد المكافأة
+                    </button>
+                  )}
                 </div>
               )}
             </div>

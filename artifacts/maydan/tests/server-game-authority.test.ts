@@ -6,6 +6,9 @@ const migration = readFileSync(
   resolve(process.cwd(), "supabase-migrations.sql"),
   "utf8",
 );
+const dbClient = readFileSync(resolve(process.cwd(), "src/lib/db.ts"), "utf8");
+const resultsPage = readFileSync(resolve(process.cwd(), "src/pages/Results.tsx"), "utf8");
+const survivalPage = readFileSync(resolve(process.cwd(), "src/pages/Survival.tsx"), "utf8");
 
 function functionBody(name: string): string {
   const start = migration.indexOf(`FUNCTION public.${name}`);
@@ -84,5 +87,74 @@ describe("server-authoritative Ranked and Daily contracts", () => {
     expect(migration).toContain(
       "REVOKE INSERT, UPDATE, DELETE ON public.ranked_matches FROM PUBLIC, anon, authenticated",
     );
+  });
+});
+
+describe("server-authoritative Challenge and Survival settlement", () => {
+  it("derives a stable Challenge event key and accepts it only once", () => {
+    const submission = functionBody("submit_challenge_game_result");
+    const body = functionBody("settle_challenge_game");
+    expect(submission).toContain("Invalid challenge answer sequence");
+    expect(submission).toContain("creator_score = v_score");
+    expect(submission).toContain("opponent_score = v_score");
+    expect(body).toContain("'challenge:' || p_challenge_id::text || ':' || p_role");
+    expect(body).toContain("FOR UPDATE");
+    expect(body).toContain("public.apply_game_reward");
+    expect(body).toContain("IF v_reward.applied THEN");
+  });
+
+  it("derives Survival settlement from one server-created attempt", () => {
+    const start = functionBody("start_survival_attempt");
+    const body = functionBody("settle_survival_game");
+    expect(start).toContain("INSERT INTO public.survival_attempts");
+    expect(start).toContain("question_ids");
+    expect(body).toContain("WHERE attempt.id = p_attempt_id AND attempt.user_id = p_user_id");
+    expect(body).toContain("Invalid survival answer sequence");
+    expect(body).toContain("'survival:' || p_attempt_id::text");
+    expect(body).toContain("public.apply_game_reward");
+    expect(survivalPage).toContain("startSurvivalAttempt");
+    expect(survivalPage).toContain("survivalAnswersRef.current");
+    expect(survivalPage).toContain("pendingSettlementRef.current");
+    expect(survivalPage).toContain("retrySurvivalSettlement");
+  });
+
+  it("serializes concurrent profile and engagement updates", () => {
+    const rewards = functionBody("apply_game_reward");
+    const engagement = functionBody("apply_game_engagement");
+    expect(rewards).toContain("FOR UPDATE");
+    expect(engagement).toContain("FOR UPDATE");
+    expect(rewards).toContain("ON CONFLICT DO NOTHING");
+    expect(engagement).toContain("'{engagement}'");
+  });
+
+  it("rejects direct leaderboard writes while granting only settlement RPCs", () => {
+    expect(migration).toContain(
+      "REVOKE INSERT, UPDATE, DELETE ON public.scores FROM PUBLIC, anon, authenticated",
+    );
+    expect(migration).toContain(
+      "GRANT EXECUTE ON FUNCTION public.settle_challenge_game(uuid,text,text,int,int,text) TO anon, authenticated",
+    );
+    expect(migration).toContain(
+      "REVOKE INSERT, UPDATE, DELETE ON public.challenges FROM PUBLIC, anon, authenticated",
+    );
+    expect(migration).toContain(
+      "GRANT EXECUTE ON FUNCTION public.delete_challenge_game(uuid,text,text) TO anon, authenticated",
+    );
+    expect(migration).toContain(
+      "GRANT EXECUTE ON FUNCTION public.settle_survival_game(uuid,text,text,jsonb,text) TO anon, authenticated",
+    );
+  });
+
+  it("shows only confirmed RPC rewards and offers an idempotent retry", () => {
+    expect(dbClient).toContain('supabase.rpc("settle_challenge_game"');
+    expect(dbClient).toContain('supabase.rpc("submit_challenge_game_result"');
+    expect(dbClient).toContain('supabase.rpc("settle_survival_game"');
+    expect(resultsPage).toContain("result.xp_gained");
+    expect(resultsPage).toContain("إعادة المحاولة");
+    expect(resultsPage).toContain("reserveResultSettlement");
+    expect(resultsPage).toContain("updatePendingChallengeSettlement");
+    expect(survivalPage).toContain("readPendingSurvivalSettlements");
+    expect(resultsPage).not.toContain("awardGameRewards({");
+    expect(survivalPage).not.toContain("awardGameRewards({");
   });
 });

@@ -4,7 +4,7 @@ import { getCategoryById, Question } from "@/lib/questions";
 import { fetchQuestionsByIds } from "@/lib/questionService";
 import { useAuth } from "@/lib/AuthContext";
 import { getChallenge, saveChallenge, getOrCreateUser, recordGamePlayed, recordCategoryAnswers, getAvailablePowerCards, useSkipCard, useTimeCard } from "@/lib/storage";
-import { completeDbChallenge } from "@/lib/db";
+import { getDbChallenge, submitChallengeGameResult } from "@/lib/db";
 import { playCorrect, playWrong, playTick } from "@/lib/sound";
 import { useBackgroundMusic } from "@/lib/useBackgroundMusic";
 import { flashScreen } from "@/lib/flash";
@@ -25,7 +25,7 @@ const QUESTION_TIME = 30;
 export default function Quiz() {
   const params = useParams<{ id: string; role: string }>();
   const [, navigate] = useLocation();
-  const { dbUser } = useAuth();
+  const { dbUser, isGuest } = useAuth();
   useBackgroundMusic("calm");
   const [isReporting, setIsReporting] = useState(false);
   const challengeId = params.id;
@@ -52,6 +52,9 @@ export default function Quiz() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const answeredRef = useRef(false);
   const transitionTimeoutsRef = useRef<Set<NodeJS.Timeout>>(new Set());
+  const finishingRef = useRef(false);
+  const pendingFinishAnswersRef = useRef<(number | null)[] | null>(null);
+  const submissionStorageKey = `maydan_pending_challenge_submission_${challengeId}_${role}`;
 
   const clearAllTimeouts = useCallback(() => {
     transitionTimeoutsRef.current.forEach(clearTimeout);
@@ -74,6 +77,20 @@ export default function Quiz() {
 
   const challenge = getChallenge(challengeId);
   const category = challenge ? getCategoryById(challenge.categoryId) : null;
+
+  useEffect(() => {
+    if (!challenge || loadedQs.length !== challenge.questions.length || finishingRef.current) return;
+    try {
+      const raw = localStorage.getItem(submissionStorageKey);
+      if (!raw) return;
+      const pending = JSON.parse(raw) as { answers?: (number | null)[] };
+      if (!Array.isArray(pending.answers) || pending.answers.length !== challenge.questions.length) return;
+      pendingFinishAnswersRef.current = pending.answers;
+      void finishQuiz(pending.answers);
+    } catch (error) {
+      console.warn("[challenge] could not restore pending submission", error);
+    }
+  }, [challengeId, role, loadedQs.length]);
 
   function loadPowerCards() {
     const cards = getAvailablePowerCards();
@@ -203,7 +220,10 @@ export default function Quiz() {
     setTimeLeft(prev => Math.min(prev + 15, QUESTION_TIME + 15));
   }
 
-  function finishQuiz(finalAnswers: (number | null)[]) {
+  async function finishQuiz(finalAnswers: (number | null)[]) {
+    if (finishingRef.current) return;
+    finishingRef.current = true;
+    pendingFinishAnswersRef.current = finalAnswers;
     if (!challenge) return;
     if (timerRef.current) clearInterval(timerRef.current);
     clearAllTimeouts(); // Ensure no pending transitions fire while navigating away
@@ -214,16 +234,54 @@ export default function Quiz() {
       .filter((question): question is Question => !!question);
     if (questionList.length !== challenge.questions.length) {
       setQuestionLoadError("تعذّر إكمال التحدي لأن بعض الأسئلة لم تعد متاحة.");
+      finishingRef.current = false;
       return;
     }
     const score = finalAnswers.reduce<number>((acc, ans, idx) => acc + (ans === questionList[idx]?.correct ? 1 : 0), 0);
 
-    // Record stats
-    recordGamePlayed();
     const correct = finalAnswers.filter((ans, idx) => ans === questionList[idx]?.correct).length;
-    recordCategoryAnswers(challenge.categoryId, correct, questionList.length);
+    if (isGuest) {
+      recordGamePlayed();
+      recordCategoryAnswers(challenge.categoryId, correct, questionList.length);
+    }
 
     const user = getOrCreateUser();
+    const playerName = role === "creator"
+      ? challenge.creatorName
+      : (challengerName || user.displayName || "المتحدي");
+    if (role === "challenger" || !isGuest) {
+      const gameUserId = dbUser?.id ?? user.userId;
+      try {
+        localStorage.setItem(submissionStorageKey, JSON.stringify({ answers: finalAnswers }));
+      } catch (error) {
+        console.warn("[challenge] could not persist submission retry", error);
+      }
+      try {
+        await submitChallengeGameResult({
+          challengeId,
+          userId: gameUserId,
+          role,
+          playerName,
+          answers: finalAnswers.map((selectedIndex, index) => ({
+            questionId: questionList[index].id,
+            answerText: selectedIndex == null ? null : (questionList[index].options[selectedIndex] ?? null),
+            selectedIndex,
+          })),
+        });
+      } catch (error) {
+        const remote = await getDbChallenge(challengeId).catch(() => null);
+        const alreadyCommitted = role === "creator"
+          ? !!remote && ["creator_completed", "completed"].includes(remote.status) && remote.creator_score === score
+          : !!remote && remote.status === "completed" && remote.opponent_score === score;
+        if (!alreadyCommitted) {
+          console.error("[challenge] authoritative result failed", error);
+          finishingRef.current = false;
+          setQuestionLoadError("تعذّر تثبيت نتيجة التحدي. تحقق من الاتصال وحاول مجددًا.");
+          return;
+        }
+      }
+      try { localStorage.removeItem(submissionStorageKey); } catch {}
+    }
     const updatedChallenge = { ...challenge };
     if (role === "creator") {
       updatedChallenge.creatorAnswers = finalAnswers;
@@ -240,16 +298,7 @@ export default function Quiz() {
     }
     saveChallenge(updatedChallenge);
 
-    // Fire-and-forget: mirror challenger completion to Supabase so the creator
-    // gets a "your challenge is complete" notification on any device.
-    if (role !== "creator") {
-      completeDbChallenge(challengeId, {
-        opponent_name: updatedChallenge.challengerName ?? "متحدي",
-        opponent_answers: finalAnswers,
-        opponent_score: score,
-      }).catch((e) => console.warn("[challenge] supabase complete failed", e));
-    }
-
+    finishingRef.current = false;
     navigate(`/results/${challengeId}/${role}`);
   }
 
@@ -268,10 +317,13 @@ export default function Quiz() {
           <p className="font-bold text-foreground">{questionLoadError}</p>
           <button
             type="button"
-            onClick={() => navigate("/")}
+            onClick={() => {
+              setQuestionLoadError("");
+              if (pendingFinishAnswersRef.current) void finishQuiz(pendingFinishAnswersRef.current);
+            }}
             className="mt-5 min-h-11 rounded-xl bg-primary px-5 py-2.5 font-bold text-primary-foreground"
           >
-            العودة للرئيسية
+            إعادة المحاولة
           </button>
         </div>
       </div>

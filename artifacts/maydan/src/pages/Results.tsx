@@ -6,7 +6,20 @@ import { shuffleQuestion } from "@/lib/shuffle";
 import { getChallenge, saveChallenge, recordWin, getOrCreateUser, addLeaderboardEntry, getSurvivalRank, recordTodayWin, recordTodayLoss, recordTodayXP, type ChallengeData } from "@/lib/storage";
 import { playSound } from "@/lib/sound";
 import { useAuth } from "@/lib/AuthContext";
-import { insertScore, updateUserStats, addFriend, isFriend, getDbChallenge } from "@/lib/db";
+
+const PENDING_CHALLENGE_SETTLEMENTS_KEY = "maydan_pending_challenge_settlements";
+
+function updatePendingChallengeSettlement(key: string, pending: boolean): void {
+  try {
+    const items = JSON.parse(localStorage.getItem(PENDING_CHALLENGE_SETTLEMENTS_KEY) || "{}") as Record<string, boolean>;
+    if (pending) items[key] = true;
+    else delete items[key];
+    localStorage.setItem(PENDING_CHALLENGE_SETTLEMENTS_KEY, JSON.stringify(items));
+  } catch (error) {
+    console.warn("[challenge] could not persist settlement retry queue", error);
+  }
+}
+import { addFriend, isFriend, getDbChallenge, settleChallengeGame } from "@/lib/db";
 import { challengeFromDb } from "@/lib/challengeSync";
 import { Button } from "@/components/ui/button";
 import AchievementPopup from "@/components/AchievementPopup";
@@ -14,13 +27,7 @@ import FloatingReward from "@/components/FloatingReward";
 import ShareCard from "@/components/ShareCard";
 import { Podium } from "@/components/game/Podium";
 import { getSeasonTier } from "@/lib/gamification";
-import { awardGameRewards, XP_REWARDS, COIN_REWARDS } from "@/lib/gamification";
-import { recordEngagementGame } from "@/lib/engagement";
-import {
-  confirmResultSettlement,
-  reserveResultSettlement,
-  type ResultSettlementStatus,
-} from "@/lib/resultSettlement";
+import { confirmResultSettlement, reserveResultSettlement } from "@/lib/resultSettlement";
 
 const WA_ICON = (
   <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
@@ -49,7 +56,8 @@ export default function Results() {
   const [challenge, setChallenge] = useState<ChallengeData | null>(() => getChallenge(challengeId));
   const [challengeLoading, setChallengeLoading] = useState(true);
   const [challengeError, setChallengeError] = useState("");
-  const [settlementState, setSettlementState] = useState<ResultSettlementStatus | "idle" | "unavailable">("idle");
+  const [settlementState, setSettlementState] = useState<"idle" | "pending" | "confirmed" | "unavailable">("idle");
+  const [settlementRetry, setSettlementRetry] = useState(0);
 
   const category = challenge ? getCategoryById(challenge.categoryId) : null;
   const user = getOrCreateUser();
@@ -106,110 +114,59 @@ export default function Results() {
     if (!challenge || winRecorded || !questionsSettled) return;
     if (!isGuest && !dbUser) return;
     if (challenge.status === "completed") {
-      // Persistent idempotency guard — prevents double-awarding XP/coins/wins
-      // on remount or refresh of /results/:id/:role.
-      try {
-        const reservation = reserveResultSettlement(localStorage, challengeId, role);
-        setSettlementState(reservation.status);
-        if (!reservation.reserved) {
-          setWinRecorded(true);
-          return;
-        }
-      } catch {
-        setSettlementState("unavailable");
-        setWinRecorded(true);
-        return;
-      }
       const cs = challenge.creatorScore;
       const chs = challenge.challengerScore ?? 0;
       const myWon = role === "creator" ? cs > chs : chs > cs;
-      if (myWon) { recordWin(); }
       setWinRecorded(true);
-
-      // Record to local leaderboard
       const myScore = role === "creator" ? cs : chs;
       const myName = role === "creator" ? challenge.creatorName : (challenge.challengerName ?? user.displayName);
-      if (myName) {
-        addLeaderboardEntry({ name: myName, score: myScore, total: challenge.questions.length, category: challenge.categoryId, type: "challenge" });
+
+      if (isGuest) {
+        const reservation = reserveResultSettlement(localStorage, challengeId, role);
+        if (!reservation.reserved) {
+          setSettlementState(reservation.status === "confirmed" ? "confirmed" : "pending");
+          return;
+        }
+        if (myWon) recordWin();
+        if (myName) {
+          addLeaderboardEntry({ name: myName, score: myScore, total: challenge.questions.length, category: challenge.categoryId, type: "challenge" });
+        }
+        if (myWon) recordTodayWin(); else if (cs !== chs) recordTodayLoss();
+        confirmResultSettlement(localStorage, challengeId, role);
+        setSettlementState("confirmed");
+        return;
       }
 
-      // Record to Supabase (authenticated users only)
-      const supabaseName = dbUser?.username ?? myName;
-      if (supabaseName && !isGuest) {
-        if (dbUser?.id) {
-          const xpGain    = myWon ? XP_REWARDS.win_1v1 : 10;
-          const coinGain  = myWon ? COIN_REWARDS.win_1v1 : 0;
-          void (async () => {
-            const [scoreSaved, statsSaved] = await Promise.all([
-              insertScore({
-                user_id: dbUser.id,
-                username: supabaseName,
-                category: challenge.categoryId,
-                score: myScore,
-                game_mode: "challenge",
-              }),
-              updateUserStats(dbUser.id, {
-                total_wins: myWon ? 1 : 0,
-                total_losses: myWon ? 0 : 1,
-                total_points: myScore * 10,
-              }),
-            ]);
-            if (!scoreSaved || !statsSaved) {
-              throw new Error("Challenge score or stats were not saved");
-            }
-            const result = await awardGameRewards({
-              userId: dbUser.id,
-              xp: xpGain,
-              coins: coinGain,
-              currentXP: dbUser.xp ?? 0,
-              currentCoins: dbUser.coins ?? 0,
-              currentLevel: dbUser.level ?? 1,
-              currentAchievements: dbUser.achievements,
-              currentSeasonPoints: dbUser.season_points ?? 0,
-              progressUpdates: {
-                total_games:      1,
-                total_correct:    myScore,
-                consecutive_wins: myWon ? 1 : 0,
-                categories_played: challenge.categoryId,
-              },
-            });
-            await recordEngagementGame(dbUser.id, {
-              won: myWon,
-              correct: myScore,
-              categoryId: challenge.categoryId,
-            });
-            try {
-              confirmResultSettlement(localStorage, challengeId, role);
-            } catch {}
+      if (dbUser?.id) {
+        const settlementKey = `challenge:${challengeId}:${role}`;
+        updatePendingChallengeSettlement(settlementKey, true);
+        setSettlementState("pending");
+        void settleChallengeGame({
+          challengeId,
+          userId: dbUser.id,
+          role,
+          score: myScore,
+          correctCount: myScore,
+        }).then(async (result) => {
+            updatePendingChallengeSettlement(settlementKey, false);
             setSettlementState("confirmed");
-            setShowReward({ xp: result.xpGained, coins: result.coinsGained });
-            setRewardSummary({ xp: result.xpGained, coins: result.coinsGained, achievements: result.newlyUnlocked.length });
-            if (result.newlyUnlocked.length > 0) {
-              setNewAchievements(result.newlyUnlocked);
+            setShowReward({ xp: result.xp_gained, coins: result.coins_gained });
+            setRewardSummary({ xp: result.xp_gained, coins: result.coins_gained, achievements: result.newly_unlocked.length });
+            if (result.newly_unlocked.length > 0) {
+              setNewAchievements(result.newly_unlocked);
               playSound("achievement");
             }
-            if (result.coinsGained > 0) playSound("coin");
-            if (result.leveledUp) playSound("levelup");
-            recordTodayXP(result.xpGained);
+            if (result.coins_gained > 0) playSound("coin");
+            if (result.new_level > (dbUser.level ?? 1)) playSound("levelup");
+            if (result.applied) recordTodayXP(result.xp_gained);
             await refreshUser();
-          })().catch(() => {
-            // The reservation intentionally remains pending. Retrying this
-            // client-side batch could duplicate a request that committed before
-            // its response was lost.
+          }).catch(() => {
             setSettlementState("pending");
+            setWinRecorded(false);
           });
-        }
-      } else {
-        try {
-          confirmResultSettlement(localStorage, challengeId, role);
-        } catch {}
-        setSettlementState("confirmed");
       }
-
-      // Today-stats roll-up (works for guests too, only when challenge is finished)
-      if (myWon) recordTodayWin(); else if (cs !== chs) recordTodayLoss();
     }
-  }, [challenge, role, winRecorded, questionsSettled, isGuest, dbUser, refreshUser]);
+  }, [challenge, role, winRecorded, questionsSettled, isGuest, dbUser, refreshUser, settlementRetry, challengeId, user.displayName]);
 
   if (challengeLoading && !challenge) {
     return <div className="min-h-[100dvh] gradient-hero flex items-center justify-center font-bold">جاري تحميل النتيجة...</div>;
@@ -313,7 +270,16 @@ export default function Results() {
     <div className="min-h-screen gradient-hero flex flex-col">
       {settlementState === "pending" && (
         <div className="mx-4 mt-4 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-center text-sm" role="status">
-          تم تثبيت النتيجة ومنع تكرارها. قد تتأخر مزامنة المكافأة؛ لا تُعد فتح التحدي لإجبارها.
+          <p>تعذّر تأكيد المكافأة بعد. يمكنك إعادة المحاولة بأمان دون تكرارها.</p>
+          <button
+            className="mt-2 rounded-lg border border-amber-300/40 px-3 py-1 font-bold"
+            onClick={() => {
+              setWinRecorded(false);
+              setSettlementRetry((attempt) => attempt + 1);
+            }}
+          >
+            إعادة المحاولة
+          </button>
         </div>
       )}
       {settlementState === "unavailable" && (

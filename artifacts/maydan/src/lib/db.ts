@@ -299,34 +299,26 @@ export interface DbChallenge {
 
 export async function createDbChallenge(params: {
   id?: string;
-  creator_id: string | null;
+  creator_id: string;
   creator_name: string;
   category: string;
-  question_ids: number[];
-  creator_answers: (number | null)[];
-  creator_score: number;
   question_count: number;
-}): Promise<string | null> {
-  const payload: Record<string, unknown> = {
-    creator_id: params.creator_id,
-    creator_name: params.creator_name,
-    category: params.category,
-    question_ids: JSON.stringify(params.question_ids),
-    creator_answers: JSON.stringify(params.creator_answers),
-    creator_score: params.creator_score,
-    question_count: params.question_count,
-    status: "pending",
-  };
-  if (params.id) payload.id = params.id;
-
-  const { data, error } = await supabase
-    .from("challenges")
-    .insert(payload)
-    .select("id")
-    .single();
-
-  if (error) { console.error("createDbChallenge error", error); return null; }
-  return data?.id ?? null;
+}): Promise<DbChallenge> {
+  const { data, error } = await withGameTimeout(
+    supabase.rpc("create_challenge_game", {
+      p_challenge_id: params.id ?? crypto.randomUUID(),
+      p_creator_id: params.creator_id,
+      p_creator_name: params.creator_name,
+      p_category: params.category,
+      p_question_count: params.question_count,
+      p_guest_token: gameGuestToken(params.creator_id),
+    }),
+    "create challenge",
+  );
+  if (error) throw error;
+  const row = rpcRow(data) as DbChallenge | null;
+  if (!row) throw new Error("Challenge creation returned no row");
+  return row;
 }
 
 export async function getMyChallenges(userId: string, limit = 20): Promise<DbChallenge[]> {
@@ -349,35 +341,124 @@ export async function getDbChallenge(id: string): Promise<DbChallenge | null> {
   return data ?? null;
 }
 
-export async function completeDbChallenge(id: string, params: {
-  opponent_id?: string | null;
-  opponent_name: string;
-  opponent_answers: (number | null)[];
-  opponent_score: number;
-}): Promise<void> {
-  // Read creator_score so we can persist a deterministic "winner" field.
-  const existing = await getDbChallenge(id);
-  const creatorScore = existing?.creator_score ?? 0;
-  const winner: "creator" | "opponent" | "draw" =
-    params.opponent_score > creatorScore ? "opponent" :
-    params.opponent_score < creatorScore ? "creator" : "draw";
+export async function submitChallengeGameResult(params: {
+  challengeId: string;
+  userId: string;
+  role: "creator" | "challenger";
+  playerName: string;
+  answers: Array<{ questionId: number; answerText: string | null; selectedIndex: number | null }>;
+}): Promise<DbChallenge> {
+  const { data, error } = await withGameTimeout(
+    supabase.rpc("submit_challenge_game_result", {
+      p_challenge_id: params.challengeId,
+      p_user_id: params.userId,
+      p_role: params.role,
+      p_player_name: params.playerName,
+      p_answers: params.answers,
+      p_guest_token: gameGuestToken(params.userId),
+    }),
+    "submit challenge result",
+  );
+  if (error) throw error;
+  const row = rpcRow(data) as DbChallenge | null;
+  if (!row) throw new Error("Challenge result returned no challenge");
+  return row;
+}
 
-  // Guard against race: only the FIRST opponent to finish writes their result.
-  // Any subsequent attempts will match zero rows because status is no longer "pending".
-  const { error } = await supabase
-    .from("challenges")
-    .update({
-      opponent_id: params.opponent_id ?? null,
-      opponent_name: params.opponent_name,
-      opponent_answers: JSON.stringify(params.opponent_answers),
-      opponent_score: params.opponent_score,
-      winner,
-      status: "completed",
-    })
-    .eq("id", id)
-    .eq("status", "pending");
+export interface GameSettlementResult {
+  applied: boolean;
+  xp_gained: number;
+  coins_gained: number;
+  new_xp: number;
+  new_coins: number;
+  new_level: number;
+  newly_unlocked: string[];
+  settled_score?: number;
+}
 
-  if (error) console.error("completeDbChallenge error", error);
+export interface SurvivalAttempt {
+  id: string;
+  user_id: string;
+  category: string;
+  question_ids: number[];
+  status: "active" | "completed";
+}
+
+export async function startSurvivalAttempt(params: {
+  userId: string;
+  category: string;
+}): Promise<SurvivalAttempt> {
+  const { data, error } = await withGameTimeout(
+    supabase.rpc("start_survival_attempt", {
+      p_user_id: params.userId,
+      p_category: params.category,
+      p_guest_token: gameGuestToken(params.userId),
+    }),
+    "start survival attempt",
+  );
+  if (error) throw error;
+  const row = rpcRow(data) as SurvivalAttempt | null;
+  if (!row) throw new Error("Survival attempt returned no row");
+  return row;
+}
+
+function settlementRow(data: unknown): GameSettlementResult {
+  const row = rpcRow(data) as Record<string, unknown> | null;
+  if (!row) throw new Error("Game settlement returned no result");
+  return {
+    applied: row.applied === true,
+    xp_gained: Number(row.xp_gained ?? 0),
+    coins_gained: Number(row.coins_gained ?? 0),
+    new_xp: Number(row.new_xp ?? 0),
+    new_coins: Number(row.new_coins ?? 0),
+    new_level: Number(row.new_level ?? 1),
+    newly_unlocked: Array.isArray(row.newly_unlocked)
+      ? row.newly_unlocked.filter((id): id is string => typeof id === "string")
+      : [],
+    settled_score: row.settled_score == null ? undefined : Number(row.settled_score),
+  };
+}
+
+export async function settleChallengeGame(params: {
+  challengeId: string;
+  userId: string;
+  role: "creator" | "challenger";
+  score: number;
+  correctCount: number;
+}): Promise<GameSettlementResult> {
+  const { data, error } = await withGameTimeout(
+    supabase.rpc("settle_challenge_game", {
+      p_challenge_id: params.challengeId,
+      p_user_id: params.userId,
+      p_role: params.role,
+      p_score: params.score,
+      p_correct_count: params.correctCount,
+      p_guest_token: gameGuestToken(params.userId),
+    }),
+    "settle challenge game",
+  );
+  if (error) throw error;
+  return settlementRow(data);
+}
+
+export async function settleSurvivalGame(params: {
+  attemptId: string;
+  userId: string;
+  username: string;
+  answers: Array<{ questionId: number; answerText: string | null; skipped: boolean }>;
+}): Promise<GameSettlementResult> {
+  const { data, error } = await withGameTimeout(
+    supabase.rpc("settle_survival_game", {
+      p_attempt_id: params.attemptId,
+      p_user_id: params.userId,
+      p_username: params.username,
+      p_answers: params.answers,
+      p_guest_token: gameGuestToken(params.userId),
+    }),
+    "settle survival game",
+  );
+  if (error) throw error;
+  return settlementRow(data);
 }
 
 // ──────────────────────────── FRIENDS ────────────────────────────
@@ -709,7 +790,7 @@ export async function getMyPendingChallenges(creatorId: string, limit = 50): Pro
     .from("challenges")
     .select(CHALLENGE_COLUMNS)
     .eq("creator_id", creatorId)
-    .eq("status", "pending")
+    .in("status", ["pending", "creator_completed"])
     .order("created_at", { ascending: false })
     .limit(Math.min(Math.max(limit, 1), 100));
   if (error) { console.error("getMyPendingChallenges error", error); return []; }
@@ -721,12 +802,11 @@ export async function getMyPendingChallenges(creatorId: string, limit = 50): Pro
  *  between list load and delete click is not destroyed.
  */
 export async function deleteDbChallenge(id: string, creatorId: string): Promise<boolean> {
-  const { error, count } = await supabase
-    .from("challenges")
-    .delete({ count: "exact" })
-    .eq("id", id)
-    .eq("creator_id", creatorId)
-    .eq("status", "pending");
+  const { data, error } = await supabase.rpc("delete_challenge_game", {
+    p_challenge_id: id,
+    p_creator_id: creatorId,
+    p_guest_token: gameGuestToken(creatorId),
+  });
   if (error) { console.error("deleteDbChallenge error", error); return false; }
-  return (count ?? 0) > 0;
+  return data === true;
 }

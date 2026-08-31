@@ -54,23 +54,41 @@ export default function CreateChallenge() {
 
   async function handleStart() {
     if (!selectedCategory) return;
-    const qs = await fetchGameQuestions(selectedCategory, questionCount);
-    if (qs.length === 0) return;
-
     const challengeId = generateId();
+    let questionIds: number[];
+    const creatorName =
+      dbUser?.display_name ||
+      dbUser?.username ||
+      googleDisplayName ||
+      user.displayName ||
+      "لاعب";
+    if (!isGuest && dbUser?.id) {
+      try {
+        const remote = await createDbChallenge({
+          id: challengeId,
+          creator_id: dbUser.id,
+          creator_name: creatorName,
+          category: selectedCategory,
+          question_count: questionCount,
+        });
+        questionIds = JSON.parse(remote.question_ids) as number[];
+      } catch (error) {
+        console.error("[challenge] server creation failed", error);
+        return;
+      }
+    } else {
+      const qs = await fetchGameQuestions(selectedCategory, questionCount);
+      if (qs.length === 0) return;
+      questionIds = qs.map((question) => question.id);
+    }
     const challenge = {
       id: challengeId,
       creatorId: user.userId,
-      creatorName:
-        dbUser?.display_name ||
-        dbUser?.username ||
-        googleDisplayName ||
-        user.displayName ||
-        "لاعب",
+      creatorName,
       categoryId: selectedCategory,
       questionCount,
-      questions: qs.map((q) => q.id),
-      creatorAnswers: new Array(qs.length).fill(null),
+      questions: questionIds,
+      creatorAnswers: new Array(questionIds.length).fill(null),
       creatorScore: 0,
       creatorTime: 0,
       createdAt: new Date().toISOString(),
@@ -79,21 +97,6 @@ export default function CreateChallenge() {
 
     saveChallenge(challenge);
     incrementChallengesCount();
-
-    // Fire-and-forget: also write to Supabase so the creator can track this
-    // challenge from any device (and so completion notifications work).
-    if (!isGuest) {
-      createDbChallenge({
-        id: challengeId,
-        creator_id: dbUser?.id ?? null,
-        creator_name: challenge.creatorName,
-        category: selectedCategory,
-        question_ids: challenge.questions,
-        creator_answers: challenge.creatorAnswers,
-        creator_score: 0,
-        question_count: questionCount,
-      }).catch((e) => console.warn("[challenge] supabase create failed", e));
-    }
 
     navigate(`/quiz/${challengeId}/creator`);
   }

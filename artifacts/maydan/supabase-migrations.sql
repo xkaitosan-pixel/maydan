@@ -732,6 +732,9 @@ END $$;
 -- ──────────────────────────── CHALLENGES (cross-device sync) ────────────────────────────
 -- The challenges table existed with only minimal columns. The app's createDbChallenge /
 -- completeDbChallenge code in src/lib/db.ts requires the columns below. id stays uuid;
+ALTER TABLE public.challenges
+  ADD COLUMN IF NOT EXISTS winner text
+  CHECK (winner IS NULL OR winner IN ('creator', 'opponent', 'draw'));
 -- the client now generates UUIDs in storage.generateId() to match.
 ALTER TABLE challenges ADD COLUMN IF NOT EXISTS question_ids       text;
 ALTER TABLE challenges ADD COLUMN IF NOT EXISTS creator_answers    text;
@@ -893,9 +896,12 @@ CREATE TABLE IF NOT EXISTS public.game_reward_events (
   season_points int NOT NULL,
   won boolean,
   correct_count int NOT NULL,
+  newly_unlocked text[] NOT NULL DEFAULT '{}'::text[],
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   PRIMARY KEY (user_id, event_key)
 );
+ALTER TABLE public.game_reward_events
+  ADD COLUMN IF NOT EXISTS newly_unlocked text[] NOT NULL DEFAULT '{}'::text[];
 
 CREATE TABLE IF NOT EXISTS public.guest_game_identities (
   user_id text PRIMARY KEY,
@@ -932,7 +938,13 @@ BEGIN
     RAISE EXCEPTION 'Game user does not belong to caller';
   END IF;
   IF auth.uid() IS NULL THEN
-    IF p_user_id !~ '^guest_[0-9A-Za-z-]{8,80}$'
+    IF (
+         p_user_id !~ '^guest_[0-9A-Za-z-]{8,80}$'
+         AND (
+           p_user_id !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+           OR EXISTS (SELECT 1 FROM public.users AS u WHERE u.id::text = p_user_id)
+         )
+       )
        OR p_guest_token IS NULL OR length(p_guest_token) < 32 THEN
       RAISE EXCEPTION 'Anonymous callers require a guest capability';
     END IF;
@@ -950,7 +962,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.apply_game_reward(
+CREATE OR REPLACE FUNCTION public.apply_game_reward_v2(
   p_user_id text,
   p_event_key text,
   p_xp int,
@@ -962,7 +974,7 @@ CREATE OR REPLACE FUNCTION public.apply_game_reward(
 )
 RETURNS TABLE(
   applied boolean, xp_gained int, coins_gained int,
-  new_xp int, new_coins int, new_level int
+  new_xp int, new_coins int, new_level int, newly_unlocked text[]
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -977,9 +989,13 @@ DECLARE
   v_today date := current_date;
   v_progress jsonb;
   v_achievements jsonb;
+  v_event public.game_reward_events%ROWTYPE;
+  v_newly_unlocked text[] := '{}'::text[];
+  v_bonus_xp int := 0;
+  v_bonus_coins int := 0;
 BEGIN
   IF p_xp < 0 OR p_coins < 0 OR p_correct_count < 0
-     OR p_mode NOT IN ('ranked', 'daily') THEN
+     OR p_mode NOT IN ('ranked', 'daily', 'challenge', 'survival') THEN
     RAISE EXCEPTION 'Invalid reward';
   END IF;
 
@@ -990,9 +1006,13 @@ BEGIN
   )
   ON CONFLICT DO NOTHING;
   IF NOT FOUND THEN
+    SELECT * INTO v_event
+    FROM public.game_reward_events AS event
+    WHERE event.user_id = p_user_id AND event.event_key = p_event_key;
     SELECT * INTO v_user FROM public.users AS u WHERE u.id::text = p_user_id;
-    RETURN QUERY SELECT false, 0, 0, coalesce(v_user.xp, 0),
-      coalesce(v_user.coins, 0), coalesce(v_user.level, 1);
+    RETURN QUERY SELECT false, coalesce(v_event.xp, 0), coalesce(v_event.coins, 0),
+      coalesce(v_user.xp, 0), coalesce(v_user.coins, 0),
+      coalesce(v_user.level, 1), coalesce(v_event.newly_unlocked, '{}'::text[]);
     RETURN;
   END IF;
 
@@ -1002,7 +1022,7 @@ BEGIN
   FOR UPDATE;
   IF NOT FOUND THEN
     -- Guests have leaderboard results but no persistent currency profile.
-    RETURN QUERY SELECT true, 0, 0, 0, 0, 1;
+    RETURN QUERY SELECT true, 0, 0, 0, 0, 1, '{}'::text[];
     RETURN;
   END IF;
 
@@ -1031,14 +1051,83 @@ BEGIN
   ELSIF p_mode = 'ranked' AND NOT coalesce(p_won, false) THEN
     v_progress := jsonb_set(v_progress, '{consecutive_wins}', '0'::jsonb, true);
   END IF;
+  IF p_mode = 'challenge' THEN
+    v_progress := jsonb_set(v_progress, '{consecutive_wins}',
+      to_jsonb(CASE WHEN p_won IS TRUE
+        THEN coalesce((v_progress->>'consecutive_wins')::int, 0) + 1
+        ELSE 0 END), true);
+  END IF;
+  IF p_mode = 'survival' AND p_won IS TRUE THEN
+    v_progress := jsonb_set(v_progress, '{survival_wins}',
+      to_jsonb(coalesce((v_progress->>'survival_wins')::int, 0) + 1), true);
+  END IF;
+  v_progress := jsonb_set(v_progress, '{streak_count}',
+    to_jsonb(CASE
+      WHEN v_user.last_played::date = v_today THEN coalesce(v_user.streak_count, 0)
+      WHEN v_user.last_played::date = v_today - 1 THEN coalesce(v_user.streak_count, 0) + 1
+      ELSE 1 END), true);
+  IF coalesce((v_progress->>'total_games')::int, 0) >= 1
+     AND NOT (coalesce(v_achievements->'unlocked', '[]'::jsonb) ? 'first_game') THEN
+    v_newly_unlocked := array_append(v_newly_unlocked, 'first_game');
+    v_bonus_xp := v_bonus_xp + 50; v_bonus_coins := v_bonus_coins + 20;
+  END IF;
+  IF coalesce((v_progress->>'total_correct')::int, 0) >= 50
+     AND NOT (coalesce(v_achievements->'unlocked', '[]'::jsonb) ? 'correct_50') THEN
+    v_newly_unlocked := array_append(v_newly_unlocked, 'correct_50');
+    v_bonus_xp := v_bonus_xp + 80; v_bonus_coins := v_bonus_coins + 40;
+  END IF;
+  IF coalesce((v_progress->>'survival_wins')::int, 0) >= 3
+     AND NOT (coalesce(v_achievements->'unlocked', '[]'::jsonb) ? 'survival_top_3') THEN
+    v_newly_unlocked := array_append(v_newly_unlocked, 'survival_top_3');
+    v_bonus_xp := v_bonus_xp + 100; v_bonus_coins := v_bonus_coins + 50;
+  END IF;
+  IF coalesce((v_progress->>'ranked_wins')::int, 0) >= 25
+     AND NOT (coalesce(v_achievements->'unlocked', '[]'::jsonb) ? 'ranked_25') THEN
+    v_newly_unlocked := array_append(v_newly_unlocked, 'ranked_25');
+    v_bonus_xp := v_bonus_xp + 250; v_bonus_coins := v_bonus_coins + 125;
+  END IF;
+  IF coalesce((v_progress->>'streak_count')::int, 0) >= 7
+     AND NOT (coalesce(v_achievements->'unlocked', '[]'::jsonb) ? 'play_7_days') THEN
+    v_newly_unlocked := array_append(v_newly_unlocked, 'play_7_days');
+    v_bonus_xp := v_bonus_xp + 100; v_bonus_coins := v_bonus_coins + 50;
+  END IF;
+  IF coalesce((v_progress->>'streak_count')::int, 0) >= 30
+     AND NOT (coalesce(v_achievements->'unlocked', '[]'::jsonb) ? 'play_30_days') THEN
+    v_newly_unlocked := array_append(v_newly_unlocked, 'play_30_days');
+    v_bonus_xp := v_bonus_xp + 500; v_bonus_coins := v_bonus_coins + 200;
+  END IF;
+  IF coalesce((v_progress->>'level')::int, 0) >= 6
+     AND NOT (coalesce(v_achievements->'unlocked', '[]'::jsonb) ? 'reach_level_6') THEN
+    v_newly_unlocked := array_append(v_newly_unlocked, 'reach_level_6');
+    v_bonus_xp := v_bonus_xp + 300; v_bonus_coins := v_bonus_coins + 150;
+  END IF;
+  IF cardinality(v_newly_unlocked) > 0 THEN
+    v_achievements := jsonb_set(
+      v_achievements,
+      '{unlocked}',
+      coalesce(v_achievements->'unlocked', '[]'::jsonb) || to_jsonb(v_newly_unlocked),
+      true
+    );
+  END IF;
+  v_new_xp := v_new_xp + v_bonus_xp;
+  v_new_coins := v_new_coins + v_bonus_coins;
+  v_level := CASE
+    WHEN v_new_xp >= 8000 THEN 7 WHEN v_new_xp >= 4000 THEN 6
+    WHEN v_new_xp >= 2000 THEN 5 WHEN v_new_xp >= 1000 THEN 4
+    WHEN v_new_xp >= 500 THEN 3 WHEN v_new_xp >= 200 THEN 2 ELSE 1
+  END;
+  v_progress := jsonb_set(v_progress, '{level}', to_jsonb(v_level), true);
+  v_achievements := jsonb_set(v_achievements, '{progress}', v_progress, true);
   v_achievements := jsonb_set(v_achievements, '{progress}', v_progress, true);
 
   UPDATE public.users AS u
   SET xp = v_new_xp,
       coins = v_new_coins,
       level = v_level,
-      season_points = greatest(0, coalesce(u.season_points, 0) + p_season_points),
-      total_wins = coalesce(u.total_wins, 0) + CASE WHEN p_won THEN 1 ELSE 0 END,
+      season_points = CASE WHEN p_mode IN ('ranked', 'daily')
+        THEN greatest(0, coalesce(u.season_points, 0) + p_season_points)
+        ELSE coalesce(u.season_points, 0) END,
+      total_wins = coalesce(u.total_wins, 0) + CASE WHEN p_won IS TRUE THEN 1 ELSE 0 END,
       total_losses = coalesce(u.total_losses, 0) + CASE WHEN p_won = false THEN 1 ELSE 0 END,
       total_points = coalesce(u.total_points, 0) + greatest(0, p_season_points),
       streak_count = CASE
@@ -1058,9 +1147,41 @@ BEGIN
       achievements = v_achievements
   WHERE u.id::text = p_user_id;
 
-  RETURN QUERY SELECT true, p_xp, p_coins + v_bonus,
-    v_new_xp, v_new_coins, v_level;
+  UPDATE public.game_reward_events AS event
+  SET xp = p_xp + v_bonus_xp,
+      coins = p_coins + v_bonus + v_bonus_coins,
+      newly_unlocked = v_newly_unlocked
+  WHERE event.user_id = p_user_id AND event.event_key = p_event_key;
+
+  RETURN QUERY SELECT true, p_xp + v_bonus_xp, p_coins + v_bonus + v_bonus_coins,
+    v_new_xp, v_new_coins, v_level, v_newly_unlocked;
 END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.apply_game_reward(
+  p_user_id text,
+  p_event_key text,
+  p_xp int,
+  p_coins int,
+  p_season_points int,
+  p_won boolean,
+  p_correct_count int,
+  p_mode text
+)
+RETURNS TABLE(
+  applied boolean, xp_gained int, coins_gained int,
+  new_xp int, new_coins int, new_level int
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+  SELECT reward.applied, reward.xp_gained, reward.coins_gained,
+    reward.new_xp, reward.new_coins, reward.new_level
+  FROM public.apply_game_reward_v2(
+    p_user_id, p_event_key, p_xp, p_coins, p_season_points,
+    p_won, p_correct_count, p_mode
+  ) AS reward;
 $$;
 
 DROP FUNCTION IF EXISTS public.enter_ranked_queue(text,text,jsonb);
@@ -1466,6 +1587,473 @@ BEGIN
 END;
 $$;
 
+-- Challenge and Survival settlement share the same user-row lock and event
+-- ledger as Ranked and Daily. Engagement is updated only when the reward event
+-- is newly applied, so a lost response can be retried without double progress.
+CREATE OR REPLACE FUNCTION public.apply_game_engagement(
+  p_user_id text,
+  p_won boolean,
+  p_correct_count int,
+  p_category text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  v_user public.users%ROWTYPE;
+  v_achievements jsonb;
+  v_engagement jsonb;
+  v_daily jsonb;
+  v_weekly jsonb;
+  v_box jsonb;
+  v_categories jsonb;
+  v_category_state jsonb;
+  v_today text := current_date::text;
+  v_week text := to_char(current_date, 'IYYY-"W"IW');
+  v_games_since int;
+  v_pending int;
+BEGIN
+  SELECT * INTO v_user
+  FROM public.users AS u
+  WHERE u.id::text = p_user_id
+  FOR UPDATE;
+  IF NOT FOUND THEN RETURN; END IF;
+
+  v_achievements := coalesce(v_user.achievements, '{}'::jsonb);
+  v_engagement := coalesce(v_achievements->'engagement', '{}'::jsonb);
+  v_daily := coalesce(v_engagement->'daily', '{}'::jsonb);
+  IF v_daily->>'date' IS DISTINCT FROM v_today THEN
+    v_daily := jsonb_build_object(
+      'date', v_today, 'games', 0, 'wins', 0, 'correct', 0, 'claimed', '[]'::jsonb
+    );
+  END IF;
+  v_daily := jsonb_set(v_daily, '{games}',
+    to_jsonb(coalesce((v_daily->>'games')::int, 0) + 1), true);
+  v_daily := jsonb_set(v_daily, '{wins}',
+    to_jsonb(coalesce((v_daily->>'wins')::int, 0) + CASE WHEN p_won IS TRUE THEN 1 ELSE 0 END), true);
+  v_daily := jsonb_set(v_daily, '{correct}',
+    to_jsonb(coalesce((v_daily->>'correct')::int, 0) + p_correct_count), true);
+
+  v_weekly := coalesce(v_engagement->'weekly', '{}'::jsonb);
+  IF v_weekly->>'week' IS DISTINCT FROM v_week THEN
+    v_weekly := jsonb_build_object('week', v_week, 'correct', 0, 'claimed', false);
+  END IF;
+  v_weekly := jsonb_set(v_weekly, '{correct}',
+    to_jsonb(coalesce((v_weekly->>'correct')::int, 0) + p_correct_count), true);
+
+  v_box := coalesce(v_engagement->'box', '{}'::jsonb);
+  v_games_since := coalesce((v_box->>'gamesSince')::int, 0) + 1;
+  v_pending := coalesce((v_box->>'pending')::int, 0) + (v_games_since / 5);
+  v_games_since := v_games_since % 5;
+  v_box := jsonb_set(v_box, '{gamesSince}', to_jsonb(v_games_since), true);
+  v_box := jsonb_set(v_box, '{pending}', to_jsonb(v_pending), true);
+
+  v_categories := coalesce(v_engagement->'categories', '{}'::jsonb);
+  IF p_category IS NOT NULL AND p_category <> '' AND p_category <> 'mix'
+     AND p_correct_count > 0 THEN
+    v_category_state := coalesce(v_categories->p_category, '{}'::jsonb);
+    v_category_state := jsonb_set(v_category_state, '{xp}',
+      to_jsonb(coalesce((v_category_state->>'xp')::int, 0) + p_correct_count * 10), true);
+    v_categories := jsonb_set(v_categories, ARRAY[p_category], v_category_state, true);
+  END IF;
+
+  v_engagement := jsonb_set(v_engagement, '{daily}', v_daily, true);
+  v_engagement := jsonb_set(v_engagement, '{weekly}', v_weekly, true);
+  v_engagement := jsonb_set(v_engagement, '{box}', v_box, true);
+  v_engagement := jsonb_set(v_engagement, '{categories}', v_categories, true);
+  v_achievements := jsonb_set(v_achievements, '{engagement}', v_engagement, true);
+  UPDATE public.users SET achievements = v_achievements
+  WHERE id::text = p_user_id;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.create_challenge_game(uuid,text,text,text,int,text);
+CREATE OR REPLACE FUNCTION public.create_challenge_game(
+  p_challenge_id uuid,
+  p_creator_id text,
+  p_creator_name text,
+  p_category text,
+  p_question_count int,
+  p_guest_token text
+)
+RETURNS SETOF public.challenges
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  v_challenge public.challenges%ROWTYPE;
+  v_question_ids jsonb;
+BEGIN
+  PERFORM public.assert_game_user(p_creator_id, p_guest_token);
+  IF p_question_count NOT IN (5, 10, 15, 20)
+     OR p_creator_name IS NULL OR length(trim(p_creator_name)) = 0 THEN
+    RAISE EXCEPTION 'Invalid challenge creation';
+  END IF;
+  SELECT jsonb_agg(chosen.id ORDER BY chosen.position)
+  INTO v_question_ids
+  FROM (
+    SELECT q.id, row_number() OVER (ORDER BY extensions.gen_random_bytes(8)) AS position
+    FROM public.questions AS q
+    WHERE q.category = p_category
+    LIMIT p_question_count
+  ) AS chosen;
+  IF jsonb_array_length(coalesce(v_question_ids, '[]'::jsonb)) <> p_question_count THEN
+    RAISE EXCEPTION 'Not enough challenge questions';
+  END IF;
+  INSERT INTO public.challenges (
+    id, creator_id, creator_name, category, question_ids,
+    creator_answers, creator_score, question_count, status
+  ) VALUES (
+    p_challenge_id, p_creator_id::uuid, left(trim(p_creator_name), 80), p_category,
+    v_question_ids::text, '[]', 0, p_question_count, 'pending'
+  ) RETURNING * INTO v_challenge;
+  RETURN NEXT v_challenge;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.submit_challenge_game_result(uuid,text,text,text,jsonb,text);
+CREATE OR REPLACE FUNCTION public.submit_challenge_game_result(
+  p_challenge_id uuid,
+  p_user_id text,
+  p_role text,
+  p_player_name text,
+  p_answers jsonb,
+  p_guest_token text
+)
+RETURNS SETOF public.challenges
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  v_challenge public.challenges%ROWTYPE;
+  v_answer jsonb;
+  v_position bigint;
+  v_question_ids jsonb;
+  v_score int := 0;
+  v_selected jsonb := '[]'::jsonb;
+  v_correct boolean;
+  v_winner text;
+BEGIN
+  PERFORM public.assert_game_user(p_user_id, p_guest_token);
+  SELECT * INTO v_challenge FROM public.challenges AS challenge
+  WHERE challenge.id = p_challenge_id FOR UPDATE;
+  IF NOT FOUND OR p_role NOT IN ('creator', 'challenger')
+     OR jsonb_typeof(p_answers) <> 'array' THEN
+    RAISE EXCEPTION 'Invalid challenge result';
+  END IF;
+  IF p_role = 'creator' AND v_challenge.creator_id::text IS DISTINCT FROM p_user_id THEN
+    RAISE EXCEPTION 'Challenge creator does not belong to caller';
+  END IF;
+  IF p_role = 'challenger' AND v_challenge.opponent_id IS NOT NULL
+     AND v_challenge.opponent_id::text IS DISTINCT FROM p_user_id THEN
+    RAISE EXCEPTION 'Challenge opponent does not belong to caller';
+  END IF;
+  v_question_ids := v_challenge.question_ids::jsonb;
+  IF jsonb_array_length(p_answers) IS DISTINCT FROM jsonb_array_length(v_question_ids) THEN
+    RAISE EXCEPTION 'Incomplete challenge result';
+  END IF;
+  FOR v_answer, v_position IN
+    SELECT value, ordinality FROM jsonb_array_elements(p_answers) WITH ORDINALITY
+  LOOP
+    IF (v_question_ids->>(v_position - 1)::int)::int
+       IS DISTINCT FROM (v_answer->>'questionId')::int THEN
+      RAISE EXCEPTION 'Invalid challenge answer sequence';
+    END IF;
+    SELECT (q.options->>q.correct) = (v_answer->>'answerText')
+    INTO v_correct FROM public.questions AS q
+    WHERE q.id = (v_answer->>'questionId')::int;
+    IF coalesce(v_correct, false) THEN v_score := v_score + 1; END IF;
+    v_selected := v_selected || jsonb_build_array(
+      CASE WHEN v_answer->>'selectedIndex' IS NULL THEN NULL
+        ELSE (v_answer->>'selectedIndex')::int END
+    );
+  END LOOP;
+  IF p_role = 'creator' THEN
+    IF v_challenge.status <> 'pending' THEN
+      RAISE EXCEPTION 'Challenge creator result is already final';
+    END IF;
+    UPDATE public.challenges
+    SET creator_answers = v_selected::text, creator_score = v_score,
+        status = 'creator_completed'
+    WHERE id = p_challenge_id RETURNING * INTO v_challenge;
+  ELSE
+    IF v_challenge.status = 'completed' THEN
+      RETURN NEXT v_challenge; RETURN;
+    END IF;
+    IF v_challenge.status <> 'creator_completed' THEN
+      RAISE EXCEPTION 'Challenge creator has not completed';
+    END IF;
+    v_winner := CASE
+      WHEN v_score > coalesce(v_challenge.creator_score, 0) THEN 'opponent'
+      WHEN v_score < coalesce(v_challenge.creator_score, 0) THEN 'creator'
+      ELSE 'draw' END;
+    UPDATE public.challenges
+    SET opponent_id = p_user_id,
+        opponent_name = left(coalesce(p_player_name, ''), 80),
+        opponent_answers = v_selected::text,
+        opponent_score = v_score,
+        winner = v_winner,
+        status = 'completed'
+    WHERE id = p_challenge_id RETURNING * INTO v_challenge;
+  END IF;
+  RETURN NEXT v_challenge;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.delete_challenge_game(uuid,text,text);
+CREATE OR REPLACE FUNCTION public.delete_challenge_game(
+  p_challenge_id uuid,
+  p_creator_id text,
+  p_guest_token text
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  v_deleted_count int;
+BEGIN
+  PERFORM public.assert_game_user(p_creator_id, p_guest_token);
+  DELETE FROM public.challenges AS challenge
+  WHERE challenge.id = p_challenge_id
+    AND challenge.creator_id::text = p_creator_id
+    AND challenge.status IN ('pending', 'creator_completed');
+  GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+  RETURN v_deleted_count > 0;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.settle_challenge_game(uuid,text,text,int,int,text);
+CREATE OR REPLACE FUNCTION public.settle_challenge_game(
+  p_challenge_id uuid,
+  p_user_id text,
+  p_role text,
+  p_score int,
+  p_correct_count int,
+  p_guest_token text
+)
+RETURNS TABLE(
+  applied boolean, xp_gained int, coins_gained int,
+  new_xp int, new_coins int, new_level int, newly_unlocked text[]
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  v_challenge public.challenges%ROWTYPE;
+  v_won boolean;
+  v_expected_score int;
+  v_expected_user text;
+  v_username text;
+  v_reward record;
+  v_event_key text;
+BEGIN
+  PERFORM public.assert_game_user(p_user_id, p_guest_token);
+  SELECT * INTO v_challenge
+  FROM public.challenges AS challenge
+  WHERE challenge.id = p_challenge_id
+  FOR UPDATE;
+  IF NOT FOUND OR v_challenge.status <> 'completed'
+     OR p_role NOT IN ('creator', 'challenger') THEN
+    RAISE EXCEPTION 'Invalid challenge settlement';
+  END IF;
+
+  IF p_role = 'creator' THEN
+    v_expected_user := v_challenge.creator_id::text;
+    v_expected_score := coalesce(v_challenge.creator_score, 0);
+    v_username := v_challenge.creator_name;
+    v_won := CASE
+      WHEN v_expected_score > coalesce(v_challenge.opponent_score, 0) THEN true
+      WHEN v_expected_score < coalesce(v_challenge.opponent_score, 0) THEN false
+      ELSE NULL END;
+  ELSE
+    v_expected_user := v_challenge.opponent_id::text;
+    v_expected_score := coalesce(v_challenge.opponent_score, 0);
+    v_username := v_challenge.opponent_name;
+    v_won := CASE
+      WHEN v_expected_score > coalesce(v_challenge.creator_score, 0) THEN true
+      WHEN v_expected_score < coalesce(v_challenge.creator_score, 0) THEN false
+      ELSE NULL END;
+  END IF;
+  IF v_expected_user IS DISTINCT FROM p_user_id
+     OR p_score IS DISTINCT FROM v_expected_score
+     OR p_correct_count IS DISTINCT FROM v_expected_score THEN
+    RAISE EXCEPTION 'Challenge result does not belong to caller';
+  END IF;
+
+  v_event_key := 'challenge:' || p_challenge_id::text || ':' || p_role;
+  SELECT * INTO v_reward FROM public.apply_game_reward_v2(
+    p_user_id, v_event_key,
+    CASE WHEN v_won IS TRUE THEN 50 ELSE 10 END,
+    CASE WHEN v_won IS TRUE THEN 20 ELSE 0 END,
+    v_expected_score * 10, v_won, v_expected_score, 'challenge'
+  );
+  IF v_reward.applied THEN
+    PERFORM public.apply_game_engagement(
+      p_user_id, v_won, v_expected_score, v_challenge.category
+    );
+    INSERT INTO public.scores (user_id, username, category, score, game_mode)
+    VALUES (
+      p_user_id, left(coalesce(v_username, ''), 80),
+      v_challenge.category, v_expected_score, 'challenge'
+    );
+  END IF;
+  RETURN QUERY SELECT v_reward.applied, v_reward.xp_gained, v_reward.coins_gained,
+    v_reward.new_xp, v_reward.new_coins, v_reward.new_level, v_reward.newly_unlocked;
+END;
+$$;
+
+CREATE TABLE IF NOT EXISTS public.survival_attempts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id text NOT NULL,
+  category text NOT NULL,
+  question_ids jsonb NOT NULL,
+  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed')),
+  score int,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  completed_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS survival_attempts_user_created_idx
+  ON public.survival_attempts (user_id, created_at DESC);
+
+DROP FUNCTION IF EXISTS public.start_survival_attempt(text,text,text);
+CREATE OR REPLACE FUNCTION public.start_survival_attempt(
+  p_user_id text,
+  p_category text,
+  p_guest_token text
+)
+RETURNS SETOF public.survival_attempts
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  v_attempt public.survival_attempts%ROWTYPE;
+  v_question_ids jsonb;
+  v_is_premium boolean := false;
+BEGIN
+  PERFORM public.assert_game_user(p_user_id, p_guest_token);
+  SELECT coalesce(u.is_premium, false) INTO v_is_premium
+  FROM public.users AS u WHERE u.id::text = p_user_id;
+  IF NOT v_is_premium AND (
+    SELECT count(*) FROM public.survival_attempts AS attempt
+    WHERE attempt.user_id = p_user_id AND attempt.created_at::date = current_date
+  ) >= 5 THEN
+    RAISE EXCEPTION 'Daily survival limit reached';
+  END IF;
+  SELECT jsonb_agg(chosen.id ORDER BY chosen.position)
+  INTO v_question_ids
+  FROM (
+    SELECT q.id, row_number() OVER (ORDER BY extensions.gen_random_bytes(8)) AS position
+    FROM public.questions AS q
+    WHERE q.category <> 'legends'
+      AND (p_category = 'mix' OR q.category = p_category)
+    LIMIT 100
+  ) AS chosen;
+  IF jsonb_array_length(coalesce(v_question_ids, '[]'::jsonb)) < 4 THEN
+    RAISE EXCEPTION 'Not enough survival questions';
+  END IF;
+  INSERT INTO public.survival_attempts (user_id, category, question_ids)
+  VALUES (p_user_id, p_category, v_question_ids)
+  RETURNING * INTO v_attempt;
+  RETURN NEXT v_attempt;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.settle_survival_game(text,text,text,text,int,int,text);
+DROP FUNCTION IF EXISTS public.settle_survival_game(uuid,text,text,jsonb,text);
+CREATE OR REPLACE FUNCTION public.settle_survival_game(
+  p_attempt_id uuid,
+  p_user_id text,
+  p_username text,
+  p_answers jsonb,
+  p_guest_token text
+)
+RETURNS TABLE(
+  applied boolean, xp_gained int, coins_gained int,
+  new_xp int, new_coins int, new_level int, newly_unlocked text[],
+  settled_score int
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  v_attempt public.survival_attempts%ROWTYPE;
+  v_reward record;
+  v_won boolean;
+  v_answer jsonb;
+  v_position bigint;
+  v_correct boolean;
+  v_score int := 0;
+  v_lives int := 3;
+  v_event_key text;
+BEGIN
+  PERFORM public.assert_game_user(p_user_id, p_guest_token);
+  SELECT * INTO v_attempt FROM public.survival_attempts AS attempt
+  WHERE attempt.id = p_attempt_id AND attempt.user_id = p_user_id
+  FOR UPDATE;
+  IF NOT FOUND OR p_username IS NULL OR length(trim(p_username)) = 0
+     OR jsonb_typeof(p_answers) <> 'array' THEN
+    RAISE EXCEPTION 'Invalid survival settlement';
+  END IF;
+  v_event_key := 'survival:' || p_attempt_id::text;
+  IF v_attempt.status = 'active' THEN
+    FOR v_answer, v_position IN
+      SELECT value, ordinality
+      FROM jsonb_array_elements(p_answers) WITH ORDINALITY
+    LOOP
+      IF v_position > jsonb_array_length(v_attempt.question_ids)
+         OR (v_attempt.question_ids->>(v_position - 1)::int)::int
+            IS DISTINCT FROM (v_answer->>'questionId')::int THEN
+        RAISE EXCEPTION 'Invalid survival answer sequence';
+      END IF;
+      IF coalesce((v_answer->>'skipped')::boolean, false) THEN CONTINUE; END IF;
+      SELECT (q.options->>q.correct) = (v_answer->>'answerText')
+      INTO v_correct FROM public.questions AS q
+      WHERE q.id = (v_answer->>'questionId')::int;
+      IF coalesce(v_correct, false) THEN
+        v_score := v_score + 1;
+      ELSE
+        v_lives := v_lives - 1;
+        IF v_lives <= 0 THEN EXIT; END IF;
+      END IF;
+    END LOOP;
+    IF v_lives > 0 AND jsonb_array_length(p_answers) < jsonb_array_length(v_attempt.question_ids) THEN
+      RAISE EXCEPTION 'Survival attempt is not complete';
+    END IF;
+    UPDATE public.survival_attempts
+    SET status = 'completed', score = v_score, completed_at = clock_timestamp()
+    WHERE id = p_attempt_id RETURNING * INTO v_attempt;
+  ELSE
+    v_score := coalesce(v_attempt.score, 0);
+  END IF;
+  v_won := v_score >= 15;
+  SELECT * INTO v_reward FROM public.apply_game_reward_v2(
+    p_user_id, v_event_key,
+    CASE WHEN v_score >= 10 THEN 30 ELSE greatest(5, v_score * 2) END,
+    CASE WHEN v_won THEN 25 ELSE 0 END,
+    v_score * 10, v_won, v_score, 'survival'
+  );
+  IF v_reward.applied THEN
+    PERFORM public.apply_game_engagement(p_user_id, v_won, v_score, v_attempt.category);
+    INSERT INTO public.scores (user_id, username, category, score, game_mode)
+    VALUES (
+      p_user_id, left(trim(p_username), 80), v_attempt.category, v_score, 'survival'
+    );
+  END IF;
+  RETURN QUERY SELECT v_reward.applied, v_reward.xp_gained, v_reward.coins_gained,
+    v_reward.new_xp, v_reward.new_coins, v_reward.new_level, v_reward.newly_unlocked,
+    v_score;
+END;
+$$;
+
 ALTER TABLE public.ranked_queue ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ranked_matches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ranked_answers ENABLE ROW LEVEL SECURITY;
@@ -1474,6 +2062,7 @@ ALTER TABLE public.daily_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.daily_answers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.game_reward_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.guest_game_identities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.survival_attempts ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS daily_scores_insert ON public.daily_scores;
 DROP POLICY IF EXISTS daily_scores_update ON public.daily_scores;
@@ -1482,20 +2071,31 @@ DROP POLICY IF EXISTS ranked_matches_read ON public.ranked_matches;
 CREATE POLICY ranked_queue_read ON public.ranked_queue FOR SELECT USING (true);
 CREATE POLICY ranked_matches_read ON public.ranked_matches FOR SELECT USING (true);
 REVOKE INSERT, UPDATE, DELETE ON public.daily_scores FROM PUBLIC, anon, authenticated;
+REVOKE INSERT, UPDATE, DELETE ON public.scores FROM PUBLIC, anon, authenticated;
+REVOKE INSERT, UPDATE, DELETE ON public.challenges FROM PUBLIC, anon, authenticated;
 REVOKE INSERT, UPDATE, DELETE ON public.ranked_queue FROM PUBLIC, anon, authenticated;
 REVOKE INSERT, UPDATE, DELETE ON public.ranked_matches FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON public.ranked_answers, public.ranked_active_players,
   public.daily_attempts, public.daily_answers,
-  public.game_reward_events, public.guest_game_identities FROM PUBLIC, anon, authenticated;
+  public.game_reward_events, public.guest_game_identities,
+  public.survival_attempts FROM PUBLIC, anon, authenticated;
 
 REVOKE ALL ON FUNCTION public.assert_game_user(text,text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.apply_game_reward(text,text,int,int,int,boolean,int,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.apply_game_reward_v2(text,text,int,int,int,boolean,int,text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.enter_ranked_queue(text,text,jsonb,text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.cancel_ranked_queue(text,text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.start_or_advance_ranked_match(uuid,text,int,text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.submit_ranked_answer(uuid,text,int,int,text,text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.start_daily_attempt(text,text,text,text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.submit_daily_answer(uuid,text,int,int,text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.apply_game_engagement(text,boolean,int,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.settle_challenge_game(uuid,text,text,int,int,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.create_challenge_game(uuid,text,text,text,int,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.submit_challenge_game_result(uuid,text,text,text,jsonb,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.delete_challenge_game(uuid,text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.start_survival_attempt(text,text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.settle_survival_game(uuid,text,text,jsonb,text) FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION public.enter_ranked_queue(text,text,jsonb,text) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.cancel_ranked_queue(text,text) TO anon, authenticated;
@@ -1503,3 +2103,9 @@ GRANT EXECUTE ON FUNCTION public.start_or_advance_ranked_match(uuid,text,int,tex
 GRANT EXECUTE ON FUNCTION public.submit_ranked_answer(uuid,text,int,int,text,text) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.start_daily_attempt(text,text,text,text) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.submit_daily_answer(uuid,text,int,int,text,text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.settle_challenge_game(uuid,text,text,int,int,text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.create_challenge_game(uuid,text,text,text,int,text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.submit_challenge_game_result(uuid,text,text,text,jsonb,text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.delete_challenge_game(uuid,text,text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.start_survival_attempt(text,text,text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.settle_survival_game(uuid,text,text,jsonb,text) TO anon, authenticated;
