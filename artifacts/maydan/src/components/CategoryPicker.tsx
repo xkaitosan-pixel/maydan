@@ -104,7 +104,7 @@ export default function CategoryPicker({
               !isPremium &&
               (!!navParent.isPremium || navParent.children.some((child) => !!child.isPremium))
             }
-            isUnavailable={(navParent.questionCount ?? 0) === 0}
+            isUnavailable={navParent.questionCount === 0}
             questionCount={navParent.questionCount ?? 50}
             onClick={() => {
               if (
@@ -123,7 +123,7 @@ export default function CategoryPicker({
           // A mixed-entitlement parent remains navigable so free children are reachable.
           // Only the aggregate "All" card above includes every child and inherits their lock.
           const isLocked = !isPremium && !!cat.isPremium;
-          const isUnavailable = !hasChildren && cat.id !== "mix" && (cat.questionCount ?? 0) === 0;
+          const isUnavailable = !hasChildren && cat.id !== "mix" && cat.questionCount === 0;
           const isSelected = multiSelect && selectedIds.includes(cat.id);
           
           return (
@@ -133,7 +133,7 @@ export default function CategoryPicker({
                 isSelected={isSelected}
                 isLocked={isLocked}
                 isUnavailable={isUnavailable}
-                questionCount={cat.id === "mix" ? 225 : (cat.questionCount ?? 0)}
+                questionCount={cat.id === "mix" ? 225 : (cat.questionCount ?? 15)}
                 onClick={() => {
                   if (isLocked || isUnavailable) return;
                   if (hasChildren) {

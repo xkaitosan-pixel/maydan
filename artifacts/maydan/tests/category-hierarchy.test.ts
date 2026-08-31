@@ -49,6 +49,13 @@ describe("category hierarchy helpers", () => {
     );
   });
 
+  it("keeps categories playable when live counts are unavailable", () => {
+    const tree = buildCategoryTree(categories);
+    const withoutCounts = applyQuestionCountsToTree(tree, null);
+    expect(withoutCounts.find((category) => category.id === "sports")?.questionCount).toBeUndefined();
+    expect(withoutCounts.find((category) => category.id === "sports")?.children[0].questionCount).toBeUndefined();
+  });
+
   it("locks a parent all-selection when any included child is premium", () => {
     const withPremiumChild: FlatCategory[] = [
       ...categories,
