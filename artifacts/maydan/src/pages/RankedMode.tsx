@@ -98,7 +98,10 @@ export default function RankedMode() {
   const localUser = getOrCreateUser();
 
   const myId = dbUser?.id ?? (localUser.userId ? `guest_${localUser.userId}` : "");
-  const myName = dbUser?.username ?? localUser.displayName ?? "لاعب";
+  const myName =
+    [dbUser?.username, localUser.displayName]
+      .find((name) => name?.trim())
+      ?.trim() ?? "لاعب";
   const [myPoints, setMyPoints] = useState(0);
 
   const [phase, setPhase] = useState<Phase>("select_cats");

@@ -98,7 +98,10 @@ export default function DailyChallenge() {
   const guestIdRef = useRef<string | null>(null);
   if (isGuest && !guestIdRef.current) guestIdRef.current = getStableGuestId(localStorage);
   const userId = dbUser?.id ?? (isGuest ? `guest_${guestIdRef.current}` : null);
-  const displayName = dbUser?.display_name ?? dbUser?.username ?? googleDisplayName ?? "زائر";
+  const displayName =
+    [dbUser?.display_name, dbUser?.username, googleDisplayName]
+      .find((name) => name?.trim())
+      ?.trim() ?? "زائر";
   const country = dbUser?.country ?? "";
   const answerStorageKey = `maydan_daily_answers_${today}_${userId ?? "anonymous"}`;
 

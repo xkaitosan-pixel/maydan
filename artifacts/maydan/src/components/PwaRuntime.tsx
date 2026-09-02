@@ -1,23 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { hapticTap } from "@/lib/haptics";
-import {
-  flushOfflineActions,
-  getPendingOfflineActionCount,
-  OFFLINE_QUEUE_EVENT,
-} from "@/lib/offlineQueue";
 
 const PROTECTED_GAME_PATHS = ["/quiz", "/survival", "/ranked", "/party/", "/daily", "/training"];
 
 export default function PwaRuntime() {
   const [location] = useLocation();
   const [online, setOnline] = useState(() => navigator.onLine);
-  const [pending, setPending] = useState(getPendingOfflineActionCount);
   const [reconnected, setReconnected] = useState(false);
   const wasOffline = useRef(!navigator.onLine);
 
   useEffect(() => {
-    const updateQueue = () => setPending(getPendingOfflineActionCount());
     const handleOffline = () => {
       wasOffline.current = true;
       setOnline(false);
@@ -27,16 +20,12 @@ export default function PwaRuntime() {
       setOnline(true);
       if (wasOffline.current) setReconnected(true);
       wasOffline.current = false;
-      void flushOfflineActions().then(updateQueue);
     };
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
-    window.addEventListener(OFFLINE_QUEUE_EVENT, updateQueue);
-    if (navigator.onLine) void flushOfflineActions().then(updateQueue);
     return () => {
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
-      window.removeEventListener(OFFLINE_QUEUE_EVENT, updateQueue);
     };
   }, []);
 
@@ -79,7 +68,7 @@ export default function PwaRuntime() {
     return () => window.removeEventListener("beforeunload", guard);
   }, [location]);
 
-  if (online && !reconnected && pending === 0) return null;
+  if (online && !reconnected) return null;
 
   return (
     <div
@@ -90,10 +79,8 @@ export default function PwaRuntime() {
       <span className="pwa-network-dot" />
       <span>
         {!online
-          ? `أنت غير متصل${pending ? ` · ${pending} بانتظار المزامنة` : ""}`
-          : pending
-            ? `عاد الاتصال · جارٍ مزامنة ${pending}`
-            : "عاد الاتصال وتمت المزامنة"}
+          ? "أنت غير متصل"
+          : "عاد الاتصال وتمت المزامنة"}
       </span>
     </div>
   );

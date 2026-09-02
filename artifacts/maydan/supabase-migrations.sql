@@ -912,6 +912,97 @@ CREATE TABLE IF NOT EXISTS public.guest_game_identities (
 ALTER TABLE public.daily_attempts
   ADD COLUMN IF NOT EXISTS question_ids jsonb NOT NULL DEFAULT '[]'::jsonb;
 
+-- Older dashboard-created game tables used uuid user identifiers.  The
+-- authoritative game contract accepts both registered ids and guest ids
+-- (guest_<stable-id>), so normalize legacy user-id columns to text before
+-- compiling/running the RPCs below.  Existing UUID values are preserved as
+-- their canonical text representation.
+DO $$
+DECLARE
+  v_type text;
+BEGIN
+  SELECT udt_name INTO v_type
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name = 'ranked_queue'
+    AND column_name = 'user_id';
+  IF v_type IS NOT NULL AND v_type <> 'text' THEN
+    ALTER TABLE public.ranked_queue
+      ALTER COLUMN user_id TYPE text USING user_id::text;
+  END IF;
+
+  SELECT udt_name INTO v_type
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name = 'ranked_matches'
+    AND column_name = 'player1_id';
+  IF v_type IS NOT NULL AND v_type <> 'text' THEN
+    ALTER TABLE public.ranked_matches
+      ALTER COLUMN player1_id TYPE text USING player1_id::text;
+  END IF;
+
+  SELECT udt_name INTO v_type
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name = 'ranked_matches'
+    AND column_name = 'player2_id';
+  IF v_type IS NOT NULL AND v_type <> 'text' THEN
+    ALTER TABLE public.ranked_matches
+      ALTER COLUMN player2_id TYPE text USING player2_id::text;
+  END IF;
+
+  SELECT udt_name INTO v_type
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name = 'ranked_matches'
+    AND column_name = 'winner_id';
+  IF v_type IS NOT NULL AND v_type <> 'text' THEN
+    ALTER TABLE public.ranked_matches
+      ALTER COLUMN winner_id TYPE text USING winner_id::text;
+  END IF;
+
+  SELECT udt_name INTO v_type
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name = 'ranked_answers'
+    AND column_name = 'user_id';
+  IF v_type IS NOT NULL AND v_type <> 'text' THEN
+    ALTER TABLE public.ranked_answers
+      ALTER COLUMN user_id TYPE text USING user_id::text;
+  END IF;
+
+  SELECT udt_name INTO v_type
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name = 'ranked_active_players'
+    AND column_name = 'user_id';
+  IF v_type IS NOT NULL AND v_type <> 'text' THEN
+    ALTER TABLE public.ranked_active_players
+      ALTER COLUMN user_id TYPE text USING user_id::text;
+  END IF;
+
+  SELECT udt_name INTO v_type
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name = 'daily_attempts'
+    AND column_name = 'user_id';
+  IF v_type IS NOT NULL AND v_type <> 'text' THEN
+    ALTER TABLE public.daily_attempts
+      ALTER COLUMN user_id TYPE text USING user_id::text;
+  END IF;
+
+  SELECT udt_name INTO v_type
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name = 'game_reward_events'
+    AND column_name = 'user_id';
+  IF v_type IS NOT NULL AND v_type <> 'text' THEN
+    ALTER TABLE public.game_reward_events
+      ALTER COLUMN user_id TYPE text USING user_id::text;
+  END IF;
+END;
+$$;
+
 -- Active records from the pre-authoritative client cannot be trusted because
 -- they have no immutable server-selected question set.
 UPDATE public.ranked_matches
@@ -933,7 +1024,8 @@ BEGIN
   END IF;
   IF auth.uid() IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM public.users AS u
-    WHERE u.id::text = p_user_id AND u.auth_id = auth.uid()
+    WHERE u.id::text = p_user_id
+      AND u.auth_id::text = auth.uid()::text
   ) THEN
     RAISE EXCEPTION 'Game user does not belong to caller';
   END IF;
@@ -1376,7 +1468,7 @@ BEGIN
       CASE WHEN v_winner = v_match.player1_id THEN 30 ELSE 0 END,
       CASE WHEN v_winner = v_match.player1_id THEN 20 WHEN v_winner IS NULL THEN 5 ELSE 0 END,
       CASE WHEN v_winner IS NULL THEN NULL ELSE v_winner = v_match.player1_id END,
-      (SELECT count(*) FROM public.ranked_answers WHERE match_id = p_match_id
+      (SELECT count(*)::int FROM public.ranked_answers WHERE match_id = p_match_id
         AND user_id = v_match.player1_id AND correct),
       'ranked'
     );
@@ -1386,7 +1478,7 @@ BEGIN
       CASE WHEN v_winner = v_match.player2_id THEN 30 ELSE 0 END,
       CASE WHEN v_winner = v_match.player2_id THEN 20 WHEN v_winner IS NULL THEN 5 ELSE 0 END,
       CASE WHEN v_winner IS NULL THEN NULL ELSE v_winner = v_match.player2_id END,
-      (SELECT count(*) FROM public.ranked_answers WHERE match_id = p_match_id
+      (SELECT count(*)::int FROM public.ranked_answers WHERE match_id = p_match_id
         AND user_id = v_match.player2_id AND correct),
       'ranked'
     );
@@ -1573,7 +1665,7 @@ BEGIN
         user_id, display_name, country, score, total, date, completed_at
       ) VALUES (
         p_user_id, v_attempt.display_name, v_attempt.country, v_attempt.score,
-        10, v_attempt.challenge_date::text, v_attempt.completed_at
+        10, v_attempt.challenge_date, v_attempt.completed_at
       ) ON CONFLICT (user_id, date) DO NOTHING;
       PERFORM public.apply_game_reward(
         p_user_id, 'daily:' || v_attempt.challenge_date::text,

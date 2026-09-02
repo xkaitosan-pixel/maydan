@@ -54,6 +54,7 @@ describe("server-authoritative Ranked and Daily contracts", () => {
     const body = functionBody("start_or_advance_ranked_match");
     expect(body).toContain("settled_at IS NULL");
     expect(body.match(/apply_game_reward/g)).toHaveLength(2);
+    expect(body.match(/count\(\*\)::int/g)).toHaveLength(2);
     expect(body).toContain("rank_points = greatest(0");
     expect(body).toContain("DELETE FROM public.ranked_active_players");
   });
@@ -66,6 +67,8 @@ describe("server-authoritative Ranked and Daily contracts", () => {
     expect(submit).toContain("FOR UPDATE");
     expect(submit).toContain("ON CONFLICT DO NOTHING");
     expect(submit).toContain("ON CONFLICT (user_id, date) DO NOTHING");
+    expect(submit).toContain("10, v_attempt.challenge_date, v_attempt.completed_at");
+    expect(submit).not.toContain("10, v_attempt.challenge_date::text");
     expect(submit).toContain("(v_attempt.question_ids->>p_question_index)::int IS DISTINCT FROM p_question_id");
   });
 
@@ -79,7 +82,7 @@ describe("server-authoritative Ranked and Daily contracts", () => {
 
   it("removes direct client writes and binds registered users to auth.uid", () => {
     const identity = functionBody("assert_game_user");
-    expect(identity).toContain("u.auth_id = auth.uid()");
+    expect(identity).toContain("u.auth_id::text = auth.uid()::text");
     expect(identity).toContain("token_hash = extensions.digest(p_guest_token, 'sha256')");
     expect(migration).toContain(
       "REVOKE INSERT, UPDATE, DELETE ON public.daily_scores FROM PUBLIC, anon, authenticated",
