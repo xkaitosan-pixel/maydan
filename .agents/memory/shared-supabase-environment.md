@@ -1,10 +1,10 @@
 ---
 name: Shared Supabase environment
-description: The operational constraint that Maydan development and production currently share one Supabase database.
+description: The deliberate current decision to use one Supabase project for Maydan development and production.
 ---
 
-Maydan development and production currently use the same Supabase database. Treat development database migrations and real-data verification as production operations.
+Maydan intentionally uses the same Supabase project for development and production for now. Do not split the environments or request a second project unless the owner revisits this decision.
 
-**Why:** The project owner confirmed the environment is shared while completing the Ranked and Daily database restoration. Assuming isolation would risk changing live data during future testing.
+**Why:** The project owner prefers the simplicity of one project at the current app size and will consider a separate testing project later.
 
-**How to apply:** Use non-destructive, uniquely identified test records; avoid cleanup that could touch unrelated rows; and obtain explicit confirmation before broad schema or data changes.
+**How to apply:** Treat migrations and real browser verification as production operations. Keep automated browser tests on placeholders, use non-destructive uniquely identified records when live verification is unavoidable, and avoid broad cleanup.

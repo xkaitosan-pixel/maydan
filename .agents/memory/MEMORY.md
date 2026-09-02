@@ -5,4 +5,4 @@
 - [Party timing authority](party-timing-authority.md) — Party deadlines and speed points require DB timestamps plus capability-bound writes; never trust guest time or host observation time.
 - [Multiplayer browser fixtures](multiplayer-browser-fixtures.md) — dual-session mocks must reproduce authorization, timing, idempotency, scoring, and retention—not only happy-path state.
 - [Authoritative competitive attempts](authoritative-competitive-attempts.md) — persist server-selected question sets and bind guest writes to capabilities; public IDs alone never authorize scoring.
-- [Shared Supabase environment](shared-supabase-environment.md) — Maydan development and production currently use the same database; live verification affects production data.
+- [Shared Supabase environment](shared-supabase-environment.md) — one Supabase project is intentional for now; live verification still affects production data.

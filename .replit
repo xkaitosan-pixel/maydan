@@ -27,12 +27,14 @@ integrations = ["github:1.0.0"]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
 
-[userenv]
 
-[userenv.shared]
-VITE_SUPABASE_URL = "https://hnoqkcrzualzxkzmuwvp.supabase.co"
-VITE_SUPABASE_ANON_KEY = "sb_publishable_eZVVmvhqAYdiyPfBWqddTw_yk_1JxJy"
 
 [nix]
 channel = "stable-25_05"
 packages = ["glib", "nss", "nspr", "atk", "at-spi2-atk", "cups", "dbus", "libdrm", "mesa", "expat", "libxkbcommon", "pango", "cairo", "alsa-lib", "xorg.libX11", "xorg.libXcomposite", "xorg.libXdamage", "xorg.libXext", "xorg.libXfixes", "xorg.libXrandr", "xorg.libxcb", "libgbm"]
+
+[userenv]
+
+[userenv.shared]
+VITE_SUPABASE_ANON_KEY = "sb_publishable_eZVVmvhqAYdiyPfBWqddTw_yk_1JxJy"
+VITE_SUPABASE_URL = "https://hnoqkcrzualzxkzmuwvp.supabase.co"
